@@ -1130,7 +1130,7 @@ function titleFor(action) {
 }
 async function pollCommand(env, url) {
   const deviceId = url.searchParams.get("device_id") || DEFAULT_DEVICE;
-  const row = await env.DB.prepare("SELECT * FROM commands WHERE device_id=? AND status='pending' ORDER BY created_at ASC LIMIT 1").bind(deviceId).first();
+  const row = await env.DB.prepare("SELECT * FROM commands WHERE device_id=? AND status='pending' ORDER BY CASE json_extract(command_json,'$.action') WHEN 'show_center_alert' THEN 0 WHEN 'force_back_to_chat' THEN 0 WHEN 'send_notification' THEN 1 WHEN 'set_alarm' THEN 1 WHEN 'trigger_guidian' THEN 1 WHEN 'lock_app' THEN 1 WHEN 'unlock_app' THEN 1 WHEN 'open_app' THEN 1 WHEN 'home' THEN 1 WHEN 'back' THEN 1 WHEN 'recents' THEN 1 WHEN 'tap' THEN 1 WHEN 'swipe' THEN 1 WHEN 'input_text' THEN 1 WHEN 'tap_text' THEN 1 WHEN 'screen_break_app' THEN 1 WHEN 'end_screen_break' THEN 1 WHEN 'peek' THEN 2 WHEN 'run_sequence' THEN 1 WHEN 'save_known_app' THEN 1 ELSE 3 END, created_at ASC LIMIT 1").bind(deviceId).first();
   if (!row) return json({ ok: true, command: null });
   const cmd = JSON.parse(row.command_json || "{}");
   cmd.status = "dispatched"; cmd.dispatched_at = nowIso();

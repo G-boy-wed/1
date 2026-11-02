@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- App 内「管束策略」设置页：把巡回周期、安静时段、单 App 锁阈值、
+     豁免应用、弹窗语气等全部交给用户自己设定，保存后立即生效。 -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FFF7F4F2">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="管束策略" android:textStyle="bold" android:textSize="18sp" android:textColor="#FF2D3E39" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="这里所有的周期、时间与规则都由你自己定；保存后立即生效，没有任何强制默认值。"
+            android:textSize="11sp" android:textColor="#FF6E6282" android:layout_marginTop="6dp" android:lineSpacingExtra="3dp" />
+
+        <CheckBox android:id="@+id/policyEnabled"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="开启巡回查岗" android:textSize="13sp" android:layout_marginTop="14dp" android:textColor="#FF2D3E39" />
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="查岗周期（分钟）" android:textSize="11sp" android:textColor="#FF8B7D99" android:layout_marginTop="12dp" />
+        <EditText android:id="@+id/policyCheckInInput" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:hint="15" android:inputType="number" android:textSize="13sp" android:singleLine="true" />
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="强制拉回周期（分钟，0 = 不自动拉回）" android:textSize="11sp" android:textColor="#FF8B7D99" android:layout_marginTop="10dp" />
+        <EditText android:id="@+id/policyForceBackInput" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:hint="30" android:inputType="number" android:textSize="13sp" android:singleLine="true" />
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="冷却时间（分钟，同类动作最短间隔）" android:textSize="11sp" android:textColor="#FF8B7D99" android:layout_marginTop="10dp" />
+        <EditText android:id="@+id/policyCooldownInput" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:hint="5" android:inputType="number" android:textSize="13sp" android:singleLine="true" />
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="安静时段（这段时间不打扰）" android:textSize="11sp" android:textColor="#FF8B7D99" android:layout_marginTop="14dp" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+            <EditText android:id="@+id/policyQuietStart" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:hint="开始 23:00" android:textSize="13sp" android:singleLine="true" android:layout_marginEnd="6dp" />
+            <EditText android:id="@+id/policyQuietEnd" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:hint="结束 08:00" android:textSize="13sp" android:singleLine="true" />
+        </LinearLayout>
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="留空 = 不限制；填 none = 明确关闭安静时段。" android:textSize="10sp" android:textColor="#FF8B7D99" android:layout_marginTop="4dp" />
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="深夜时段（用于情绪感知判断）" android:textSize="11sp" android:textColor="#FF8B7D99" android:layout_marginTop="12dp" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+            <EditText android:id="@+id/policyNightStart" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:hint="开始 23:00" android:textSize="13sp" android:singleLine="true" android:layout_marginEnd="6dp" />
+            <EditText android:id="@+id/policyNightEnd" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:hint="结束 06:00" android:textSize="13sp" android:singleLine="true" />
+        </LinearLayout>
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="单个 App 连续使用超过（分钟）即锁定；0 = 不锁定" android:textSize="11sp" android:textColor="#FF8B7D99" android:layout_marginTop="12dp" />
+        <EditText android:id="@+id/policyLockMinutes" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:hint="0" android:inputType="number" android:textSize="13sp" android:singleLine="true" />
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="锁定时长（分钟）" android:textSize="11sp" android:textColor="#FF8B7D99" android:layout_marginTop="10dp" />
+        <EditText android:id="@+id/policyLockDuration" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:hint="5" android:inputType="number" android:textSize="13sp" android:singleLine="true" />
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="豁免应用包名（逗号分隔；这些 App 前台时不锁定、不强制拉回）" android:textSize="11sp" android:textColor="#FF8B7D99" android:layout_marginTop="12dp" />
+        <EditText android:id="@+id/policyExemptPackages" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:hint="例如 com.reader.app, com.notes.app" android:textSize="12sp" android:inputType="text" />
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="居中弹窗语气" android:textSize="11sp" android:textColor="#FF8B7D99" android:layout_marginTop="12dp" />
+        <RadioGroup android:id="@+id/policyToneGroup" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+            <RadioButton android:id="@+id/policyToneGentle" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="温柔" android:textSize="13sp" android:checked="true" />
+            <RadioButton android:id="@+id/policyToneAngry" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="生气" android:textSize="13sp" android:layout_marginStart="18dp" />
+        </RadioGroup>
+
+        <Button android:id="@+id/policySaveButton" android:layout_width="match_parent" android:layout_height="40dp"
+            android:text="保存并生效" android:textSize="13sp" android:textColor="#FFFFFFFF" android:background="@drawable/pill_primary" android:layout_marginTop="18dp" />
+        <Button android:id="@+id/policyCheckNowButton" android:layout_width="match_parent" android:layout_height="36dp"
+            android:text="立刻查岗一次" android:textSize="12sp" android:background="@drawable/pill_soft" android:layout_marginTop="8dp" />
+        <Button android:id="@+id/policyTestAlertButton" android:layout_width="match_parent" android:layout_height="36dp"
+            android:text="试一下居中弹窗" android:textSize="12sp" android:background="@drawable/pill_soft" android:layout_marginTop="8dp" />
+
+        <TextView android:id="@+id/policyStatusText" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="" android:textSize="11sp" android:textColor="#FF6E6282" android:layout_marginTop="12dp" android:lineSpacingExtra="3dp" />
+    </LinearLayout>
+</ScrollView>

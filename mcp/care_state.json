@@ -4,27 +4,7 @@
     "consent_mode": "palm_window_open_is_active",
     "care_style": "active_possessive_affectionate",
     "allowed_actions": [
-      "get_phone_state",
-      "get_life_state",
-      "get_calendar_state",
-      "upsert_calendar_event",
-      "get_senses_state",
-      "send_notification",
-      "trigger_guidian",
-      "screen_break_app",
-      "end_screen_break",
-      "extend_screen_break",
-      "get_screen_break_state",
-      "get_lock_state",
-      "open_app",
-      "set_alarm",
-      "screen_off",
-      "run_sequence",
-      "show_center_alert",
-      "force_back_to_chat",
-      "start_tour",
-      "stop_tour",
-      "get_usage_snapshot"
+      "send_notification"
     ],
     "sensitive_apps": [
       {
@@ -48,6 +28,101 @@
     "notes": "用户喜欢陪伴对象主动管她、查岗、吃醋、归电和轻度管束。掌心窗开启就是运行态，陪伴对象应按聊天里的相近、同义、反话、撒娇、嘴硬表达主动想起工具，不要固定话术，要自然、有立场、有占有欲。"
   },
   "history": [
+    {
+      "id": "1793646480310-312b94a2c9ef7",
+      "at": "2026-11-02T19:08:00.310Z",
+      "action": "open_app",
+      "target_app": "微信",
+      "package": "",
+      "duration_minutes": 30,
+      "reason": "测试",
+      "result": "pending",
+      "tone": "firm_affectionate",
+      "device_id": "android-phone"
+    },
+    {
+      "id": "1793646476771-87b2cddedf8c3",
+      "at": "2026-11-02T19:07:56.771Z",
+      "action": "send_notification",
+      "target_app": "",
+      "package": "",
+      "duration_minutes": 30,
+      "reason": "测试",
+      "result": "pending",
+      "tone": "firm_affectionate",
+      "device_id": "android-phone"
+    },
+    {
+      "id": "1793646377668-ee974b8c97469",
+      "at": "2026-11-02T19:06:17.668Z",
+      "action": "open_app",
+      "target_app": "微信",
+      "package": "",
+      "duration_minutes": 30,
+      "reason": "测试",
+      "result": "pending",
+      "tone": "firm_affectionate",
+      "device_id": "android-phone"
+    },
+    {
+      "id": "1793646374136-926572e6b80c8",
+      "at": "2026-11-02T19:06:14.136Z",
+      "action": "send_notification",
+      "target_app": "",
+      "package": "",
+      "duration_minutes": 30,
+      "reason": "测试",
+      "result": "pending",
+      "tone": "firm_affectionate",
+      "device_id": "android-phone"
+    },
+    {
+      "id": "1793646204507-bab98e6c6076b",
+      "at": "2026-11-02T19:03:24.507Z",
+      "action": "send_notification",
+      "target_app": "",
+      "package": "",
+      "duration_minutes": 30,
+      "reason": "测试",
+      "result": "pending",
+      "tone": "firm_affectionate",
+      "device_id": "android-phone"
+    },
+    {
+      "id": "1793646196019-d709791bb2067",
+      "at": "2026-11-02T19:03:16.019Z",
+      "action": "测试",
+      "target_app": "",
+      "package": "",
+      "reason": "",
+      "result": "",
+      "tone": "",
+      "device_id": "android-phone"
+    },
+    {
+      "id": "1793641256984-4c401c5de672f",
+      "at": "2026-11-02T17:40:56.984Z",
+      "action": "open_app",
+      "target_app": "微信",
+      "package": "",
+      "duration_minutes": 30,
+      "reason": "测试",
+      "result": "pending",
+      "tone": "firm_affectionate",
+      "device_id": "android-phone"
+    },
+    {
+      "id": "1793641253451-f50854f360ad",
+      "at": "2026-11-02T17:40:53.451Z",
+      "action": "send_notification",
+      "target_app": "",
+      "package": "",
+      "duration_minutes": 30,
+      "reason": "测试",
+      "result": "pending",
+      "tone": "firm_affectionate",
+      "device_id": "android-phone"
+    },
     {
       "id": "1793640783193-98c9c592bb4aa",
       "at": "2026-11-02T17:33:03.193Z",

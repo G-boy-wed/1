@@ -1753,17 +1753,21 @@ function makeServer() {
     check_in_interval_minutes: z.number().int().min(1).max(1440).optional(),
     force_back_interval_minutes: z.number().int().min(1).max(1440).optional(),
     cooldown_minutes: z.number().int().min(0).max(240).optional(),
-    quiet_start: z.string().optional().describe("安静时段开始 HH:MM，如 23:30"),
-    quiet_end: z.string().optional().describe("安静时段结束 HH:MM，如 08:00"),
+    quiet_start: z.string().optional().describe("安静时段开始 HH:MM，如 23:30；填 none 表示不限制"),
+    quiet_end: z.string().optional().describe("安静时段结束 HH:MM，如 08:00；填 none 表示不限制"),
+    night_start: z.string().optional().describe("深夜时段开始 HH:MM，如 23:00（用于情绪感知判断）"),
+    night_end: z.string().optional().describe("深夜时段结束 HH:MM，如 06:00"),
     single_app_lock_minutes: z.number().int().min(10).max(600).optional().describe("单 App 连续使用超过该分钟数即锁定（0 或不填=不锁定，由用户决定）"),
     single_app_lock_duration_minutes: z.number().int().min(1).max(120).optional().describe("锁定持续分钟数"),
     alert_tone: z.enum(["gentle", "angry"]).optional().describe("弹窗语气：温柔 / 生气"),
     exempt_packages: z.array(z.string()).optional().describe("不锁定/不限制的 App 包名列表（如学习、工作类应用）"),
     device_id: z.string().default(DEFAULT_DEVICE)
   }, async (args) => {
-    const { device_id = DEFAULT_DEVICE, quiet_start, quiet_end, ...rest } = args;
+    const { device_id = DEFAULT_DEVICE, quiet_start, quiet_end, night_start, night_end, ...rest } = args;
     const payload = { ...rest };
-    if (quiet_start || quiet_end) payload.quiet_hours = { start: quiet_start || "23:30", end: quiet_end || "08:00" };
+    if (quiet_start === "none" || quiet_end === "none") payload.quiet_hours = null;
+    else if (quiet_start || quiet_end) payload.quiet_hours = { start: quiet_start || "23:00", end: quiet_end || "08:00" };
+    if (night_start || night_end) payload.night_hours = { start: night_start || "23:00", end: night_end || "06:00" };
     const res = await linjianFetch("/api/tour/schedule", { method: "POST", timeout_ms: COMMAND_QUEUE_TIMEOUT_MS, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
     return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
   });

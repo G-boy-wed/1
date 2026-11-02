@@ -40,6 +40,29 @@ ERR_BAD_METHOD = "LINJIAN_ERR_BAD_METHOD"
 # 超过该秒数就重置为 pending 重新下发，避免“显示已连接却不再取命令”。
 COMMAND_STUCK_SECONDS = int(os.environ.get("LINJIAN_COMMAND_STUCK_SECONDS", "30"))
 
+# 命令下发优先级：交互打断类最优先，其次用户操作类，再次状态采集类。
+# 避免巡查看岗命令把「居中弹窗 / 强制拉回」这类需要立刻到达的手机命令挤在队列后面。
+COMMAND_PRIORITY_INTERACTIVE = {"show_center_alert", "force_back_to_chat"}
+COMMAND_PRIORITY_USER = {
+    "send_notification", "set_alarm", "trigger_guidian", "mark_guidian_returned",
+    "lock_app", "unlock_app", "temporary_unlock_app", "extend_lock",
+    "screen_break_app", "end_screen_break", "extend_screen_break",
+    "open_app", "home", "back", "recents", "tap", "swipe",
+    "input_text", "tap_text", "run_sequence", "save_known_app",
+}
+COMMAND_PRIORITY_STATE = {
+    "peek", "get_screen_nodes", "get_life_state", "get_screen_break_state",
+    "get_lock_state", "get_focus_status", "get_guidian_state",
+}
+
+
+def command_priority(action: str) -> int:
+    a = str(action or "").strip().lower()
+    if a in COMMAND_PRIORITY_INTERACTIVE: return 0
+    if a in COMMAND_PRIORITY_USER: return 1
+    if a in COMMAND_PRIORITY_STATE: return 2
+    return 3
+
 KNOWN_APPS = {
     "小红书": "com.xingin.xhs", "xhs": "com.xingin.xhs", "xiaohongshu": "com.xingin.xhs",
     "微信": "com.tencent.mm", "wechat": "com.tencent.mm",
@@ -314,7 +337,11 @@ def make_command(device_id: str, action: str, app: str = "", package: str = "", 
         "completed_at": None,
         "result": "",
     }
-    cmd.update(payload)
+    # payload 字段平铺到顶层，方便 App 端直接读取 tone/title/message 等；
+    # 已有键（id/device_id/action/status 等）不允许被 payload 覆盖，避免污染命令本身。
+    for k, v in payload.items():
+        if k not in cmd:
+            cmd[k] = v
     return cmd
 
 
@@ -410,7 +437,16 @@ class Handler(BaseHTTPRequestHandler):
                             c["status"] = "pending"
                             c.pop("dispatched_at", None)
                             self.state.commands.append(c)
-                idx = next((i for i, c in enumerate(self.state.commands) if c.get("device_id") == device_id and c.get("status") == "pending"), None)
+                # 取命令时按优先级挑选：交互类（居中弹窗/强制拉回）优先于查岗类，
+                # 同优先级内保持先进先出。
+                idx = None
+                best_key = None
+                for i, c in enumerate(self.state.commands):
+                    if c.get("device_id") != device_id or c.get("status") != "pending": continue
+                    key = (command_priority(c.get("action")), i)
+                    if best_key is None or key < best_key:
+                        best_key = key
+                        idx = i
                 if idx is None:
                     self._json(200, {"ok": True, "command": None}); return
                 cmd = self.state.commands.pop(idx)
@@ -577,6 +613,10 @@ class Handler(BaseHTTPRequestHandler):
             elif isinstance(qh, dict):
                 sched["quiet_hours"] = {"start": str(qh.get("start", "23:00")),
                                         "end": str(qh.get("end", "08:00"))}
+            nh = data.get("night_hours")
+            if isinstance(nh, dict):
+                sched["night_hours"] = {"start": str(nh.get("start", "23:00")),
+                                        "end": str(nh.get("end", "06:00"))}
             apps = data.get("exempt_packages")
             if isinstance(apps, list):
                 sched["exempt_packages"] = [str(a) for a in apps if a]

@@ -7,6 +7,16 @@
   },
   "visits": [
     {
+      "id": "1793646196034-5b808a79814a5",
+      "at": "2026-11-02T19:03:16.034Z",
+      "source": "app",
+      "event": "visit",
+      "note": "用户来找陪伴对象",
+      "mood": "",
+      "conversation_hint": "",
+      "timezone_offset": "+08:00"
+    },
+    {
       "id": "1793640774716-1b844ed899318",
       "at": "2026-11-02T17:32:54.716Z",
       "source": "app",

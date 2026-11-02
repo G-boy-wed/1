@@ -99,13 +99,21 @@
             android:turnScreenOn="true"
             android:theme="@android:style/Theme.Material.Light.NoActionBar" />
 
-        <!-- 屏幕居中弹窗：用独立 Activity 把卡片固定在屏幕正中央，可覆盖在其他 App 之上。 -->
+        <!-- 屏幕居中弹窗：用独立 Activity 把卡片固定在屏幕正中央，可覆盖在其他 App 之上。
+             主题必须是透明窗口，否则会变成一整页盖住下层 App。 -->
         <activity
             android:name=".AlertCenterActivity"
             android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleTop"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.PeerAlert" />
+
+        <!-- App 内「管束策略」设置页：让用户自己设定巡回周期、安静时段、单 App 锁阈值等。 -->
+        <activity
+            android:name=".PolicySettingsActivity"
+            android:exported="false"
+            android:label="管束策略"
+            android:theme="@style/Theme.PeerPolicySettings" />
 
         <service
             android:name=".CompanionService"
