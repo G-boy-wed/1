@@ -14,6 +14,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# MCP 运行时状态（本地生成，不应进仓库）
+mcp/care_state.json
+mcp/visit_state.json
+
 # Android / Gradle
 .gradle/
 android/.gradle/
