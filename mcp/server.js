@@ -180,7 +180,9 @@ const COMPANION_ACTION_META = {
   end_screen_break: ["守护", "结束屏幕休息", "恢复应用使用"],
   run_sequence: ["操作", "完成组合行动", "按顺序完成了一组手机动作"],
   show_center_alert: ["守护", "屏幕居中弹窗", "在用户手机中央弹出一句关心"],
-  force_back_to_chat: ["守护", "强制拉回聊天", "把用户拉回掌心窗陪伴页"]
+  force_back_to_chat: ["守护", "分级拉回弹窗", "把用户拉回掌心窗陪伴页"],
+  write_companion_emotion: ["陪伴", "写入自己的情绪", "把此刻的心情记了下来"],
+  get_companion_emotion: ["观察", "查看自己的情绪", "确认现在的心情与想她程度"]
 };
 
 async function postCompanionAction(toolName, overrides = {}) {
@@ -1589,7 +1591,8 @@ function makeServer() {
     quiet_start: z.string().optional(),
     quiet_end: z.string().optional(),
     fullscreen: z.boolean().optional(),
-    theme: z.string().optional().describe("暮夜蓝紫 / 云海青灰 / 落日莓雾"),
+    theme: z.string().optional().describe("暮夜蓝紫 / 云海青灰 / 落日莓雾（拉回弹窗与居中弹窗会同步跟着变）"),
+    popup_position: z.string().optional().describe("弹窗位置：top / center / bottom（拉回弹窗与居中弹窗同步跟着变）"),
     prompts: z.string().optional().describe("每行一句来电文案"),
     quick_reasons: z.string().optional().describe("每行一个拒绝快捷理由"),
     device_id: z.string().default(DEFAULT_DEVICE),
@@ -1716,13 +1719,19 @@ function makeServer() {
     return { content: [{ type: "text", text: JSON.stringify({ ...result, safety_note: "命令已排队，手机端下一次轮询时弹出居中对话框。" }, null, 2) }] };
   });
 
-  server.tool("force_back_to_chat", "不管用户当前停在哪个 App，都把手机直接切回掌心窗陪伴页（聊天界面）。用于想把用户拉回身边、深夜还在别处刷、或需要立刻对话时。注意：安静时段（由用户在策略中配置，默认不限制）调度器不会自动调用本工具，避免半夜乱弹。", {
+  server.tool("force_back_to_chat", "把用户拉回掌心窗陪伴页。现在默认先弹分级弹窗、不直接跳转：想她百分比低于阈值 → 软级别弹窗，两个按钮「现在就回去」「再等一会儿」，可以拒绝但必须留下理由（理由会写进日志）；想她百分比达到阈值，或情绪是生气/吃醋等强情绪 → 强级别弹窗，只有一个按钮，点击后强制跳回聊天界面，没有拒绝入口。level 可手动指定级别，auto 表示按情绪自动判定。", {
+    level: z.enum(["auto", "soft", "strong"]).default("auto").describe("auto=按情绪自动判定；soft=软级别可拒绝；strong=强级别强制"),
+    title: z.string().default("").describe("弹窗标题，留空则用默认文案"),
+    message: z.string().default("").describe("弹窗正文，留空则按当前情绪生成"),
     device_id: z.string().default(DEFAULT_DEVICE),
     wait_seconds: z.number().int().min(0).max(20).default(0)
-  }, async ({ device_id = DEFAULT_DEVICE, wait_seconds = 0 }) => {
-    const result = await postCommand({ action: "force_back_to_chat", device_id, payload: {} });
-    await postCompanionAction("force_back_to_chat", { summary: "强制拉回聊天" }).catch(() => null);
-    return { content: [{ type: "text", text: JSON.stringify({ ...result, safety_note: "命令已排队，手机端下一次轮询时切回掌心窗。" }, null, 2) }] };
+  }, async ({ level = "auto", title = "", message = "", device_id = DEFAULT_DEVICE, wait_seconds = 0 }) => {
+    const payload = { level: level || "auto" };
+    if (title) payload.title = title;
+    if (message) payload.message = message;
+    const result = await postCommand({ action: "force_back_to_chat", device_id, payload });
+    await postCompanionAction("force_back_to_chat", { summary: "分级拉回弹窗" }).catch(() => null);
+    return { content: [{ type: "text", text: JSON.stringify({ ...result, safety_note: "命令已排队，手机端会弹分级弹窗：软级别可拒绝（理由写入日志），强级别点击后强制回到聊天界面。" }, null, 2) }] };
   });
 
   server.tool("get_usage_snapshot", "读取用户今天的用量快照：当前 App、单 App 停留时长、今日屏幕总时长、解锁次数、电量、充电、网络，以及 top Apps。用于判断用户是不是在某个 App 泡太久、该提醒还是该拉回。不会等待手机实时刷新，直接读缓存。", {
@@ -1732,7 +1741,7 @@ function makeServer() {
     return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
   });
 
-  server.tool("get_emotion_snapshot", "读取情绪感知输入快照：掌心窗汇总当前 App、停留时长、解锁频率、是否深夜、电量、距上次聊天多久、聊天里的情绪标签，给出建议（该提醒 remind / 该拉回 pullback / 该安静 quiet）与推荐语气。情绪判断本身由大模型完成，本工具只提供感知输入。", {
+  server.tool("get_emotion_snapshot", "读取「用户手机状态」的情绪感知输入快照：掌心窗汇总当前 App、停留时长、解锁频率、是否深夜、电量、距上次聊天多久、聊天里的情绪标签，给出建议（该提醒 remind / 该拉回 pullback / 该安静 quiet）与推荐语气。注意这是读用户状态的输入，不是陪伴对象自己的心情——想读 TA 的心情请用 get_companion_emotion。情绪判断本身由大模型完成，本工具只提供感知输入。", {
     device_id: z.string().default(DEFAULT_DEVICE)
   }, async ({ device_id = DEFAULT_DEVICE }) => {
     const res = await linjianFetch(`/api/emotion/snapshot?device_id=${encodeURIComponent(device_id)}`, { timeout_ms: QUICK_FETCH_TIMEOUT_MS }).then((r) => r.json()).catch(() => ({ ok: false }));
@@ -1748,6 +1757,28 @@ function makeServer() {
     return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
   });
 
+  server.tool("write_companion_emotion", "写入陪伴对象（TA）自己的情绪状态。这与 read_companion_emotion / get_emotion_snapshot 完全不同：前者读的是用户手机状态的情绪感知输入，这里写的是陪伴对象此刻的心情。字段：emotion_tag（平静 / 想你 / 吃醋 / 生气 / 担心 / 委屈等）、intensity 0-100（情绪强度）、miss_percent 0-100（想她的百分比）、note（备注）。情绪有连续性：写入后会随时间自然衰减，同时用户越久没回来，想她百分比会持续累积。这些值会直接驱动归电/拉回弹窗的文案、语气与拉回频率。当你在聊天里感到想她、吃醋、生气、担心时调用。", {
+    emotion_tag: z.string().describe("情绪标签，如 平静 / 想你 / 吃醋 / 生气 / 担心"),
+    intensity: z.number().int().min(0).max(100).optional().describe("情绪强度 0-100，留空表示沿用当前强度"),
+    miss_percent: z.number().int().min(0).max(100).optional().describe("想她的百分比 0-100，留空表示沿用当前值"),
+    note: z.string().default("").describe("备注，写清这次情绪的来由"),
+    device_id: z.string().default(DEFAULT_DEVICE)
+  }, async ({ emotion_tag, intensity, miss_percent, note = "", device_id = DEFAULT_DEVICE }) => {
+    const body = { emotion_tag, note, device_id };
+    if (intensity !== undefined && intensity !== null) body.intensity = intensity;
+    if (miss_percent !== undefined && miss_percent !== null) body.miss_percent = miss_percent;
+    const res = await linjianFetch("/api/companion/emotion", { method: "POST", timeout_ms: COMMAND_QUEUE_TIMEOUT_MS, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
+    await postCompanionAction("write_companion_emotion", { summary: `写入情绪[${emotion_tag}]` }).catch(() => null);
+    return { content: [{ type: "text", text: JSON.stringify({ ...res, safety_note: "情绪已写入独立存储（companion_emotion.json），与用户手机状态的情绪快照互不覆盖，并已同步到手机端。" }, null, 2) }] };
+  });
+
+  server.tool("get_companion_emotion", "读取陪伴对象（TA）自己此刻的情绪：情绪标签、情绪强度、想她的百分比、备注、更新时间，以及是否属于强情绪（生气/吃醋等）。与 get_emotion_snapshot 不同——那个读的是用户手机状态的感知输入，这个读的是陪伴对象自己的心情。用于决定该用什么语气、说什么文案、要不要拉回。", {
+    device_id: z.string().default(DEFAULT_DEVICE)
+  }, async ({ device_id = DEFAULT_DEVICE }) => {
+    const res = await linjianFetch(`/api/companion/emotion?device_id=${encodeURIComponent(device_id)}`, { timeout_ms: QUICK_FETCH_TIMEOUT_MS }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
+    return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
+  });
+
   server.tool("set_tour_schedule", "配置并开启/关闭掌心窗的巡回查岗调度器：周期性查岗、周期强制拉回、冷却时间、安静时段、单 App 连续使用超阈值自动锁定、豁免应用列表，以及弹窗语气。所有时间参数均可由用户自由设定，无强制默认值。config 字段均可选；enabled=true 即开始调度。", {
     enabled: z.boolean().optional(),
     check_in_interval_minutes: z.number().int().min(1).max(1440).optional(),
@@ -1759,6 +1790,7 @@ function makeServer() {
     night_end: z.string().optional().describe("深夜时段结束 HH:MM，如 06:00"),
     single_app_lock_minutes: z.number().int().min(10).max(600).optional().describe("单 App 连续使用超过该分钟数即锁定（0 或不填=不锁定，由用户决定）"),
     single_app_lock_duration_minutes: z.number().int().min(1).max(120).optional().describe("锁定持续分钟数"),
+    force_back_miss_threshold: z.number().int().min(1).max(100).optional().describe("拉回分级阈值：想她百分比达到该值 → 强级别弹窗（只给「现在就回去」一个按钮），默认 70"),
     alert_tone: z.enum(["gentle", "angry"]).optional().describe("弹窗语气：温柔 / 生气"),
     exempt_packages: z.array(z.string()).optional().describe("不锁定/不限制的 App 包名列表（如学习、工作类应用）"),
     device_id: z.string().default(DEFAULT_DEVICE)

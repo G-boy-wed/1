@@ -49,6 +49,7 @@ COMMAND_PRIORITY_USER = {
     "screen_break_app", "end_screen_break", "extend_screen_break",
     "open_app", "home", "back", "recents", "tap", "swipe",
     "input_text", "tap_text", "run_sequence", "save_known_app",
+    "set_companion_emotion",
 }
 COMMAND_PRIORITY_STATE = {
     "peek", "get_screen_nodes", "get_life_state", "get_screen_break_state",
@@ -75,7 +76,8 @@ KNOWN_APPS = {
 }
 SENSITIVE_PACKAGES = {"com.eg.android.AlipayGphone", "com.tencent.mm.plugin.wallet"}
 ALLOWED_ACTIONS = {"noop", "peek", "open_app", "home", "back", "recents", "screen_off", "turn_screen_off", "lock_screen", "phone_screen_off", "tap", "swipe", "set_alarm", "send_notification", "run_sequence", "save_known_app", "get_screen_nodes", "tap_text", "input_text", "lock_app", "unlock_app", "temporary_unlock_app", "extend_lock", "deny_unlock_request", "get_lock_state", "set_emergency_passphrase", "add_locked_app", "remove_locked_app", "list_lockable_apps", "screen_break_app", "start_screen_break", "screen_break", "end_screen_break", "stop_screen_break", "temporary_screen_break_release", "temporary_screen_release", "extend_screen_break", "deny_screen_break_release_request", "deny_break_release_request", "get_screen_break_state", "set_screen_break_passphrase", "add_screen_break_app", "remove_screen_break_app", "list_screen_break_apps", "get_focus_status", "get_life_state", "start_focus_mode", "end_focus_mode", "set_focus_plan", "reply_focus_request", "approve_focus_unlock", "deny_focus_unlock", "request_focus_unlock", "create_focus_request", "get_guidian_state", "set_guidian_config", "trigger_guidian", "mark_guidian_returned", "get_calendar_state", "upsert_calendar_event", "add_calendar_event", "delete_calendar_event", "create_diary_book", "list_diary_books", "rename_diary_book", "update_diary_book_cover", "write_diary_entry", "list_diary_entries", "read_diary_entry", "read_diary_entry_with_annotations", "add_diary_annotation", "list_diary_annotations", "mark_diary_annotations_seen", "delete_diary_annotation", "search_diary_entries", "update_diary_entry", "delete_diary_entry", "delete_diary_book",
-"show_center_alert", "force_back_to_chat", "start_tour", "stop_tour"}
+"show_center_alert", "force_back_to_chat", "start_tour", "stop_tour",
+"set_companion_emotion", "get_companion_emotion"}
 
 def load_dotenv(path: Path) -> None:
     if not path.exists(): return
@@ -137,6 +139,9 @@ class State:
         self.event_log = self._load_event_log()
         self.emotion_path = self.data_dir / "emotion_state.json"
         self.emotion_state = self._load_emotion_state()
+        # 陪伴对象自己的情绪：与上面读用户手机状态的情绪快照分开存，互不覆盖。
+        self.companion_emotion_path = self.data_dir / "companion_emotion.json"
+        self.companion_emotion_state = self._load_companion_emotion_state()
         self.usage_sessions: dict[str, dict] = {}
         self._stop = False
 
@@ -190,6 +195,24 @@ class State:
         except Exception:
             pass
         return {}
+
+    def _load_companion_emotion_state(self) -> dict:
+        try:
+            if self.companion_emotion_path.exists():
+                loaded = json.loads(self.companion_emotion_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict): return loaded
+        except Exception:
+            pass
+        return {}
+
+    def save_companion_emotion_state(self) -> None:
+        try:
+            self.companion_emotion_path.parent.mkdir(parents=True, exist_ok=True)
+            temp = self.companion_emotion_path.with_suffix(".tmp")
+            temp.write_text(json.dumps(self.companion_emotion_state, ensure_ascii=False, indent=2), encoding="utf-8")
+            temp.replace(self.companion_emotion_path)
+        except Exception:
+            pass
 
     def add_activity_event(self, data: dict, dedupe_seconds: int = 0) -> dict:
         with self.activity_lock:
@@ -495,6 +518,11 @@ class Handler(BaseHTTPRequestHandler):
             if not self._require_token(): return
             device_id = qs.get("device_id", [DEFAULT_DEVICE])[0] or DEFAULT_DEVICE
             self._json(200, build_emotion_snapshot(self.state, device_id)); return
+        if path == "/api/companion/emotion":
+            # 陪伴对象自己的情绪，与上面的用户状态快照分开存、分开读。
+            if not self._require_token(): return
+            device_id = qs.get("device_id", [DEFAULT_DEVICE])[0] or DEFAULT_DEVICE
+            self._json(200, build_companion_emotion(self.state, device_id)); return
         if path == "/api/tour/state":
             if not self._require_token(): return
             with self.state.tour_lock:
@@ -531,7 +559,24 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/command":
             if not self._require_token(): return
             data = self._read_json()
-            cmd = make_command(data.get("device_id") or DEFAULT_DEVICE, data.get("action") or "noop", data.get("app") or "", data.get("package") or "", data.get("payload") or data)
+            device_id = data.get("device_id") or DEFAULT_DEVICE
+            payload_in = data.get("payload") if isinstance(data.get("payload"), dict) else None
+            # 拉回命令补齐阈值与当前情绪，手机端与服务端用同一份数据判定级别。
+            if str(data.get("action") or "").strip().lower() == "force_back_to_chat":
+                payload_in = dict(payload_in or {})
+                sched = load_tour_schedule(self.state)
+                emo = effective_companion_emotion(self.state, device_id)
+                payload_in.setdefault("threshold", max(1, min(100, int(sched.get("force_back_miss_threshold", 70) or 70))))
+                payload_in.setdefault("emotion_tag", emo.get("emotion_tag", "平静"))
+                payload_in.setdefault("miss_percent", emo.get("miss_percent", 0))
+                payload_in.setdefault("intensity", emo.get("intensity", 0))
+                payload_in.setdefault("tone", emo.get("tone", "gentle"))
+                if "message" not in payload_in or not str(payload_in.get("message") or "").strip():
+                    # 服务端自动生成的文案可能不含手机上的真实称呼，标记一下让手机用本地文案。
+                    payload_in["message"] = emo.get("message", "")
+                    payload_in["auto_message"] = True
+                payload_in.setdefault("level", "auto")
+            cmd = make_command(device_id, data.get("action") or "noop", data.get("app") or "", data.get("package") or "", payload_in if payload_in is not None else (data.get("payload") or data))
             action = cmd.get("action") or "noop"
             app_name = cmd.get("app") or (cmd.get("payload") or {}).get("app") or ""
             title_map = {
@@ -549,7 +594,8 @@ class Handler(BaseHTTPRequestHandler):
                 "get_screen_nodes": "查看当前页面",
                 "read_diary_entry_with_annotations": "读取日记批注", "add_diary_annotation": "保存页边纸条", "list_diary_annotations": "读取页边纸条", "mark_diary_annotations_seen": "标记纸条已看", "delete_diary_annotation": "删除页边纸条",
                 "peek": "查看屏幕", "run_sequence": "执行组合动作", "home": "回到手机桌面", "back": "返回上一页", "recents": "打开最近任务",
-                "show_center_alert": "屏幕居中弹窗", "force_back_to_chat": "强制拉回聊天", "start_tour": "开始巡回查岗", "stop_tour": "停止巡回查岗"
+                "show_center_alert": "屏幕居中弹窗", "force_back_to_chat": "分级拉回弹窗", "start_tour": "开始巡回查岗", "stop_tour": "停止巡回查岗",
+                "set_companion_emotion": "写入陪伴对象情绪", "get_companion_emotion": "查看陪伴对象情绪"
             }
             event = self.state.add_activity_event({
                 "id": cmd.get("id"), "device_id": cmd.get("device_id"), "source": "companion", "type": activity_type_for_action(action),
@@ -567,6 +613,10 @@ class Handler(BaseHTTPRequestHandler):
             data = self._read_json(); device_id = data.get("device_id") or DEFAULT_DEVICE
             data["updated_at"] = now_iso(); self.state.device_states[device_id] = data
             update_usage_sessions(self.state, device_id, data)
+            # 手机上报的陪伴对象情绪 → 更新服务端镜像（与用户侧情绪数据互不覆盖）。
+            companion_emotion = data.get("companion_emotion")
+            if isinstance(companion_emotion, dict):
+                update_companion_emotion_from_phone(self.state, device_id, companion_emotion)
             self._json(200, {"ok": True, "device_id": device_id}); return
         if path == "/api/device/report":
             if not self._require_token(): return
@@ -604,9 +654,14 @@ class Handler(BaseHTTPRequestHandler):
             data = self._read_json()
             sched = dict(load_tour_schedule(self.state))
             for key in ("enabled", "check_in_interval_minutes", "force_back_interval_minutes", "cooldown_minutes",
-                        "single_app_lock_minutes", "single_app_lock_duration_minutes", "alert_tone"):
+                        "single_app_lock_minutes", "single_app_lock_duration_minutes", "alert_tone",
+                        "force_back_miss_threshold"):
                 if key in data:
                     sched[key] = data[key]
+            try:
+                sched["force_back_miss_threshold"] = max(1, min(100, int(sched.get("force_back_miss_threshold", 70) or 70)))
+            except Exception:
+                sched["force_back_miss_threshold"] = 70
             qh = data.get("quiet_hours")
             if qh is None:
                 sched["quiet_hours"] = None
@@ -652,6 +707,18 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"ok": False, "error": "tag_required"}); return
             record_emotion_tag(self.state, tag, note)
             self._json(200, {"ok": True, "emotion_state": self.state.emotion_state}); return
+        if path == "/api/companion/emotion":
+            if not self._require_token(): return
+            data = self._read_json()
+            device_id = str(data.get("device_id") or DEFAULT_DEVICE)
+            if not data:
+                # 没带任何字段 = 只读取。
+                self._json(200, build_companion_emotion(self.state, device_id)); return
+            payload = data.get("emotion") if isinstance(data.get("emotion"), dict) else data
+            effective = write_companion_emotion(self.state, payload, device_id)
+            self._json(200, {"ok": True, "emotion": effective,
+                             "storage": "companion_emotion.json",
+                             "separate_from_user_snapshot": True}); return
         # 旧的专用豁免端点已移除；豁免改为通用 exempt_packages 配置（见 /api/tour/schedule）。
         self._json(404, {"ok": False, "error": ERR_BAD_METHOD})
 
@@ -703,6 +770,8 @@ DEFAULT_TOUR_SCHEDULE = {
     "exempt_packages": [],
     # 弹窗语气：gentle（温柔）/ angry（生气），由用户选择。
     "alert_tone": "gentle",
+    # 拉回分级阈值：陪伴对象「想她百分比」达到该值 → 强级别拉回弹窗（只给「现在就回去」一个按钮）。
+    "force_back_miss_threshold": 70,
 }
 
 
@@ -904,6 +973,153 @@ def record_emotion_tag(state: "State", tag: str, note: str = "") -> None:
     _save_json_safe(state.emotion_path, emo)
 
 
+# ===================== 陪伴对象自己的情绪（与读用户数据的情绪快照完全分开） =====================
+# 用户侧情绪仍保存在 emotion_state.json（标签、聊天时间）；
+# 陪伴对象的情绪保存在 companion_emotion.json，两者互不覆盖。
+COMPANION_EMOTION_STRONG_TAGS = ("生气", "吃醋", "担心", "委屈")
+COMPANION_MISS_DECAY_PER_HOUR = 6.0      # 自然衰减：每小时想她百分比下降
+COMPANION_INTENSITY_DECAY_PER_HOUR = 8.0  # 自然衰减：每小时情绪强度下降
+COMPANION_MISS_GAIN_PER_30MIN = 4.0      # 累积：用户每 30 分钟没回来，想她加深
+
+
+def companion_emotion_is_strong(tag: str) -> bool:
+    value = str(tag or "")
+    return any(key in value for key in COMPANION_EMOTION_STRONG_TAGS)
+
+
+def companion_emotion_message(tag: str, miss: int, companion: str = "陪伴者") -> str:
+    """情绪驱动的通知/弹窗文案（与手机端 CompanionEmotionState 保持一致的说法）。"""
+    if "生气" in tag: return "别躲了，%s在等你。" % companion
+    if "吃醋" in tag: return "你去看谁了？%s想问你一句。" % companion
+    if "担心" in tag: return "外面太晚了，%s有点担心你。" % companion
+    if miss >= 70: return "已经很想你了，%s不想再等。" % companion
+    if miss >= 40: return "有点想你了，%s问一句在不在。" % companion
+    return "有空的话，回来陪%s说句话。" % companion
+
+
+def load_companion_emotion(state: "State") -> dict:
+    return dict(state.companion_emotion_state or {})
+
+
+def save_companion_emotion(state: "State", payload: dict, source: str = "mcp") -> dict:
+    """写入陪伴对象情绪。手机上报的值优先作为基准，其余字段按需覆盖。"""
+    emo = dict(state.companion_emotion_state or {})
+    tag = str(payload.get("emotion_tag") or payload.get("tag") or "").strip()
+    if tag: emo["emotion_tag"] = tag
+    if "intensity" in payload:
+        try: emo["intensity"] = max(0, min(100, int(payload.get("intensity") or 0)))
+        except Exception: pass
+    if "miss_percent" in payload:
+        try: emo["miss_percent"] = max(0, min(100, int(payload.get("miss_percent") or 0)))
+        except Exception: pass
+    if "note" in payload:
+        emo["note"] = clip_text(str(payload.get("note") or ""), 300)
+    emo.setdefault("emotion_tag", "平静")
+    emo.setdefault("intensity", 0)
+    emo.setdefault("miss_percent", 0)
+    emo.setdefault("note", "")
+    emo["updated_at"] = now_iso()
+    emo["updated_at_ms"] = int(time.time() * 1000)
+    emo["source"] = source
+    state.companion_emotion_state = emo
+    _save_json_safe(state.companion_emotion_path, emo)
+    return emo
+
+
+def companion_name_for(state: "State", device_id: str = DEFAULT_DEVICE) -> str:
+    """手机上报的陪伴对象称呼；没有上报时用通用称呼。"""
+    ds = state.device_states.get(device_id) or {}
+    name = str(ds.get("companion_name") or "").strip()
+    return name or "陪伴者"
+
+
+def effective_companion_emotion(state: "State", device_id: str = DEFAULT_DEVICE) -> dict:
+    """按时间衰减 + 未回来的时间累积，算出此刻真实的情绪状态。"""
+    emo = load_companion_emotion(state)
+    now = int(time.time() * 1000)
+    try: raw_miss = max(0, min(100, int(emo.get("miss_percent", 0))))
+    except Exception: raw_miss = 0
+    try: raw_intensity = max(0, min(100, int(emo.get("intensity", 0))))
+    except Exception: raw_intensity = 0
+    updated_ms = int(emo.get("updated_at_ms", 0) or 0)
+    hours = max(0.0, (now - updated_ms) / 3600000.0) if updated_ms else 0.0
+    miss = raw_miss - COMPANION_MISS_DECAY_PER_HOUR * hours
+    intensity = raw_intensity - COMPANION_INTENSITY_DECAY_PER_HOUR * hours
+
+    last_return_ms = int(emo.get("last_return_at_ms", 0) or 0)
+    if last_return_ms:
+        away_hours = max(0.0, (now - last_return_ms) / 3600000.0)
+        miss += COMPANION_MISS_GAIN_PER_30MIN * (away_hours / 0.5)
+
+    miss = int(max(0, min(100, round(miss))))
+    intensity = int(max(0, min(100, round(intensity))))
+    tag = str(emo.get("emotion_tag") or "平静")
+    strong = companion_emotion_is_strong(tag)
+    scale = max(0.35, min(1.0, 1.0 - (miss / 100.0) * 0.65))
+    return {
+        "ok": True,
+        "emotion_tag": tag,
+        "intensity": intensity,
+        "miss_percent": miss,
+        "note": str(emo.get("note") or ""),
+        "updated_at": str(emo.get("updated_at") or ""),
+        "updated_at_ms": updated_ms,
+        "raw_intensity": raw_intensity,
+        "raw_miss_percent": raw_miss,
+        "strong": strong,
+        "tone": "angry" if (strong or intensity >= 70) else "gentle",
+        "pull_back_interval_scale": round(scale, 2),
+        "message": companion_emotion_message(tag, miss, companion_name_for(state, device_id)),
+        "last_return_at": emo.get("last_return_at") or "",
+        "source": str(emo.get("source") or ""),
+    }
+
+
+def build_companion_emotion(state: "State", device_id: str = DEFAULT_DEVICE) -> dict:
+    """陪伴对象情绪的对外视图；与 /api/emotion/snapshot（读用户手机状态）互不干扰。"""
+    out = effective_companion_emotion(state, device_id)
+    out["device_id"] = device_id
+    out["storage"] = "companion_emotion.json"
+    out["separate_from_user_snapshot"] = True
+    return out
+
+
+def write_companion_emotion(state: "State", payload: dict, device_id: str = DEFAULT_DEVICE) -> dict:
+    """写入情绪并把同一份值下发给手机，保证手机与 MCP 看到的是同一份数据。"""
+    save_companion_emotion(state, payload, source=str(payload.get("source") or "mcp"))
+    effective = effective_companion_emotion(state, device_id)
+    try:
+        _enqueue(state, "set_companion_emotion", {
+            "emotion_tag": effective["emotion_tag"],
+            "intensity": effective["intensity"],
+            "miss_percent": effective["miss_percent"],
+            "note": effective["note"],
+        }, device_id)
+        add_tour_event(state, "companion_emotion", "写入陪伴对象情绪 %s %d%%" % (effective["emotion_tag"], effective["miss_percent"]), device_id)
+    except Exception as exc:
+        sys.stderr.write("[emotion] enqueue failed: %s\n" % exc)
+    return effective
+
+
+def update_companion_emotion_from_phone(state: "State", device_id: str, payload: dict) -> None:
+    """手机上报的陪伴对象情绪作为权威值更新服务端镜像（不覆盖用户侧情绪数据）。"""
+    if not isinstance(payload, dict) or not payload: return
+    try:
+        emo = dict(state.companion_emotion_state or {})
+        emo["emotion_tag"] = str(payload.get("emotion_tag") or emo.get("emotion_tag") or "平静")
+        emo["intensity"] = max(0, min(100, int(payload.get("intensity", emo.get("intensity", 0)) or 0)))
+        emo["miss_percent"] = max(0, min(100, int(payload.get("miss_percent", emo.get("miss_percent", 0)) or 0)))
+        emo["note"] = clip_text(str(payload.get("note") or emo.get("note") or ""), 300)
+        emo["updated_at"] = now_iso()
+        emo["updated_at_ms"] = int(time.time() * 1000)
+        emo["source"] = "phone"
+        state.companion_emotion_state = emo
+        _save_json_safe(state.companion_emotion_path, emo)
+    except Exception:
+        pass
+
+
+
 def _enqueue(state: "State", action: str, payload: dict | None = None, device_id: str = DEFAULT_DEVICE):
     cmd = make_command(device_id, action, payload=payload)
     with state.commands_lock:
@@ -943,20 +1159,29 @@ def tour_step_check_in(state: "State", sched: dict, device_id: str = DEFAULT_DEV
                 _enqueue(state, "lock_app", {"package": pkg, "minutes": lock_dur}, device_id)
                 add_tour_event(state, "auto_lock:" + pkg, "单 App 连续 %d 分钟，锁 %d 分钟" % (int(dwell), lock_dur), device_id)
                 locked = True
-    # 情绪感知闭环：建议提醒/拉回且非安静时段时，自动下发居中弹窗（文案/语气由后端决定）。
+    # 情绪感知闭环：建议提醒/拉回且非安静时段时，自动下发居中弹窗（文案/语气由情绪决定）。
     emo = build_emotion_snapshot(state, device_id)
     if (not emo.get("quiet")) and emo.get("suggestion") in ("remind", "pullback"):
         cooldown = max(0, int(sched.get("cooldown_minutes", 5)) * 60)
         if not _recent_event(state, "center_alert", cooldown, device_id):
-            tone = emo.get("recommended_tone", sched.get("alert_tone", "gentle"))
-            msg = "该回来陪我了。" if emo.get("suggestion") == "pullback" else "记得喝水休息，别太累。"
+            # 陪伴对象自己的情绪优先决定文案与语气；没有情绪时退回用户状态的建议。
+            comp = effective_companion_emotion(state, device_id)
+            tone = str(comp.get("tone") or emo.get("recommended_tone") or sched.get("alert_tone", "gentle"))
+            if comp.get("strong") or int(comp.get("miss_percent", 0)) >= 40:
+                msg = str(comp.get("message") or ("该回来陪我了。" if emo.get("suggestion") == "pullback" else "记得喝水休息，别太累。"))
+            else:
+                msg = "该回来陪我了。" if emo.get("suggestion") == "pullback" else "记得喝水休息，别太累。"
             _enqueue(state, "show_center_alert", {"title": "掌心窗", "message": msg, "tone": tone}, device_id)
-            add_tour_event(state, "center_alert", "情绪感知触发居中弹窗 tone=%s" % tone, device_id)
+            add_tour_event(state, "center_alert", "情绪感知触发居中弹窗 tone=%s 文案=%s" % (tone, msg), device_id)
     return {"ok": True, "step": "check_in", "locked": locked}
 
 
 def tour_step_force_back(state: "State", sched: dict, device_id: str = DEFAULT_DEVICE) -> dict:
-    """强制拉回一步：把用户拉回掌心窗陪伴页；豁免包前台或冷却期内跳过。"""
+    """强制拉回一步：分级弹窗（不再直接跳转）。
+
+    想她百分比低于阈值 → 软级别：两个按钮，可拒绝，拒绝必须留下理由；
+    达到阈值或情绪为生气/吃醋等强情绪 → 强级别：只有一个按钮，点击后强制跳回聊天界面。
+    """
     ds = state.device_states.get(device_id) or {}
     exempt_pkgs = set(sched.get("exempt_packages") or [])
     if (ds.get("current_package") or "") in exempt_pkgs:
@@ -965,10 +1190,34 @@ def tour_step_force_back(state: "State", sched: dict, device_id: str = DEFAULT_D
     cooldown = max(0, int(sched.get("cooldown_minutes", 5)) * 60)
     if _recent_event(state, "force_back", cooldown, device_id):
         return {"ok": True, "step": "force_back", "skipped": True, "reason": "cooldown"}
-    _enqueue(state, "force_back_to_chat",
-             {"title": "回到我身边", "message": "该回来陪我了。", "tone": sched.get("alert_tone", "gentle")}, device_id)
-    add_tour_event(state, "force_back", "强制拉回聊天", device_id)
-    return {"ok": True, "step": "force_back"}
+
+    emo = effective_companion_emotion(state, device_id)
+    threshold = max(1, min(100, int(sched.get("force_back_miss_threshold", 70) or 70)))
+    miss = int(emo.get("miss_percent", 0))
+    strong_emotion = bool(emo.get("strong"))
+    strong = miss >= threshold or strong_emotion
+    level = "strong" if strong else "soft"
+    tone = "angry" if strong else str(emo.get("tone", sched.get("alert_tone", "gentle")))
+    message = str(emo.get("message") or "该回来陪我了。")
+    title = "要你回来" if strong else "在等你"
+
+    _enqueue(state, "force_back_to_chat", {
+        "level": level,
+        "strong": strong,
+        "allow_decline": not strong,
+        "emotion_tag": emo.get("emotion_tag", "平静"),
+        "miss_percent": miss,
+        "intensity": emo.get("intensity", 0),
+        "threshold": threshold,
+        "title": title,
+        "message": message,
+        "tone": tone,
+    }, device_id)
+    add_tour_event(state, "force_back",
+                   "分级拉回 %s（情绪 %s 想她 %d%% 阈值 %d%%）" % (level, emo.get("emotion_tag", "平静"), miss, threshold),
+                   device_id)
+    return {"ok": True, "step": "force_back", "level": level, "miss_percent": miss,
+            "threshold": threshold, "emotion_tag": emo.get("emotion_tag", "平静")}
 
 
 def tour_scheduler_loop(state: "State") -> None:
@@ -984,7 +1233,10 @@ def tour_scheduler_loop(state: "State") -> None:
                 continue
             now = time.time()
             ci = max(1, int(sched.get("check_in_interval_minutes", 15))) * 60
-            fb = max(1, int(sched.get("force_back_interval_minutes", 30))) * 60
+            fb_base = max(1, int(sched.get("force_back_interval_minutes", 30))) * 60
+            # 拉回频率跟着陪伴对象的情绪走：想她越深，拉回间隔越短（最短 30 秒）。
+            comp = effective_companion_emotion(state, DEFAULT_DEVICE)
+            fb = max(30, int(fb_base * float(comp.get("pull_back_interval_scale", 1.0))))
             hm = _device_local_hm(state, DEFAULT_DEVICE)
             quiet = in_quiet_hours(sched.get("quiet_hours") or {}, hm)
             if now - last_check_in >= ci:

@@ -40,6 +40,7 @@ import android.widget.FrameLayout;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.RadioButton;
 import android.widget.TextView;
 import android.widget.LinearLayout;
 import android.widget.ImageView;
@@ -84,6 +85,7 @@ public class MainActivity extends Activity {
     private Button drawerGuidianButton, drawerGuidianSettingsButton, drawerCalendarButton, saveCalendarEventButton, drawerPolicyButton;
     private CheckBox remindersEnabled, batteryRuleEnabled, screenRuleEnabled, waterRuleEnabled, restRuleEnabled, cycleEnabled, foregroundPopupEnabled, homeModeEnabled, homeModeForceEnabled, appGateEnabled;
     private CheckBox guidianEnabled, guidianRemoteEnabled, guidianFullscreenEnabled, guidianQuietEnabled, calendarLunarEnabled, calendarRepeatEnabled, calendarBannerEnabled;
+    private RadioButton guidianPositionTop, guidianPositionCenter, guidianPositionBottom;
     private Button tabSettings, tabSee, tabControl, tabLife, tabGate, tabDebug;
     private View quickSeeButton, quickGuardButton;
     private View sectionSettings, sectionSee, sectionControl, sectionLife, sectionGate, sectionDebug;
@@ -170,7 +172,7 @@ public class MainActivity extends Activity {
         if (saveCalendarEventButton != null) saveCalendarEventButton.setOnClickListener(v -> saveCalendarEvent());
         if (saveGuidianSettingsButton != null) saveGuidianSettingsButton.setOnClickListener(v -> { saveSettings(); Toast.makeText(this, "归电设置已保存", Toast.LENGTH_SHORT).show(); updateUI(); });
         if (chooseGuidianAvatarButton != null) chooseGuidianAvatarButton.setOnClickListener(v -> chooseGuidianAvatar());
-        bindGuidianThemeButton(guidianThemeDuskButton, "粉色"); bindGuidianThemeButton(guidianThemeCloudButton, "白色"); bindGuidianThemeButton(guidianThemeBerryButton, "黑色");
+        bindGuidianThemeButton(guidianThemeDuskButton, "暮夜蓝紫"); bindGuidianThemeButton(guidianThemeCloudButton, "云海青灰"); bindGuidianThemeButton(guidianThemeBerryButton, "落日莓雾");
         if (userNameInput != null) userNameInput.setOnFocusChangeListener((v, focused) -> { if (!focused) { saveSettings(); buildMagazinePages(); updateUI(); } });
         if (companionNameInput != null) companionNameInput.setOnFocusChangeListener((v, focused) -> { if (!focused) { saveSettings(); buildMagazinePages(); updateUI(); } });
         if (targetAppsInput != null) targetAppsInput.setOnFocusChangeListener((v, focused) -> { if (!focused) { saveSettings(); updateUI(); } });
@@ -226,6 +228,7 @@ public class MainActivity extends Activity {
         drawerGuidianButton = findViewById(R.id.drawerGuidianButton); drawerGuidianSettingsButton = findViewById(R.id.drawerGuidianSettingsButton); drawerCalendarButton = findViewById(R.id.drawerCalendarButton); saveCalendarEventButton = findViewById(R.id.saveCalendarEventButton); drawerPolicyButton = findViewById(R.id.drawerPolicyButton);
         remindersEnabled = findViewById(R.id.remindersEnabled); batteryRuleEnabled = findViewById(R.id.batteryRuleEnabled); screenRuleEnabled = findViewById(R.id.screenRuleEnabled); waterRuleEnabled = findViewById(R.id.waterRuleEnabled); restRuleEnabled = findViewById(R.id.restRuleEnabled); cycleEnabled = findViewById(R.id.cycleEnabled); foregroundPopupEnabled = findViewById(R.id.foregroundPopupEnabled); homeModeEnabled = findViewById(R.id.homeModeEnabled); homeModeForceEnabled = findViewById(R.id.homeModeForceEnabled); appGateEnabled = findViewById(R.id.appGateEnabled);
         guidianEnabled = findViewById(R.id.guidianEnabled); guidianRemoteEnabled = findViewById(R.id.guidianRemoteEnabled); guidianFullscreenEnabled = findViewById(R.id.guidianFullscreenEnabled); guidianQuietEnabled = findViewById(R.id.guidianQuietEnabled); calendarLunarEnabled = findViewById(R.id.calendarLunarEnabled); calendarRepeatEnabled = findViewById(R.id.calendarRepeatEnabled); calendarBannerEnabled = findViewById(R.id.calendarBannerEnabled);
+        guidianPositionTop = findViewById(R.id.guidianPositionTop); guidianPositionCenter = findViewById(R.id.guidianPositionCenter); guidianPositionBottom = findViewById(R.id.guidianPositionBottom);
         tabSettings = findViewById(R.id.tabSettings); tabSee = findViewById(R.id.tabSee); tabControl = findViewById(R.id.tabControl); tabLife = findViewById(R.id.tabLife); tabGate = findViewById(R.id.tabGate); tabDebug = findViewById(R.id.tabDebug); quickSeeButton = findViewById(R.id.quickSeeButton); quickGuardButton = findViewById(R.id.quickGuardButton);
         sectionSettings = findViewById(R.id.sectionSettings); sectionSee = findViewById(R.id.sectionSee); sectionControl = findViewById(R.id.sectionControl); sectionLife = findViewById(R.id.sectionLife); sectionGate = findViewById(R.id.sectionGate); sectionDebug = findViewById(R.id.sectionDebug);
         heroCard = findViewById(R.id.heroCard); bottomNav = findViewById(R.id.bottomNav);
@@ -1795,6 +1798,11 @@ public class MainActivity extends Activity {
         if (guidianTargetPackageInput != null) guidianTargetPackageInput.setText(prefs.getString(GuidianState.KEY_TARGET_PACKAGE, AppPrefs.homeTargetPackage(this)));
         if (guidianPromptInput != null) guidianPromptInput.setText(prefs.getString(GuidianState.KEY_PROMPTS, GuidianState.defaultPrompts(this)));
         if (guidianReasonInput != null) guidianReasonInput.setText(prefs.getString(GuidianState.KEY_REASONS, GuidianState.defaultReasons()));
+        // 弹窗位置：归电、拉回弹窗、居中弹窗共用同一份配置。
+        String popupPosition = GuidianState.popupPosition(this);
+        if (guidianPositionTop != null) guidianPositionTop.setChecked(GuidianState.POSITION_TOP.equals(popupPosition));
+        if (guidianPositionCenter != null) guidianPositionCenter.setChecked(GuidianState.POSITION_CENTER.equals(popupPosition));
+        if (guidianPositionBottom != null) guidianPositionBottom.setChecked(GuidianState.POSITION_BOTTOM.equals(popupPosition));
     }
 
     private void bindConnectionAutoSave() {
@@ -1930,6 +1938,11 @@ public class MainActivity extends Activity {
         if (guidianTargetPackageInput != null) e.putString(GuidianState.KEY_TARGET_PACKAGE, AppPrefs.saveHomeTarget(this, guidianTargetPackageInput.getText().toString().trim()));
         if (guidianPromptInput != null) e.putString(GuidianState.KEY_PROMPTS, guidianPromptInput.getText().toString());
         if (guidianReasonInput != null) e.putString(GuidianState.KEY_REASONS, guidianReasonInput.getText().toString());
+        // 弹窗位置：跟随归电设置，拉回弹窗与居中弹窗同步生效。
+        String popupPosition = GuidianState.POSITION_CENTER;
+        if (guidianPositionTop != null && guidianPositionTop.isChecked()) popupPosition = GuidianState.POSITION_TOP;
+        else if (guidianPositionBottom != null && guidianPositionBottom.isChecked()) popupPosition = GuidianState.POSITION_BOTTOM;
+        e.putString(GuidianState.KEY_POPUP_POSITION, popupPosition);
         e.apply();
     }
 
@@ -2034,9 +2047,9 @@ public class MainActivity extends Activity {
     private void bindGuidianThemeButton(Button b, String name) {
         if (b == null) return;
         b.setOnClickListener(v -> {
-            AppPrefs.get(this).edit().putString(GuidianState.KEY_THEME, name).apply();
+            AppPrefs.get(this).edit().putString(GuidianState.KEY_THEME, GuidianTheme.normalize(name)).apply();
             updateUI();
-            Toast.makeText(this, "归电主题已切换为 " + name, Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "归电主题已切换为 " + name + "，拉回弹窗同步跟着变", Toast.LENGTH_SHORT).show();
         });
     }
 

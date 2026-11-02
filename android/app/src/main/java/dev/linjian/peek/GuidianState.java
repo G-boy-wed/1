@@ -31,6 +31,11 @@ public class GuidianState {
     public static final String KEY_QUIET_END = "guidian_quiet_end";
     public static final String KEY_TARGET_PACKAGE = "guidian_target_package";
     public static final String KEY_THEME = "guidian_theme";
+    // 归电弹窗位置：top / center / bottom。拉回弹窗与居中弹窗共用这一份位置配置。
+    public static final String KEY_POPUP_POSITION = "guidian_popup_position";
+    public static final String POSITION_TOP = "top";
+    public static final String POSITION_CENTER = "center";
+    public static final String POSITION_BOTTOM = "bottom";
     public static final String KEY_PROMPTS = "guidian_prompts";
     public static final String KEY_REASONS = "guidian_reasons";
     public static final String KEY_AVATAR_URI = "guidian_avatar_uri";
@@ -84,6 +89,7 @@ public class GuidianState {
             o.put("quiet_end", p.getString(KEY_QUIET_END, "08:00"));
             o.put("target_package", targetPackage(ctx));
             o.put("theme", themeName(ctx));
+            o.put("popup_position", popupPosition(ctx));
             o.put("avatar_uri", p.getString(KEY_AVATAR_URI, ""));
             o.put("today_date", today());
             o.put("today_count", p.getInt(KEY_TODAY_COUNT, 0));
@@ -131,7 +137,8 @@ public class GuidianState {
     public static String detailText(Context ctx) {
         JSONObject o = config(ctx);
         StringBuilder sb = new StringBuilder();
-        sb.append("主题：").append(o.optString("theme", "粉色")).append("\n");
+        sb.append("主题：").append(o.optString("theme", "暮夜蓝紫")).append("\n");
+        sb.append("弹窗位置：").append(positionLabel(o.optString("popup_position", POSITION_CENTER))).append("\n");
         sb.append("今日归电：").append(o.optInt("today_count", 0)).append("/").append(o.optInt("daily_max", 3)).append("\n");
         sb.append("下次最早：").append(o.optString("next_prompt_after", "-")).append("\n");
         String reason = o.optString("last_reject_reason", "");
@@ -141,6 +148,10 @@ public class GuidianState {
         String auto = o.optString("last_auto_check_at", "");
         if (auto.length() > 0) sb.append("上次检查：").append(auto).append("\n");
         if (o.optBoolean("due_but_not_shown", false)) sb.append("诊断：已经到点但未弹，等待补弹检查。\n");
+        // 陪伴对象自己的情绪（与读用户手机状态的情绪快照分开存）。
+        sb.append(CompanionEmotionState.emotionTag(ctx)).append(" · 想她 ")
+                .append(CompanionEmotionState.effectiveMissPercent(ctx)).append("% · 强度 ")
+                .append(CompanionEmotionState.effectiveIntensity(ctx)).append("\n");
         sb.append("只检测已设置目标应用是否在前台，不读取应用内容。");
         return sb.toString();
     }
@@ -286,7 +297,8 @@ public class GuidianState {
                 if (p.has("quiet_start")) e.putString(KEY_QUIET_START, p.optString("quiet_start", "23:30"));
                 if (p.has("quiet_end")) e.putString(KEY_QUIET_END, p.optString("quiet_end", "08:00"));
                 if (p.has("target_package")) { String pkg = p.optString("target_package", targetPackage(ctx)); if (AppPrefs.isPackageLike(pkg)) e.putString(KEY_TARGET_PACKAGE, pkg); }
-                if (p.has("theme")) e.putString(KEY_THEME, normalizeTheme(p.optString("theme", "粉色")));
+                if (p.has("theme")) e.putString(KEY_THEME, GuidianTheme.normalize(p.optString("theme", "暮夜蓝紫")));
+                if (p.has("popup_position")) e.putString(KEY_POPUP_POSITION, normalizePosition(p.optString("popup_position", POSITION_CENTER)));
                 if (p.has("prompts")) e.putString(KEY_PROMPTS, p.optString("prompts", defaultPrompts(ctx)));
                 if (p.has("quick_reasons")) e.putString(KEY_REASONS, p.optString("quick_reasons", defaultReasons()));
                 e.apply();
@@ -337,16 +349,31 @@ public class GuidianState {
     }
 
     public static String themeName(Context ctx) {
-        String stored = prefs(ctx).getString(KEY_THEME, "粉色");
-        String normalized = normalizeTheme(stored);
+        String stored = prefs(ctx).getString(KEY_THEME, "暮夜蓝紫");
+        String normalized = GuidianTheme.normalize(stored);
         if (!normalized.equals(stored)) prefs(ctx).edit().putString(KEY_THEME, normalized).apply();
         return normalized;
     }
 
-    private static String normalizeTheme(String theme) {
-        if ("白色".equals(theme) || "黑色".equals(theme) || "粉色".equals(theme)) return theme;
-        // 旧三套归电主题统一迁移到新的粉色主题。
-        return "粉色";
+    /** 归电弹窗位置：拉回弹窗、居中弹窗都读这一份值。 */
+    public static String popupPosition(Context ctx) {
+        String raw = prefs(ctx).getString(KEY_POPUP_POSITION, POSITION_CENTER);
+        return normalizePosition(raw);
+    }
+
+    public static String normalizePosition(String raw) {
+        if (raw == null) return POSITION_CENTER;
+        String n = raw.trim().toLowerCase(java.util.Locale.US);
+        if ("top".equals(n) || "顶部".equals(raw.trim())) return POSITION_TOP;
+        if ("bottom".equals(n) || "底部".equals(raw.trim())) return POSITION_BOTTOM;
+        return POSITION_CENTER;
+    }
+
+    public static String positionLabel(String raw) {
+        String p = normalizePosition(raw);
+        if (POSITION_TOP.equals(p)) return "顶部";
+        if (POSITION_BOTTOM.equals(p)) return "底部";
+        return "居中";
     }
 
     private static boolean showFullScreenNotification(Context ctx, String prompt) {

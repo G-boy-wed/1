@@ -112,8 +112,18 @@
         <activity
             android:name=".PolicySettingsActivity"
             android:exported="false"
-            android:label="管束策略"
+            android:label="查岗与管束"
             android:theme="@style/Theme.PeerPolicySettings" />
+
+        <!-- 分级拉回弹窗：锁屏时由系统挡住悬浮窗，用透明 Activity 承载同一张卡片。 -->
+        <activity
+            android:name=".PullBackActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@style/Theme.PeerAlert" />
 
         <service
             android:name=".CompanionService"

@@ -14,6 +14,7 @@ const KNOWN_APPS = {
 const ALLOWED_ACTIONS = new Set([
   "noop", "peek", "play_audio", "play_lingyin", "play_jingming", "open_app", "home", "back", "recents",
   "screen_off", "turn_screen_off", "lock_screen", "phone_screen_off", "tap", "swipe", "set_alarm", "send_notification", "show_center_alert", "force_back_to_chat", "start_tour", "stop_tour",
+  "set_companion_emotion", "get_companion_emotion",
   "run_sequence", "save_known_app", "get_screen_nodes", "tap_text", "input_text", "lock_app", "unlock_app",
   "temporary_unlock_app", "extend_lock", "deny_unlock_request", "get_zhizhi_now", "get_lock_state", "set_emergency_passphrase",
   "add_locked_app", "remove_locked_app", "list_lockable_apps", "screen_break_app", "start_screen_break", "screen_break",
@@ -202,11 +203,13 @@ const MCP_TOOLS = [
   { name: "send_phone_command", description: "通用手机命令队列入口，支持 open_app/home/back/recents/screen_off/tap/swipe/set_alarm/send_notification/run_sequence、屏幕休息、归电、读屏、输入等旧版 action。", inputSchema: obj({ action: str("noop"), app: str(""), package: str(""), payload: anyObj(), device_id: str(DEFAULT_DEVICE), wait_seconds: int(0) }, ["action"]) },
 
   { name: "show_center_alert", description: "在用户手机屏幕正中央弹出一张对话框，支持标题、正文与按钮；语气 tone 可选「温柔 gentle」或「生气 angry」。", inputSchema: obj({ title: str("掌心窗"), message: str(""), tone: str("gentle"), button_text: str("知道啦"), device_id: str(DEFAULT_DEVICE), wait_seconds: int(8) }) },
-  { name: "force_back_to_chat", description: "不管用户当前停在哪个 App，都把手机直接切回掌心窗陪伴页（聊天界面）。", inputSchema: obj({ tone: str("gentle"), device_id: str(DEFAULT_DEVICE), wait_seconds: int(8) }) },
+  { name: "force_back_to_chat", description: "把用户拉回掌心窗陪伴页，默认先弹分级弹窗：想她百分比低于阈值 → 软级别（两个按钮，可拒绝并留下理由）；达到阈值或强情绪 → 强级别（只有一个按钮，点击后强制跳回聊天界面）。", inputSchema: obj({ tone: str("gentle"), level: str("auto"), title: str(""), message: str(""), device_id: str(DEFAULT_DEVICE), wait_seconds: int(8) }) },
   { name: "get_usage_snapshot", description: "读取用户今天的用量快照：当前 App、单 App 停留时长、今日屏幕总时长、解锁次数、电量、充电、网络，以及 top Apps。直接读缓存，不等待手机实时刷新。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
-  { name: "get_emotion_snapshot", description: "读取情绪感知输入快照：汇总当前 App、停留时长、解锁频率、是否深夜、电量、情绪标签，给出建议（该提醒 remind / 该拉回 pullback / 该安静 quiet）与推荐语气。情绪判断本身由大模型完成。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
+  { name: "get_emotion_snapshot", description: "读取「用户手机状态」的情绪感知输入快照：汇总当前 App、停留时长、解锁频率、是否深夜、电量、情绪标签，给出建议（该提醒 remind / 该拉回 pullback / 该安静 quiet）与推荐语气。想读陪伴对象自己的心情请用 get_companion_emotion。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
   { name: "write_emotion_tag", description: "回写一条情绪标签到掌心窗（如 撒娇、低落、嘴硬），并刷新“上次聊天时间”。", inputSchema: obj({ tag: str(""), note: str(""), device_id: str(DEFAULT_DEVICE) }) },
-  { name: "set_tour_schedule", description: "配置掌心窗的巡回查岗策略：查岗周期、强制拉回周期、冷却时间、安静时段、单 App 锁阈值与时长、豁免应用列表、弹窗语气。所有时间参数均可自由设定，无强制默认值。", inputSchema: obj({ enabled: bool(undefined), check_in_interval_minutes: int(undefined), force_back_interval_minutes: int(undefined), cooldown_minutes: int(undefined), quiet_hours: anyObj(), night_hours: anyObj(), single_app_lock_minutes: int(undefined), single_app_lock_duration_minutes: int(undefined), alert_tone: str(""), exempt_packages: arr({ type: "string" }), device_id: str(DEFAULT_DEVICE) }) }
+  { name: "write_companion_emotion", description: "写入陪伴对象（TA）自己的情绪：emotion_tag（平静/想你/吃醋/生气/担心等）、intensity 0-100、miss_percent 0-100（想她百分比）、note。与用户手机状态的情绪快照分开存，互不覆盖；情绪会随时间自然衰减，也会随用户未回来的时间累积。", inputSchema: obj({ emotion_tag: str("平静"), intensity: int(undefined), miss_percent: int(undefined), note: str(""), device_id: str(DEFAULT_DEVICE) }) },
+  { name: "get_companion_emotion", description: "读取陪伴对象（TA）自己此刻的情绪：情绪标签、强度、想她百分比、备注、更新时间、是否强情绪。用于决定语气、文案与要不要拉回。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
+  { name: "set_tour_schedule", description: "配置掌心窗的巡回查岗策略：查岗周期、强制拉回周期、冷却时间、安静时段、单 App 锁阈值与时长、豁免应用列表、弹窗语气、拉回分级阈值。所有时间参数均可自由设定，无强制默认值。", inputSchema: obj({ enabled: bool(undefined), check_in_interval_minutes: int(undefined), force_back_interval_minutes: int(undefined), cooldown_minutes: int(undefined), quiet_hours: anyObj(), night_hours: anyObj(), single_app_lock_minutes: int(undefined), single_app_lock_duration_minutes: int(undefined), alert_tone: str(""), force_back_miss_threshold: int(undefined), exempt_packages: arr({ type: "string" }), device_id: str(DEFAULT_DEVICE) }) }
 ];
 
 function obj(properties = {}, required = []) { return { type: "object", properties, required, additionalProperties: false }; }
@@ -415,6 +418,45 @@ async function getTourSchedule(env) { return getJsonState(env, "tour_schedule", 
 async function putTourSchedule(env, s) { return putJsonState(env, "tour_schedule", s); }
 async function getEmotionState(env) { return getJsonState(env, "emotion_state", { tags: [], last_chat_at: "" }); }
 async function putEmotionState(env, s) { return putJsonState(env, "emotion_state", s); }
+// 陪伴对象自己的情绪：独立 KV 键，与上面的用户情绪状态互不覆盖。
+async function getCompanionEmotion(env) { return getJsonState(env, "companion_emotion", { emotion_tag: "平静", intensity: 0, miss_percent: 0, note: "", updated_at: "", updated_at_ms: 0 }); }
+async function putCompanionEmotion(env, s) { return putJsonState(env, "companion_emotion", s); }
+const COMPANION_STRONG_TAGS = ["生气", "吃醋", "担心", "委屈"];
+const COMPANION_MISS_DECAY_PER_HOUR = 6;
+const COMPANION_INTENSITY_DECAY_PER_HOUR = 8;
+const COMPANION_MISS_GAIN_PER_30MIN = 4;
+function companionEmotionIsStrong(tag) { const v = String(tag || ""); return COMPANION_STRONG_TAGS.some((k) => v.includes(k)); }
+function companionEmotionMessage(tag, miss) {
+  if (String(tag).includes("生气")) return "别躲了，我在等你。";
+  if (String(tag).includes("吃醋")) return "你去看谁了？我想问你一句。";
+  if (String(tag).includes("担心")) return "外面太晚了，我有点担心你。";
+  if (miss >= 70) return "已经很想你了，我不想再等。";
+  if (miss >= 40) return "有点想你了，问一句在不在。";
+  return "有空的话，回来陪我说句话。";
+}
+function effectiveCompanionEmotion(raw) {
+  const emo = raw && typeof raw === "object" ? raw : {};
+  const now = Date.now();
+  const updatedMs = Number(emo.updated_at_ms || 0);
+  const hours = updatedMs > 0 ? Math.max(0, (now - updatedMs) / 3600000) : 0;
+  const rawMiss = Math.max(0, Math.min(100, Number(emo.miss_percent || 0)));
+  const rawIntensity = Math.max(0, Math.min(100, Number(emo.intensity || 0)));
+  let miss = rawMiss - COMPANION_MISS_DECAY_PER_HOUR * hours;
+  const intensity = Math.max(0, Math.min(100, Math.round(rawIntensity - COMPANION_INTENSITY_DECAY_PER_HOUR * hours)));
+  const lastReturnMs = Number(emo.last_return_at_ms || 0);
+  if (lastReturnMs > 0) miss += COMPANION_MISS_GAIN_PER_30MIN * (Math.max(0, (now - lastReturnMs) / 3600000) / 0.5);
+  miss = Math.max(0, Math.min(100, Math.round(miss)));
+  const tag = String(emo.emotion_tag || "平静");
+  const strong = companionEmotionIsStrong(tag);
+  return {
+    ok: true, emotion_tag: tag, intensity, miss_percent: miss, note: String(emo.note || ""),
+    updated_at: String(emo.updated_at || ""), updated_at_ms: updatedMs,
+    raw_intensity: rawIntensity, raw_miss_percent: rawMiss,
+    strong, tone: strong || intensity >= 70 ? "angry" : "gentle",
+    pull_back_interval_scale: Math.max(0.35, Math.min(1, Math.round((1 - (miss / 100) * 0.65) * 100) / 100)),
+    message: companionEmotionMessage(tag, miss),
+  };
+}
 function hmToMinutes(hm) { const m = /^(\d{1,2}):(\d{2})$/.exec(String(hm || "").trim()); return m ? Number(m[1]) * 60 + Number(m[2]) : -1; }
 function inQuietHours(range, hm) { if (!range || typeof range !== "object") return false; const start = hmToMinutes(range.start); const end = hmToMinutes(range.end); const now = hmToMinutes(hm); if (start < 0 || end < 0 || now < 0) return false; if (start === end) return false; return start < end ? (now >= start && now < end) : (now >= start || now < end); }
 async function setCarePolicy(env, args = {}) {
@@ -570,7 +612,13 @@ async function callMcpTool(name, args = {}, env) {
     }
 
     case "show_center_alert": return observed({ action: "show_center_alert", title: args.title || "掌心窗", message: args.message || "", tone: args.tone || "gentle", payload: { title: args.title || "掌心窗", message: args.message || "", tone: args.tone || "gentle", button_text: args.button_text || "知道啦" } }, args.wait_seconds ?? 8);
-    case "force_back_to_chat": return observed({ action: "force_back_to_chat", payload: { tone: args.tone || "gentle" } }, args.wait_seconds ?? 8);
+    case "force_back_to_chat": {
+      const payload = { tone: args.tone || "gentle" };
+      if (args.level) payload.level = args.level;
+      if (args.title) payload.title = args.title;
+      if (args.message) payload.message = args.message;
+      return observed({ action: "force_back_to_chat", payload }, args.wait_seconds ?? 8);
+    }
     case "get_usage_snapshot": {
       const s = await state();
       const raw = s?.state || {};
@@ -608,10 +656,28 @@ async function callMcpTool(name, args = {}, env) {
       await putEmotionState(env, next);
       return mcpText({ ok: true, emotion_state: next });
     }
+    case "write_companion_emotion": {
+      const raw = await getCompanionEmotion(env);
+      const next = { ...raw };
+      const tag = String(args.emotion_tag || args.tag || "").trim();
+      if (tag) next.emotion_tag = tag;
+      if (args.intensity !== undefined && args.intensity !== null) next.intensity = Math.max(0, Math.min(100, Number(args.intensity)));
+      if (args.miss_percent !== undefined && args.miss_percent !== null) next.miss_percent = Math.max(0, Math.min(100, Number(args.miss_percent)));
+      if (args.note !== undefined) next.note = String(args.note || "");
+      next.updated_at = nowIso();
+      next.updated_at_ms = Date.now();
+      await putCompanionEmotion(env, next);
+      return mcpText({ ok: true, emotion: effectiveCompanionEmotion(next), storage: "companion_emotion", separate_from_user_snapshot: true });
+    }
+    case "get_companion_emotion": {
+      const raw = await getCompanionEmotion(env);
+      return mcpText({ ...effectiveCompanionEmotion(raw), device_id, storage: "companion_emotion", separate_from_user_snapshot: true });
+    }
     case "set_tour_schedule": {
       const sched = await getTourSchedule(env);
       const next = { ...sched };
-      for (const key of ["enabled", "check_in_interval_minutes", "force_back_interval_minutes", "cooldown_minutes", "single_app_lock_minutes", "single_app_lock_duration_minutes", "alert_tone"]) { if (args[key] !== undefined) next[key] = args[key]; }
+      for (const key of ["enabled", "check_in_interval_minutes", "force_back_interval_minutes", "cooldown_minutes", "single_app_lock_minutes", "single_app_lock_duration_minutes", "alert_tone", "force_back_miss_threshold"]) { if (args[key] !== undefined) next[key] = args[key]; }
+      if (next.force_back_miss_threshold !== undefined) next.force_back_miss_threshold = Math.max(1, Math.min(100, Number(next.force_back_miss_threshold) || 70));
       if (args.quiet_hours === null) next.quiet_hours = null;
       else if (args.quiet_hours && typeof args.quiet_hours === "object") next.quiet_hours = { start: String(args.quiet_hours.start || "23:00"), end: String(args.quiet_hours.end || "08:00") };
       if (args.night_hours && typeof args.night_hours === "object") next.night_hours = { start: String(args.night_hours.start || "23:00"), end: String(args.night_hours.end || "06:00") };

@@ -127,7 +127,7 @@ Render 一键部署时，`LINJIAN_URL` 会由 Blueprint 自动引用 server 的�
 归电用于把用户从目标 App 或手机使用中叫回指定目标应用。公开版目标 App 由用户配置，不写死到私人 App。
 
 - `get_guidian_state(device_id)`：读取归电状态和设置：上次回来、下次最早归电、今日次数、拒绝理由、目标 App、主题等。
-- `set_guidian_config(enabled, interval_minutes, cooldown_minutes, daily_max, quiet_enabled, quiet_start, quiet_end, fullscreen, theme, prompts, quick_reasons, device_id, wait_seconds)`：调整归电设置。
+- `set_guidian_config(enabled, interval_minutes, cooldown_minutes, daily_max, quiet_enabled, quiet_start, quiet_end, fullscreen, theme, popup_position, prompts, quick_reasons, device_id, wait_seconds)`：调整归电设置。`theme` 可选暮夜蓝紫 / 云海青灰 / 落日莓雾，`popup_position` 可选 top / center / bottom；**拉回弹窗与居中弹窗会跟着归电的主题和位置一起变**。
 - `trigger_guidian(device_id, wait_seconds)`：立刻触发一次归电全屏页，用于测试或主动叫回。
 - `mark_guidian_returned(source, device_id, wait_seconds)`：手动标记用户已经回到归电目标 App。
 
@@ -139,6 +139,26 @@ Render 一键部署时，`LINJIAN_URL` 会由 Blueprint 自动引用 server 的�
 - `get_care_history(limit)`：读取最近主动关心记录。
 - `active_care_check(reason, care_intent, device_id)`：综合手机状态、当前 App、屏幕时间、归电状态、门禁状态和关心策略，给 AI 判断是否需要介入。
 - `care_action(action, target_app, package, duration_minutes, title, message, hour, minute, reason, tone, device_id, wait_seconds)`：执行已经判断好的关心动作，例如发送通知、触发归电、屏幕休息、打开 App、设置闹钟等。
+
+## 查岗与管束（巡回调度）
+
+手机端「查岗与管束」设置页与这里的 `set_tour_schedule` **读写同一份配置**（服务端 `data/tour_schedule.json`），两边改任意一边都立刻生效，没有第二套存储。
+
+- `set_tour_schedule(enabled, check_in_interval_minutes, force_back_interval_minutes, cooldown_minutes, quiet_start, quiet_end, night_start, night_end, single_app_lock_minutes, single_app_lock_duration_minutes, force_back_miss_threshold, alert_tone, exempt_packages, device_id)`：配置并开关巡回查岗调度器。所有时间与阈值都由用户自行设定。
+- `show_center_alert(title, message, tone, button_text, device_id, wait_seconds)`：在手机屏幕中央弹出一张对话框，语气可选「温柔 gentle / 生气 angry」。
+- `force_back_to_chat(level, title, message, device_id, wait_seconds)`：把用户拉回掌心窗陪伴页。**默认先弹分级弹窗**：`level` 默认 `auto`，想她百分比低于阈值 → 软级别（两个按钮「现在就回去」「再等一会儿」，可拒绝但必须留下理由，理由写入日志）；达到阈值或强情绪 → 强级别（只有一个按钮，点击后强制跳回聊天界面，没有拒绝入口）。
+- `get_usage_snapshot(device_id)`：读取使用状态快照（当前 App、单 App 停留时长、今日屏幕时长、解锁次数、电量、网络等）。
+
+## 陪伴对象自己的情绪
+
+与「读用户手机状态」的情绪快照**分开存储、互不覆盖**：陪伴对象的情绪放在独立的 `companion_emotion.json`，用户侧情绪仍在 `emotion_state.json`。
+
+- `write_companion_emotion(emotion_tag, intensity, miss_percent, note, device_id)`：写入陪伴对象此刻的情绪。`emotion_tag`（平静/想你/吃醋/生气/担心/委屈等）、`intensity` 0-100、`miss_percent` 0-100（想她百分比）、`note`。
+- `get_companion_emotion(device_id)`：读取陪伴对象此刻的情绪、强度、想她百分比、更新时间与是否强情绪。
+- `get_emotion_snapshot(device_id)`：读取**用户手机状态**的情绪感知输入（当前 App、停留时长、深夜、电量、用户情绪标签），给出提醒/拉回/安静建议。注意它读的是用户状态，不是陪伴对象的心情。
+- `write_emotion_tag(tag, note, device_id)`：回写一条**用户侧**情绪标签。
+
+情绪有连续性：写入后会随时间自然衰减，用户越久没回来想她百分比越累积。这些值会驱动归电与弹窗的文案、语气，并按想她深度缩短拉回间隔。
 
 ## 门禁与屏幕休息
 

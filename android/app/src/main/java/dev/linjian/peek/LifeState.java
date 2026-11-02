@@ -65,6 +65,9 @@ public class LifeState {
             SharedPreferencesCompat prefs = new SharedPreferencesCompat(ctx);
 
             state.put("device_id", AppPrefs.device(ctx));
+            // 陪伴对象与用户称呼一起上报，服务端生成文案时才不会叫错名字。
+            state.put("companion_name", AppPrefs.companionName(ctx));
+            state.put("user_name", AppPrefs.userName(ctx));
             state.put("life_state_version", "0.3.9.0");
             state.put("local_time", formatLocal(now, "HH:mm"));
             state.put("local_date", formatLocal(now, "yyyy-MM-dd"));

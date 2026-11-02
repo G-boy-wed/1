@@ -138,7 +138,13 @@ public class GuidianActivity extends Activity {
         waveLp.topMargin = dp(12);
         body.addView(waveLine, waveLp);
 
-        body.addView(new View(this), new LinearLayout.LayoutParams(1, 0, .58f));
+        // 归电内容位置跟随归电设置里的“弹窗位置”，拉回弹窗与居中弹窗读的是同一份配置。
+        String position = GuidianState.popupPosition(this);
+        float bottomSpacerWeight = .58f;
+        if (GuidianState.POSITION_TOP.equals(position)) bottomSpacerWeight = .04f;
+        else if (GuidianState.POSITION_BOTTOM.equals(position)) bottomSpacerWeight = .92f;
+
+        body.addView(new View(this), new LinearLayout.LayoutParams(1, 0, bottomSpacerWeight));
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
@@ -478,49 +484,6 @@ public class GuidianActivity extends Activity {
                 if (i == 0) path.moveTo(x, y); else path.lineTo(x, y);
             }
             canvas.drawPath(path, line);
-        }
-    }
-
-    private static class GuidianTheme {
-        final int background, panel, soft, primary, text, subtext, line, decor, wave, avatarRing, online, onPrimary, scrim;
-        final float roseAlpha, butterflyAlpha;
-        final boolean dark;
-
-        GuidianTheme(int background, int panel, int soft, int primary, int text, int subtext,
-                     int line, int decor, int wave, int avatarRing, int online, int onPrimary,
-                     int scrim, float roseAlpha, float butterflyAlpha, boolean dark) {
-            this.background = background;
-            this.panel = panel;
-            this.soft = soft;
-            this.primary = primary;
-            this.text = text;
-            this.subtext = subtext;
-            this.line = line;
-            this.decor = decor;
-            this.wave = wave;
-            this.avatarRing = avatarRing;
-            this.online = online;
-            this.onPrimary = onPrimary;
-            this.scrim = scrim;
-            this.roseAlpha = roseAlpha;
-            this.butterflyAlpha = butterflyAlpha;
-            this.dark = dark;
-        }
-
-        static GuidianTheme from(String name) {
-            if ("黑色".equals(name)) {
-                return new GuidianTheme(0xFF0E0D10, 0xFF19171B, 0xFF211E23, 0xFFF08EAF,
-                        0xFFF8F3F5, 0xFFAFA1A7, 0xFF393139, 0xFFF4DCE5, 0xFF72505D,
-                        0xFF29232A, 0xFF84B69B, 0xFF24191E, 0x99000000, .20f, .11f, true);
-            }
-            if ("白色".equals(name)) {
-                return new GuidianTheme(0xFFF7F6F5, 0xFFFFFFFF, 0xFFF0EDEF, 0xFF292529,
-                        0xFF242124, 0xFF777076, 0xFFE2DEE0, 0xFF514A50, 0xFFB7AFB4,
-                        0xFFF0ECEE, 0xFF79AB8F, Color.WHITE, 0x55000000, .18f, .09f, false);
-            }
-            return new GuidianTheme(0xFFFFF3F7, 0xFFFFFCFD, 0xFFFFE7EF, 0xFFD46A91,
-                    0xFF392C31, 0xFF8F6E7A, 0xFFF1CBD8, 0xFFB64F75, 0xFFE2A7BB,
-                    0xFFFFDFE9, 0xFF78AE90, Color.WHITE, 0x550E0508, .24f, .10f, false);
         }
     }
 }

@@ -350,8 +350,8 @@
 
                 <Button android:id="@+id/drawerCalendarButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="守护日历  ›" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginBottom="8dp" />
 
-                <!-- 管束策略：把巡回周期、安静时段、单 App 锁阈值、豁免应用、弹窗语气交给用户自己设定 -->
-                <Button android:id="@+id/drawerPolicyButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="管束策略  ›" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginBottom="8dp" />
+                <!-- 查岗与管束：把巡回周期、安静时段、单 App 锁阈值、豁免应用、弹窗语气交给用户自己设定 -->
+                <Button android:id="@+id/drawerPolicyButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="查岗与管束  ›" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginBottom="8dp" />
                 <LinearLayout android:id="@+id/drawerCalendar" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/card_bg" android:layout_marginBottom="8dp" android:visibility="gone">
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="添加一个日子" android:textStyle="bold" android:textSize="16sp" android:textColor="#FF2D3E39" />
                     <TextView android:id="@+id/calendarSummaryText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="把重要日子轻轻放进窗边。" android:textSize="11sp" android:textColor="#FF6E6282" android:layout_marginTop="8dp" android:lineSpacingExtra="4dp" />
@@ -472,12 +472,19 @@
                     <EditText android:id="@+id/guidianQuietEndInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="安静结束，例如 08:00" android:textSize="11sp" android:singleLine="true" />
                     <EditText android:id="@+id/guidianTargetPackageInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="归电目标，可填目标 APP 名称或包名" android:textSize="11sp" android:singleLine="true" />
 
-                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="归电主题" android:textStyle="bold" android:textSize="13sp" android:textColor="#FF2D3E39" android:layout_marginTop="10dp" />
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="归电主题（拉回弹窗与居中弹窗共用这一份配色）" android:textStyle="bold" android:textSize="13sp" android:textColor="#FF2D3E39" android:layout_marginTop="10dp" />
                     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="6dp">
-                        <Button android:id="@+id/guidianThemeDuskButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="粉色" android:textSize="11sp" android:background="@drawable/pill_soft" />
-                        <Button android:id="@+id/guidianThemeCloudButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="白色" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginLeft="5dp" />
-                        <Button android:id="@+id/guidianThemeBerryButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="黑色" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginLeft="5dp" />
+                        <Button android:id="@+id/guidianThemeDuskButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="暮夜蓝紫" android:textSize="11sp" android:background="@drawable/pill_soft" />
+                        <Button android:id="@+id/guidianThemeCloudButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="云海青灰" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginLeft="5dp" />
+                        <Button android:id="@+id/guidianThemeBerryButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="落日莓雾" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginLeft="5dp" />
                     </LinearLayout>
+
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="弹窗位置（拉回弹窗跟着这里走）" android:textStyle="bold" android:textSize="13sp" android:textColor="#FF2D3E39" android:layout_marginTop="10dp" />
+                    <RadioGroup android:id="@+id/guidianPositionGroup" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="2dp">
+                        <RadioButton android:id="@+id/guidianPositionTop" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="顶部" android:textSize="11sp" />
+                        <RadioButton android:id="@+id/guidianPositionCenter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="居中" android:textSize="11sp" android:layout_marginStart="14dp" />
+                        <RadioButton android:id="@+id/guidianPositionBottom" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="底部" android:textSize="11sp" android:layout_marginStart="14dp" />
+                    </RadioGroup>
 
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="头像" android:textStyle="bold" android:textSize="13sp" android:textColor="#FF2D3E39" android:layout_marginTop="10dp" />
                     <TextView android:id="@+id/guidianAvatarText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="当前使用默认头像。" android:textSize="11sp" android:textColor="#FF596D66" android:layout_marginTop="4dp" android:lineSpacingExtra="3dp" />

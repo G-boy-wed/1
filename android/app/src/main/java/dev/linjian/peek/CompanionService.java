@@ -232,8 +232,26 @@ public class CompanionService extends Service {
                 return;
             }
             if ("force_back_to_chat".equals(action)) {
-                CompanionService.bringAppToFront(ctx);
-                try { reportCommand(ctx, serverUrl, token, id, true, "brought_to_chat"); } catch (Exception ignored) { }
+                // 分级拉回：先弹窗，不直接跳转。
+                // 想她百分比低于阈值 → 软级别（两个按钮，可拒绝并留下理由）；
+                // 达到阈值或强情绪 → 强级别（只有一个按钮，点击强制跳回聊天界面）。
+                JSONObject cfg = buildPullBackConfig(ctx, cmd);
+                PullBackActivity.show(ctx, cfg);
+                boolean strong = PullBackCard.isStrongLevel(cfg);
+                String result = (strong ? "pull_back_strong_shown" : "pull_back_soft_shown")
+                        + " level=" + cfg.optString("level", "soft")
+                        + " miss=" + cfg.optInt("miss_percent", 0)
+                        + " tag=" + cfg.optString("emotion_tag", "");
+                try { reportCommand(ctx, serverUrl, token, id, true, result); } catch (Exception ignored) { }
+                return;
+            }
+            if ("set_companion_emotion".equals(action) || "get_companion_emotion".equals(action)
+                    || "write_companion_emotion".equals(action)) {
+                JSONObject rr = CompanionEmotionState.handleCommand(ctx, cmd);
+                boolean ok = rr.optBoolean("ok", false);
+                String result = rr.optString("result", rr.toString());
+                DebugState.append(ctx, "陪伴对象情绪命令 " + action + "：" + result);
+                try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, true); } catch (Exception ignored) { }
                 return;
             }
             if ("start_tour".equals(action) || "stop_tour".equals(action)) {
@@ -478,6 +496,79 @@ public class CompanionService extends Service {
         } catch (Exception e) { DebugState.append(ctx, "强制拉回异常：" + ScreenshotService.shortMsg(e)); }
     }
 
+    /**
+     * 组装分级拉回弹窗的配置。
+     * 服务端可以在 payload 里覆盖 level / threshold / 文案；
+     * 没给的时候按本机保存的陪伴对象情绪判断：想她百分比达到阈值、或情绪是生气/吃醋等强情绪 → 强级别。
+     */
+    private static JSONObject buildPullBackConfig(Context ctx, JSONObject cmd) {
+        JSONObject cfg = new JSONObject();
+        try {
+            JSONObject payload = cmd.optJSONObject("payload");
+            String tag = CompanionEmotionState.emotionTag(ctx);
+            int miss = CompanionEmotionState.effectiveMissPercent(ctx);
+            int intensity = CompanionEmotionState.effectiveIntensity(ctx);
+            int threshold = 70;
+            String level = "";
+            String message = "";
+            String title = "";
+
+            if (payload != null) {
+                if (payload.has("emotion_tag")) tag = payload.optString("emotion_tag", tag);
+                if (payload.has("miss_percent")) miss = payload.optInt("miss_percent", miss);
+                if (payload.has("intensity")) intensity = payload.optInt("intensity", intensity);
+                if (payload.has("threshold")) threshold = payload.optInt("threshold", threshold);
+                if (payload.has("level")) level = payload.optString("level", "");
+                message = payload.optString("message", "");
+                title = payload.optString("title", "");
+            }
+            // 顶层平铺字段兜底（服务端会把 payload 平铺到命令顶层）。
+            if (cmd.has("emotion_tag")) tag = cmd.optString("emotion_tag", tag);
+            if (cmd.has("miss_percent")) miss = cmd.optInt("miss_percent", miss);
+            if (cmd.has("intensity")) intensity = cmd.optInt("intensity", intensity);
+            if (cmd.has("threshold")) threshold = cmd.optInt("threshold", threshold);
+            if (cmd.has("level")) level = cmd.optString("level", level);
+            if (title.isEmpty()) title = cmd.optString("title", "");
+            if (message.isEmpty()) message = cmd.optString("message", "");
+            // 服务端自动生成的文案不含本机真实称呼，auto_message 时改用本地文案。
+            boolean autoMessage = payload != null && payload.optBoolean("auto_message", false);
+            if (cmd.optBoolean("auto_message", false)) autoMessage = true;
+            if (autoMessage) message = "";
+            if (autoMessage) title = "";
+
+            threshold = Math.max(1, Math.min(100, threshold));
+            boolean strongEmotion = CompanionEmotionState.isStrong(ctx) || isStrongTag(tag);
+            // level 为空或 auto 时按情绪自动判定；显式指定 soft/strong 时以指定为准。
+            if ("auto".equalsIgnoreCase(level)) level = "";
+            boolean strong = "strong".equalsIgnoreCase(level)
+                    || (level.isEmpty() && (miss >= threshold || strongEmotion));
+
+            if (message.isEmpty()) message = CompanionEmotionState.message(ctx);
+            if (title.isEmpty()) title = strong ? AppPrefs.companionName(ctx) + "要你回来" : AppPrefs.companionName(ctx) + "在等你";
+
+            cfg.put("level", strong ? "strong" : "soft");
+            cfg.put("strong", strong);
+            cfg.put("allow_decline", !strong);
+            cfg.put("emotion_tag", tag);
+            cfg.put("miss_percent", miss);
+            cfg.put("intensity", intensity);
+            cfg.put("threshold", threshold);
+            cfg.put("title", title);
+            cfg.put("message", message);
+            cfg.put("tone", strong ? "angry" : CompanionEmotionState.tone(ctx));
+        } catch (Exception e) {
+            DebugState.append(ctx, "拉回配置组装异常：" + ScreenshotService.shortMsg(e));
+        }
+        return cfg;
+    }
+
+    private static boolean isStrongTag(String tag) {
+        if (tag == null) return false;
+        String[] strong = {"生气", "吃醋", "担心", "委屈"};
+        for (String s : strong) if (tag.contains(s)) return true;
+        return false;
+    }
+
     public static boolean showReminderNotification(Context ctx, String title, String message) {
         return showReminderNotification(ctx, title, message, (int)(System.currentTimeMillis() % Integer.MAX_VALUE));
     }
@@ -554,6 +645,8 @@ public class CompanionService extends Service {
         if (!force && now - lastStateUploadMs < AppPrefs.STATE_UPLOAD_INTERVAL_MS) return;
         lastStateUploadMs = now;
         JSONObject state = LifeState.collect(ctx);
+        // 陪伴对象情绪随状态一起上报，服务端据此做镜像，MCP 读到的和手机上是同一份。
+        try { state.put("companion_emotion", CompanionEmotionState.snapshot(ctx)); } catch (Exception ignored) { }
         // 归电自动补弹：随生活状态上传定期检查；已限频，避免公开后端被状态上报打到 429。
         GuidianState.evaluate(ctx, state);
         state = LifeState.collect(ctx);

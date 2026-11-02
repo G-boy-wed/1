@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- App 内「管束策略」设置页：把巡回周期、安静时段、单 App 锁阈值、
-     豁免应用、弹窗语气等全部交给用户自己设定，保存后立即生效。 -->
+<!-- App 内「查岗与管束」设置页：把巡回周期、安静时段、单 App 锁阈值、
+     豁免应用、弹窗语气、拉回分级阈值等全部交给用户自己设定，保存后立即生效。
+     这里保存的就是 MCP set_tour_schedule 用的同一份配置（服务端 tour_schedule.json），
+     两边改任意一边，另一边读到的都是最新值。 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -13,9 +15,9 @@
         android:padding="16dp">
 
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="管束策略" android:textStyle="bold" android:textSize="18sp" android:textColor="#FF2D3E39" />
+            android:text="查岗与管束" android:textStyle="bold" android:textSize="18sp" android:textColor="#FF2D3E39" />
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="这里所有的周期、时间与规则都由你自己定；保存后立即生效，没有任何强制默认值。"
+            android:text="这里所有的周期、时间与规则都由你自己定；保存后立即生效，和 MCP 的 set_tour_schedule 是同一份配置。"
             android:textSize="11sp" android:textColor="#FF6E6282" android:layout_marginTop="6dp" android:lineSpacingExtra="3dp" />
 
         <CheckBox android:id="@+id/policyEnabled"
@@ -64,11 +66,32 @@
         <EditText android:id="@+id/policyExemptPackages" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:hint="例如 com.reader.app, com.notes.app" android:textSize="12sp" android:inputType="text" />
 
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="居中弹窗语气" android:textSize="11sp" android:textColor="#FF8B7D99" android:layout_marginTop="12dp" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="弹窗语气" android:textSize="11sp" android:textColor="#FF8B7D99" android:layout_marginTop="12dp" />
         <RadioGroup android:id="@+id/policyToneGroup" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
             <RadioButton android:id="@+id/policyToneGentle" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="温柔" android:textSize="13sp" android:checked="true" />
             <RadioButton android:id="@+id/policyToneAngry" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="生气" android:textSize="13sp" android:layout_marginStart="18dp" />
         </RadioGroup>
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="拉回分级阈值（想她百分比达到该值 → 强级别弹窗，只有「现在就回去」一个按钮）"
+            android:textSize="11sp" android:textColor="#FF8B7D99" android:layout_marginTop="12dp" />
+        <EditText android:id="@+id/policyMissThreshold" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:hint="70" android:inputType="number" android:textSize="13sp" android:singleLine="true" />
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="陪伴对象当前情绪（独立于用户手机状态的情绪快照）"
+            android:textSize="11sp" android:textColor="#FF8B7D99" android:layout_marginTop="16dp" />
+        <TextView android:id="@+id/policyEmotionInfo" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="读取中…" android:textSize="12sp" android:textColor="#FF2D3E39" android:layout_marginTop="4dp" android:lineSpacingExtra="3dp" />
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="8dp">
+            <EditText android:id="@+id/policyEmotionTag" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:hint="情绪标签，如 想你 / 吃醋" android:textSize="12sp" android:singleLine="true" android:layout_marginEnd="6dp" />
+            <EditText android:id="@+id/policyEmotionMiss" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:hint="想你 0-100" android:inputType="number" android:textSize="12sp" android:singleLine="true" />
+        </LinearLayout>
+        <Button android:id="@+id/policyEmotionSaveButton" android:layout_width="match_parent" android:layout_height="36dp"
+            android:text="写一次情绪（同时同步给 MCP）" android:textSize="12sp" android:background="@drawable/pill_soft" android:layout_marginTop="8dp" />
 
         <Button android:id="@+id/policySaveButton" android:layout_width="match_parent" android:layout_height="40dp"
             android:text="保存并生效" android:textSize="13sp" android:textColor="#FFFFFFFF" android:background="@drawable/pill_primary" android:layout_marginTop="18dp" />
@@ -76,6 +99,10 @@
             android:text="立刻查岗一次" android:textSize="12sp" android:background="@drawable/pill_soft" android:layout_marginTop="8dp" />
         <Button android:id="@+id/policyTestAlertButton" android:layout_width="match_parent" android:layout_height="36dp"
             android:text="试一下居中弹窗" android:textSize="12sp" android:background="@drawable/pill_soft" android:layout_marginTop="8dp" />
+        <Button android:id="@+id/policyTestSoftButton" android:layout_width="match_parent" android:layout_height="36dp"
+            android:text="试一下软级别拉回弹窗（可拒绝）" android:textSize="12sp" android:background="@drawable/pill_soft" android:layout_marginTop="8dp" />
+        <Button android:id="@+id/policyTestStrongButton" android:layout_width="match_parent" android:layout_height="36dp"
+            android:text="试一下强级别拉回弹窗（强制）" android:textSize="12sp" android:background="@drawable/pill_soft" android:layout_marginTop="8dp" />
 
         <TextView android:id="@+id/policyStatusText" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="" android:textSize="11sp" android:textColor="#FF6E6282" android:layout_marginTop="12dp" android:lineSpacingExtra="3dp" />

@@ -27,9 +27,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * App 内「管束策略」设置页。
+ * App 内「查岗与管束」设置页。
+ *
  * 巡回周期、强制拉回周期、冷却、安静时段、深夜时段、单 App 锁阈值与时长、
- * 豁免应用、弹窗语气——全部由用户自己设定，保存后立即写回后端策略。
+ * 豁免应用、弹窗语气、拉回分级阈值——全部由用户自己设定。
+ *
+ * 这里读写的是服务端的 /api/tour/schedule，也就是 MCP 的 set_tour_schedule 用的同一份配置，
+ * 手机改完立刻生效，MCP 改完这里刷新就能看到，不存在第二套存储。
  */
 public class PolicySettingsActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -37,9 +41,11 @@ public class PolicySettingsActivity extends Activity {
     private CheckBox policyEnabled;
     private EditText policyCheckInInput, policyForceBackInput, policyCooldownInput;
     private EditText policyQuietStart, policyQuietEnd, policyNightStart, policyNightEnd;
-    private EditText policyLockMinutes, policyLockDuration, policyExemptPackages;
+    private EditText policyLockMinutes, policyLockDuration, policyExemptPackages, policyMissThreshold;
+    private EditText policyEmotionTag, policyEmotionMiss;
     private RadioButton policyToneGentle, policyToneAngry;
-    private TextView policyStatusText;
+    private TextView policyStatusText, policyEmotionInfo;
+    private Button policyEmotionSaveButton, policyTestSoftButton, policyTestStrongButton;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -58,13 +64,21 @@ public class PolicySettingsActivity extends Activity {
         policyLockMinutes = findViewById(R.id.policyLockMinutes);
         policyLockDuration = findViewById(R.id.policyLockDuration);
         policyExemptPackages = findViewById(R.id.policyExemptPackages);
+        policyMissThreshold = findViewById(R.id.policyMissThreshold);
+        policyEmotionTag = findViewById(R.id.policyEmotionTag);
+        policyEmotionMiss = findViewById(R.id.policyEmotionMiss);
         policyToneGentle = findViewById(R.id.policyToneGentle);
         policyToneAngry = findViewById(R.id.policyToneAngry);
         policyStatusText = findViewById(R.id.policyStatusText);
+        policyEmotionInfo = findViewById(R.id.policyEmotionInfo);
 
         Button save = findViewById(R.id.policySaveButton);
         Button checkNow = findViewById(R.id.policyCheckNowButton);
         Button testAlert = findViewById(R.id.policyTestAlertButton);
+        policyEmotionSaveButton = findViewById(R.id.policyEmotionSaveButton);
+        policyTestSoftButton = findViewById(R.id.policyTestSoftButton);
+        policyTestStrongButton = findViewById(R.id.policyTestStrongButton);
+
         save.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { savePolicy(); }
         });
@@ -74,8 +88,18 @@ public class PolicySettingsActivity extends Activity {
         testAlert.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { testAlert(); }
         });
+        policyEmotionSaveButton.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { saveEmotion(); }
+        });
+        policyTestSoftButton.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { testPullBack(false); }
+        });
+        policyTestStrongButton.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { testPullBack(true); }
+        });
 
         loadPolicy();
+        loadEmotion();
     }
 
     private boolean ready() {
@@ -131,6 +155,7 @@ public class PolicySettingsActivity extends Activity {
         boolean angry = "angry".equals(s.optString("alert_tone", "gentle"));
         policyToneAngry.setChecked(angry);
         policyToneGentle.setChecked(!angry);
+        policyMissThreshold.setText(String.valueOf(s.optInt("force_back_miss_threshold", 70)));
     }
 
     private void savePolicy() {
@@ -144,6 +169,7 @@ public class PolicySettingsActivity extends Activity {
             body.put("cooldown_minutes", num(policyCooldownInput, 5, 0, 240));
             body.put("single_app_lock_minutes", num(policyLockMinutes, 0, 0, 600));
             body.put("single_app_lock_duration_minutes", num(policyLockDuration, 5, 1, 120));
+            body.put("force_back_miss_threshold", num(policyMissThreshold, 70, 1, 100));
             body.put("alert_tone", policyToneAngry.isChecked() ? "angry" : "gentle");
 
             String qs = text(policyQuietStart), qe = text(policyQuietEnd);
@@ -221,7 +247,7 @@ public class PolicySettingsActivity extends Activity {
             payload.put("tone", policyToneAngry.isChecked() ? "angry" : "gentle");
             payload.put("button_text", "知道啦");
             JSONObject body = new JSONObject();
-            body.put("device_id", "android-phone");
+            body.put("device_id", AppPrefs.device(this));
             body.put("action", "show_center_alert");
             body.put("payload", payload);
             status("已下发居中弹窗命令，手机下次轮询时会弹出…");
@@ -238,6 +264,115 @@ public class PolicySettingsActivity extends Activity {
         } catch (Exception e) {
             status("下发失败：" + e.getMessage());
         }
+    }
+
+    /** 本地直接触发分级拉回弹窗，方便验收两种级别。 */
+    private void testPullBack(boolean strong) {
+        try {
+            JSONObject cfg = new JSONObject();
+            int miss = strong ? Math.max(num(policyMissThreshold, 70, 1, 100), 80) : 35;
+            cfg.put("level", strong ? "strong" : "soft");
+            cfg.put("strong", strong);
+            cfg.put("allow_decline", !strong);
+            cfg.put("emotion_tag", strong ? "生气" : CompanionEmotionState.emotionTag(this));
+            cfg.put("miss_percent", miss);
+            cfg.put("intensity", strong ? 85 : 45);
+            cfg.put("threshold", num(policyMissThreshold, 70, 1, 100));
+            cfg.put("title", strong ? AppPrefs.companionName(this) + "要你回来" : AppPrefs.companionName(this) + "在等你");
+            cfg.put("message", CompanionEmotionState.message(this));
+            cfg.put("tone", strong ? "angry" : (policyToneAngry.isChecked() ? "angry" : "gentle"));
+            PullBackActivity.show(this, cfg);
+            status(strong ? "已触发强级别弹窗：只有一个按钮，点击后强制回到聊天界面。" : "已触发软级别弹窗：可以选「再等一会儿」，但必须写理由。");
+        } catch (Exception e) {
+            status("触发失败：" + e.getMessage());
+        }
+    }
+
+    /** 读取陪伴对象情绪：本机快照 + 服务端镜像，取更新更晚的那份。 */
+    private void loadEmotion() {
+        JSONObject local = CompanionEmotionState.snapshot(this);
+        showEmotion(local);
+        if (!ready()) return;
+        final String base = AppPrefs.server(this), token = AppPrefs.token(this);
+        new Thread(new Runnable() {
+            @Override public void run() {
+                final String resp = request(base, token, "GET", "/api/companion/emotion", null);
+                main.post(new Runnable() {
+                    @Override public void run() {
+                        try {
+                            JSONObject remote = new JSONObject(resp);
+                            JSONObject merged = mergeEmotion(local, remote);
+                            showEmotion(merged);
+                        } catch (Exception ignored) { }
+                    }
+                });
+            }
+        }, "policy-emotion-load").start();
+    }
+
+    private JSONObject mergeEmotion(JSONObject local, JSONObject remote) {
+        try {
+            JSONObject snap = remote.optJSONObject("emotion");
+            if (snap == null) snap = remote;
+            long localMs = local.optLong("updated_at_ms", 0);
+            long remoteMs = snap.optLong("updated_at_ms", 0);
+            if (remoteMs > localMs) {
+                JSONObject merged = new JSONObject();
+                merged.put("emotion_tag", snap.optString("emotion_tag", CompanionEmotionState.emotionTag(this)));
+                merged.put("miss_percent", snap.optInt("miss_percent", 0));
+                merged.put("intensity", snap.optInt("intensity", 0));
+                merged.put("note", snap.optString("note", ""));
+                merged.put("updated_at", snap.optString("updated_at", ""));
+                merged.put("updated_at_ms", remoteMs);
+                return merged;
+            }
+        } catch (Exception ignored) { }
+        return local;
+    }
+
+    private void showEmotion(JSONObject emotion) {
+        if (policyEmotionInfo == null || emotion == null) return;
+        String tag = emotion.optString("emotion_tag", CompanionEmotionState.TAG_CALM);
+        int miss = emotion.optInt("miss_percent", 0);
+        int intensity = emotion.optInt("intensity", 0);
+        String note = emotion.optString("note", "");
+        String updated = emotion.optString("updated_at", "");
+        StringBuilder sb = new StringBuilder();
+        sb.append("情绪：").append(tag).append("　想她：").append(miss).append("%　强度：").append(intensity).append("\n");
+        if (note.length() > 0) sb.append("备注：").append(note).append("\n");
+        if (updated.length() > 0) sb.append("更新于：").append(updated);
+        policyEmotionInfo.setText(sb.toString().trim());
+    }
+
+    /** 写一次情绪：先写本机（立即生效），再同步给服务端，MCP 就能读到。 */
+    private void saveEmotion() {
+        String tag = text(policyEmotionTag);
+        if (tag.isEmpty()) tag = CompanionEmotionState.emotionTag(this);
+        int miss = num(policyEmotionMiss, CompanionEmotionState.effectiveMissPercent(this), 0, 100);
+        JSONObject snap = CompanionEmotionState.write(this, tag, null, Integer.valueOf(miss), "");
+        showEmotion(snap);
+        Toast.makeText(this, "情绪已更新", Toast.LENGTH_SHORT).show();
+        if (!ready()) return;
+        final String base = AppPrefs.server(this), token = AppPrefs.token(this);
+        final JSONObject body = new JSONObject();
+        try {
+            body.put("emotion_tag", tag);
+            body.put("miss_percent", miss);
+            body.put("intensity", snap.optInt("intensity", 0));
+            body.put("note", "");
+        } catch (Exception e) { return; }
+        new Thread(new Runnable() {
+            @Override public void run() {
+                final String resp = request(base, token, "POST", "/api/companion/emotion", body.toString());
+                main.post(new Runnable() {
+                    @Override public void run() {
+                        status(resp.startsWith("ERROR") || resp.startsWith("HTTP 4")
+                                ? ("情绪已写入本机，但同步服务端失败：" + resp)
+                                : "情绪已写入本机并同步给服务端。");
+                    }
+                });
+            }
+        }, "policy-emotion-save").start();
     }
 
     private int num(EditText box, int fallback, int min, int max) {
