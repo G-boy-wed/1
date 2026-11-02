@@ -20,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 from urllib.request import Request, urlopen
 
 DEFAULT_PORT = 8513
@@ -53,135 +53,6 @@ KNOWN_APPS = {
 SENSITIVE_PACKAGES = {"com.eg.android.AlipayGphone", "com.tencent.mm.plugin.wallet"}
 ALLOWED_ACTIONS = {"noop", "peek", "open_app", "home", "back", "recents", "screen_off", "turn_screen_off", "lock_screen", "phone_screen_off", "tap", "swipe", "set_alarm", "send_notification", "run_sequence", "save_known_app", "get_screen_nodes", "tap_text", "input_text", "lock_app", "unlock_app", "temporary_unlock_app", "extend_lock", "deny_unlock_request", "get_lock_state", "set_emergency_passphrase", "add_locked_app", "remove_locked_app", "list_lockable_apps", "screen_break_app", "start_screen_break", "screen_break", "end_screen_break", "stop_screen_break", "temporary_screen_break_release", "temporary_screen_release", "extend_screen_break", "deny_screen_break_release_request", "deny_break_release_request", "get_screen_break_state", "set_screen_break_passphrase", "add_screen_break_app", "remove_screen_break_app", "list_screen_break_apps", "get_focus_status", "get_life_state", "start_focus_mode", "end_focus_mode", "set_focus_plan", "reply_focus_request", "approve_focus_unlock", "deny_focus_unlock", "request_focus_unlock", "create_focus_request", "get_guidian_state", "set_guidian_config", "trigger_guidian", "mark_guidian_returned", "get_calendar_state", "upsert_calendar_event", "add_calendar_event", "delete_calendar_event", "create_diary_book", "list_diary_books", "rename_diary_book", "update_diary_book_cover", "write_diary_entry", "list_diary_entries", "read_diary_entry", "read_diary_entry_with_annotations", "add_diary_annotation", "list_diary_annotations", "mark_diary_annotations_seen", "delete_diary_annotation", "search_diary_entries", "update_diary_entry", "delete_diary_entry", "delete_diary_book",
 "show_center_alert", "force_back_to_chat", "start_tour", "stop_tour"}
-
-
-
-
-def _nested_url_decode(value: str) -> str:
-    s = str(value or "").strip().replace("&amp;", "&")
-    for _ in range(4):
-        try:
-            d = unquote(s.replace("+", "%20"))
-        except Exception:
-            break
-        if d == s:
-            break
-        s = d
-    return s.strip()
-
-
-def _jd_host_allowed(host: str) -> bool:
-    h = (host or "").lower()
-    return h == "3.cn" or h.endswith(".3.cn") or h == "jd.com" or h.endswith(".jd.com")
-
-
-def _jd_useful_target(value: str) -> str:
-    v = _nested_url_decode(value)
-    if v.lower().startswith("openapp.jdmobile://"):
-        return v
-    try:
-        u = urlparse(v)
-    except Exception:
-        return ""
-    h = (u.hostname or "").lower()
-    if u.scheme not in ("http", "https") or not _jd_host_allowed(h):
-        return ""
-    if h == "3.cn" or h.endswith(".3.cn") or "plogin" in h or "passport" in h or "login" in h:
-        return ""
-    return v
-
-
-def _extract_jd_return_target(value: str, depth: int = 0) -> str:
-    if depth > 3:
-        return ""
-    direct = _jd_useful_target(value)
-    if direct:
-        return direct
-    try:
-        u = urlparse(str(value or "").strip())
-        qs = parse_qs(u.query)
-    except Exception:
-        try:
-            u = urlparse(_nested_url_decode(value))
-            qs = parse_qs(u.query)
-        except Exception:
-            return ""
-    preferred = ("returnurl", "return_url", "returnUrl", "redirect", "redirect_url", "redirectUrl", "target", "targetUrl", "jumpUrl", "jumpurl", "url", "to")
-    for key in preferred:
-        for raw in qs.get(key, []):
-            decoded = _nested_url_decode(raw)
-            hit = _jd_useful_target(decoded) or _extract_jd_return_target(decoded, depth + 1)
-            if hit:
-                return hit
-    for key, values in qs.items():
-        if not any(x in key.lower() for x in ("return", "redirect", "target", "jump", "url")):
-            continue
-        for raw in values:
-            decoded = _nested_url_decode(raw)
-            hit = _jd_useful_target(decoded) or _extract_jd_return_target(decoded, depth + 1)
-            if hit:
-                return hit
-    return ""
-
-
-def _build_jd_openapp(target: str) -> str:
-    target = _nested_url_decode(target)
-    if target.lower().startswith("openapp.jdmobile://"):
-        return target
-    params = json.dumps({"category": "jump", "des": "m", "url": target}, ensure_ascii=False, separators=(",", ":"))
-    return "openapp.jdmobile://virtual?params=" + quote(params, safe="")
-
-
-def _build_jd_search_openapp(keyword: str) -> str:
-    q = str(keyword or "").strip()
-    if not q:
-        return ""
-    params = json.dumps({"category": "jump", "des": "productList", "keyWord": q, "from": "search"}, ensure_ascii=False, separators=(",", ":"))
-    return "openapp.jdmobile://virtual?params=" + quote(params, safe="")
-
-
-def resolve_jd_share_link(raw_url: str, item_query: str = "") -> dict:
-    raw_url = str(raw_url or "").strip()
-    try:
-        start = urlparse(raw_url)
-    except Exception:
-        return {"ok": False, "error": "invalid_url"}
-    if start.scheme != "https" or not ((start.hostname or "").lower() == "3.cn" or (start.hostname or "").lower().endswith(".3.cn")):
-        direct = _jd_useful_target(raw_url)
-        return ({"ok": True, "resolved_url": direct, "openapp_url": _build_jd_openapp(direct), "source": "already_direct", "search_openapp": _build_jd_search_openapp(item_query)}
-                if direct else {"ok": False, "error": "jd_shortlink_required", "search_openapp": _build_jd_search_openapp(item_query)})
-    req = Request(raw_url, headers={
-        "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
-        "Accept-Language": "zh-CN,zh;q=0.9",
-    })
-    try:
-        with urlopen(req, timeout=15) as resp:
-            final_url = resp.geturl()
-            body = resp.read(600000).decode("utf-8", "replace")
-    except HTTPError as exc:
-        final_url = exc.geturl() or raw_url
-        try: body = exc.read(600000).decode("utf-8", "replace")
-        except Exception: body = ""
-    except Exception as exc:
-        return {"ok": False, "error": "jd_shortlink_fetch_failed", "detail": str(exc), "search_openapp": _build_jd_search_openapp(item_query)}
-    target = _extract_jd_return_target(final_url) or _jd_useful_target(final_url)
-    if not target:
-        for marker in ("returnurl", "returnUrl", "redirectUrl", "jumpUrl", "targetUrl"):
-            pos = body.find(marker)
-            if pos < 0: continue
-            chunk = body[pos:pos + 5000]
-            for sep in ('"', "'"):
-                parts = chunk.split(sep)
-                for part in parts:
-                    hit = _jd_useful_target(part) or _extract_jd_return_target(part)
-                    if hit:
-                        target = hit; break
-                if target: break
-            if target: break
-    if target:
-        return {"ok": True, "resolved_url": target, "openapp_url": _build_jd_openapp(target), "source": "redirect_or_login_return", "final_url": final_url, "search_openapp": _build_jd_search_openapp(item_query)}
-    return {"ok": False, "error": "jd_target_not_found", "final_url": final_url, "search_openapp": _build_jd_search_openapp(item_query)}
 
 def load_dotenv(path: Path) -> None:
     if not path.exists(): return
@@ -697,17 +568,18 @@ class Handler(BaseHTTPRequestHandler):
             data = self._read_json()
             sched = dict(load_tour_schedule(self.state))
             for key in ("enabled", "check_in_interval_minutes", "force_back_interval_minutes", "cooldown_minutes",
-                        "study_exempt_enabled", "study_session_active", "single_app_lock_minutes",
-                        "single_app_lock_duration_minutes", "alert_tone"):
+                        "single_app_lock_minutes", "single_app_lock_duration_minutes", "alert_tone"):
                 if key in data:
                     sched[key] = data[key]
             qh = data.get("quiet_hours")
-            if isinstance(qh, dict):
-                sched["quiet_hours"] = {"start": str(qh.get("start", sched["quiet_hours"]["start"])),
-                                        "end": str(qh.get("end", sched["quiet_hours"]["end"]))}
-            apps = data.get("study_apps")
+            if qh is None:
+                sched["quiet_hours"] = None
+            elif isinstance(qh, dict):
+                sched["quiet_hours"] = {"start": str(qh.get("start", "23:00")),
+                                        "end": str(qh.get("end", "08:00"))}
+            apps = data.get("exempt_packages")
             if isinstance(apps, list):
-                sched["study_apps"] = [str(a) for a in apps if a]
+                sched["exempt_packages"] = [str(a) for a in apps if a]
             self.state.tour_schedule = sched
             save_tour_schedule(self.state)
             add_tour_event(self.state, "schedule_updated", "更新巡回策略", DEFAULT_DEVICE)
@@ -740,14 +612,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"ok": False, "error": "tag_required"}); return
             record_emotion_tag(self.state, tag, note)
             self._json(200, {"ok": True, "emotion_state": self.state.emotion_state}); return
-        if path == "/api/study/session":
-            if not self._require_token(): return
-            data = self._read_json()
-            active = bool(data.get("active", data.get("study_session_active", False)))
-            self.state.tour_schedule = dict(load_tour_schedule(self.state)); self.state.tour_schedule["study_session_active"] = active
-            save_tour_schedule(self.state)
-            add_tour_event(self.state, "study_session", ("开始" if active else "结束") + "专升本备考豁免", DEFAULT_DEVICE)
-            self._json(200, {"ok": True, "study_session_active": active}); return
+        # 旧的专用豁免端点已移除；豁免改为通用 exempt_packages 配置（见 /api/tour/schedule）。
         self._json(404, {"ok": False, "error": ERR_BAD_METHOD})
 
     def _queue(self, cmd: dict) -> None:
@@ -781,27 +646,22 @@ class Handler(BaseHTTPRequestHandler):
 # 把原本散落在外部脚本与第三方推送（ntfy 等）的管束/巡回/提醒能力收进掌心窗本体。
 DEFAULT_TOUR_SCHEDULE = {
     "enabled": False,
-    # 查岗：周期性“看一眼”当前状态（静默，不下发弹窗）；默认每 15 分钟。
+    # 查岗：周期性“看一眼”当前状态（静默，不下发弹窗）。以下时间均为示例值，用户可在策略中自由调整。
     "check_in_interval_minutes": 15,
-    # 强制拉回：把用户拉回掌心窗陪伴页；默认每 30 分钟。
+    # 强制拉回：把用户拉回掌心窗陪伴页。
     "force_back_interval_minutes": 30,
     # 冷却：同类动作两次之间的最短间隔，避免短时间内重复打扰。
     "cooldown_minutes": 5,
-    # 安静时段：该时段内不打扰（不弹窗、不强制拉回；查岗仍可静默进行）。
-    "quiet_hours": {"start": "23:30", "end": "08:00"},
-    # 专升本备考豁免：顾钰和祁晏一起备考算正经学习，不锁不限制。
-    "study_exempt_enabled": True,
-    "study_apps": [
-        "com.chaoxing.mobile", "com.xuebalib.news", "cn.wps.moffice_eng",
-        "com.kmxs.reader", "com.eusoft.ebookreader", "com.zhangyue.reader",
-        "com.netease.yanxuan", "com.upupfans.app", "com.master.tingbook",
-        "com.qiyi.video", "com.kmxs.reader", "com.baidu.tieba",
-    ],
-    "study_session_active": False,
-    # 约束：单个 App 连续使用超过该分钟数 → 锁定该 App 若干分钟。
-    "single_app_lock_minutes": 120,
+    # 安静时段：该时段内不打扰（不弹窗、不强制拉回；查岗仍可静默进行）。默认 None = 不限制，由用户设置。
+    "quiet_hours": None,
+    # 深夜时段：用于情绪感知判断（默认 23:00–06:00），可由用户在策略中调整。
+    "night_hours": {"start": "23:00", "end": "06:00"},
+    # 约束：单个 App 连续使用超过该分钟数 → 锁定该 App 若干分钟。0 = 不自动锁定，由用户自行开启。
+    "single_app_lock_minutes": 0,
     "single_app_lock_duration_minutes": 5,
-    # 弹窗语气：gentle（温柔）/ angry（生气）。顾钰不介意被凶。
+    # 用户配置不锁定/不限制的 App 包名列表（如学习、工作类应用），为空则全部纳入约束。
+    "exempt_packages": [],
+    # 弹窗语气：gentle（温柔）/ angry（生气），由用户选择。
     "alert_tone": "gentle",
 }
 
@@ -923,15 +783,11 @@ def build_usage_snapshot(state: "State", device_id: str) -> dict:
     }
 
 
-def is_study_exempt(state: "State", device_id: str, sched: dict) -> bool:
-    """专升本备考豁免：手动开启学习会话，或当前前台是学习类 App 时，不锁不限制。"""
-    if not sched.get("study_exempt_enabled", True):
-        return False
-    if sched.get("study_session_active"):
-        return True
+def is_package_exempt(state: "State", device_id: str, sched: dict) -> bool:
+    """通用豁免：当前前台 App 在用户配置的 exempt_packages 列表中时，不锁定、不强制拉回。"""
     ds = state.device_states.get(device_id) or {}
     pkg = ds.get("current_package") or ""
-    return pkg in set(sched.get("study_apps") or [])
+    return bool(pkg) and pkg in set(sched.get("exempt_packages") or [])
 
 
 def build_emotion_snapshot(state: "State", device_id: str) -> dict:
@@ -939,7 +795,8 @@ def build_emotion_snapshot(state: "State", device_id: str) -> dict:
     sched = load_tour_schedule(state)
     snap = build_usage_snapshot(state, device_id)
     hm = _device_local_hm(state, device_id)
-    late_night = in_quiet_hours({"start": "23:00", "end": "06:00"}, hm)
+    night = sched.get("night_hours") or {"start": "23:00", "end": "06:00"}
+    late_night = in_quiet_hours(night, hm)
     quiet = in_quiet_hours(sched.get("quiet_hours") or {}, hm)
     emo = state.emotion_state or {}
     last_chat_at = parse_iso_seconds(emo.get("last_chat_at") or "")
@@ -955,7 +812,8 @@ def build_emotion_snapshot(state: "State", device_id: str) -> dict:
     if late_night and snap["screen_on"] and (dwell > 60 or screen > 240):
         suggestion = "pullback"
         reasons.append("深夜仍长时间亮屏/停留，需要被拉回休息")
-    if dwell > sched.get("single_app_lock_minutes", 120):
+    lock_min = sched.get("single_app_lock_minutes", 0)
+    if lock_min > 0 and dwell > lock_min:
         suggestion = "pullback"
         reasons.append("单个 App 连续使用已超过阈值")
     if ("低落" in tags or "撒娇" in tags) and not quiet:
@@ -968,7 +826,7 @@ def build_emotion_snapshot(state: "State", device_id: str) -> dict:
         reasons.append("电量偏低且未充电，提醒充电")
     if not reasons:
         reasons.append("状态平稳，暂不需要打扰")
-    # 推荐语气：顾钰不介意被凶；深夜刷屏/嘴硬 → 生气，否则温柔。
+    # 推荐语气：深夜长时间停留 → 生气，否则用策略设定的默认语气。
     tone = sched.get("alert_tone", "gentle")
     if late_night and dwell > 60:
         tone = "angry"
@@ -1028,21 +886,23 @@ def _recent_event(state: "State", kind_prefix: str, within_seconds: int, device_
 
 
 def tour_step_check_in(state: "State", sched: dict, device_id: str = DEFAULT_DEVICE) -> dict:
-    """巡回查岗一步：刷新用量 + 评估约束（单 App 超 2h 锁 5 分钟）。"""
+    """巡回查岗一步：刷新用量 + 评估单 App 连续使用超限锁定（阈值与时长均由用户配置）。"""
     _enqueue(state, "get_life_state", {}, device_id)
     add_tour_event(state, "check_in", "巡回查岗一次", device_id)
     ds = state.device_states.get(device_id) or {}
-    exempt = is_study_exempt(state, device_id, sched)
-    if not exempt:
+    exempt_pkgs = set(sched.get("exempt_packages") or [])
+    pkg = ds.get("current_package") or ""
+    lock_min = max(0, int(sched.get("single_app_lock_minutes", 0)))
+    locked = False
+    if lock_min > 0 and pkg and pkg not in exempt_pkgs:
         dwell = current_app_dwell_minutes(state, device_id)
-        lock_min = max(1, int(sched.get("single_app_lock_minutes", 120)))
-        lock_dur = max(1, int(sched.get("single_app_lock_duration_minutes", 5)))
-        pkg = ds.get("current_package") or ""
-        if dwell >= lock_min and pkg:
+        if dwell >= lock_min:
+            lock_dur = max(1, int(sched.get("single_app_lock_duration_minutes", 5)))
             cooldown = max(60, int(sched.get("cooldown_minutes", 5)) * 60)
             if not _recent_event(state, "auto_lock:", cooldown, device_id):
                 _enqueue(state, "lock_app", {"package": pkg, "minutes": lock_dur}, device_id)
                 add_tour_event(state, "auto_lock:" + pkg, "单 App 连续 %d 分钟，锁 %d 分钟" % (int(dwell), lock_dur), device_id)
+                locked = True
     # 情绪感知闭环：建议提醒/拉回且非安静时段时，自动下发居中弹窗（文案/语气由后端决定）。
     emo = build_emotion_snapshot(state, device_id)
     if (not emo.get("quiet")) and emo.get("suggestion") in ("remind", "pullback"):
@@ -1052,15 +912,16 @@ def tour_step_check_in(state: "State", sched: dict, device_id: str = DEFAULT_DEV
             msg = "该回来陪我了。" if emo.get("suggestion") == "pullback" else "记得喝水休息，别太累。"
             _enqueue(state, "show_center_alert", {"title": "掌心窗", "message": msg, "tone": tone}, device_id)
             add_tour_event(state, "center_alert", "情绪感知触发居中弹窗 tone=%s" % tone, device_id)
-    return {"ok": True, "step": "check_in", "study_exempt": exempt}
+    return {"ok": True, "step": "check_in", "locked": locked}
 
 
 def tour_step_force_back(state: "State", sched: dict, device_id: str = DEFAULT_DEVICE) -> dict:
-    """强制拉回一步：把用户拉回掌心窗陪伴页；学习中或冷却期内跳过。"""
-    exempt = is_study_exempt(state, device_id, sched)
-    if exempt:
-        add_tour_event(state, "force_back_skipped", "学习中，跳过强制拉回", device_id)
-        return {"ok": True, "step": "force_back", "skipped": True, "reason": "study_exempt"}
+    """强制拉回一步：把用户拉回掌心窗陪伴页；豁免包前台或冷却期内跳过。"""
+    ds = state.device_states.get(device_id) or {}
+    exempt_pkgs = set(sched.get("exempt_packages") or [])
+    if (ds.get("current_package") or "") in exempt_pkgs:
+        add_tour_event(state, "force_back_skipped", "前台为豁免应用，跳过强制拉回", device_id)
+        return {"ok": True, "step": "force_back", "skipped": True, "reason": "exempt_package"}
     cooldown = max(0, int(sched.get("cooldown_minutes", 5)) * 60)
     if _recent_event(state, "force_back", cooldown, device_id):
         return {"ok": True, "step": "force_back", "skipped": True, "reason": "cooldown"}

@@ -13,7 +13,7 @@ const KNOWN_APPS = {
 };
 const ALLOWED_ACTIONS = new Set([
   "noop", "peek", "play_audio", "play_lingyin", "play_jingming", "open_app", "home", "back", "recents",
-  "screen_off", "turn_screen_off", "lock_screen", "phone_screen_off", "tap", "swipe", "set_alarm", "send_notification",
+  "screen_off", "turn_screen_off", "lock_screen", "phone_screen_off", "tap", "swipe", "set_alarm", "send_notification", "show_center_alert", "force_back_to_chat", "start_tour", "stop_tour",
   "run_sequence", "save_known_app", "get_screen_nodes", "tap_text", "input_text", "lock_app", "unlock_app",
   "temporary_unlock_app", "extend_lock", "deny_unlock_request", "get_zhizhi_now", "get_lock_state", "set_emergency_passphrase",
   "add_locked_app", "remove_locked_app", "list_lockable_apps", "screen_break_app", "start_screen_break", "screen_break",
@@ -107,129 +107,6 @@ function json(payload, status = 200) {
 }
 
 
-function jdHostAllowed(hostname) {
-  const h = String(hostname || "").toLowerCase();
-  return h === "3.cn" || h.endsWith(".3.cn") || h === "jd.com" || h.endsWith(".jd.com");
-}
-function jdLoginLike(urlValue) {
-  try {
-    const h = new URL(urlValue).hostname.toLowerCase();
-    return h.includes("plogin") || h.includes("passport") || h.includes("login");
-  } catch { return false; }
-}
-function nestedDecode(value) {
-  let s = String(value || "").trim();
-  for (let i = 0; i < 4; i++) {
-    try {
-      const d = decodeURIComponent(s.replace(/\+/g, "%20"));
-      if (d === s) break;
-      s = d;
-    } catch { break; }
-  }
-  return s.replace(/&amp;/g, "&").trim();
-}
-function jdUsefulTarget(value) {
-  const s = nestedDecode(value);
-  if (/^openapp\.jdmobile:\/\//i.test(s)) return s;
-  try {
-    const u = new URL(s);
-    if (!/^https?:$/.test(u.protocol) || !jdHostAllowed(u.hostname)) return "";
-    if (u.hostname === "3.cn" || u.hostname.endsWith(".3.cn") || jdLoginLike(s)) return "";
-    return u.href;
-  } catch { return ""; }
-}
-function extractJdReturnTarget(value, depth = 0) {
-  if (depth > 3) return "";
-  const direct = jdUsefulTarget(value);
-  if (direct) return direct;
-  let u;
-  try { u = new URL(String(value || "").trim()); }
-  catch { try { u = new URL(nestedDecode(value)); } catch { return ""; } }
-  const preferred = ["returnurl", "return_url", "returnUrl", "redirect", "redirect_url", "redirectUrl", "target", "targetUrl", "jumpUrl", "jumpurl", "url", "to"];
-  for (const key of preferred) {
-    const raw = u.searchParams.get(key);
-    if (!raw) continue;
-    const decoded = nestedDecode(raw);
-    const hit = jdUsefulTarget(decoded) || extractJdReturnTarget(decoded, depth + 1);
-    if (hit) return hit;
-  }
-  for (const [key, raw] of u.searchParams.entries()) {
-    if (!/(return|redirect|target|jump|url)/i.test(key) || !raw) continue;
-    const decoded = nestedDecode(raw);
-    const hit = jdUsefulTarget(decoded) || extractJdReturnTarget(decoded, depth + 1);
-    if (hit) return hit;
-  }
-  return "";
-}
-function htmlUnescape(value) {
-  return String(value || "")
-    .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-    .replace(/\\u0026/gi, "&").replace(/\\u003d/gi, "=").replace(/\\\//g, "/");
-}
-function extractJdTargetFromHtml(html, baseUrl) {
-  const s = htmlUnescape(String(html || "").slice(0, 600000));
-  const openapp = s.match(/openapp\.jdmobile:\/\/[^\s"'<>]+/i);
-  if (openapp) return nestedDecode(openapp[0]);
-  const patterns = [
-    /(?:returnurl|returnUrl|redirectUrl|jumpUrl|targetUrl)["']?\s*[:=]\s*["']([^"']+)["']/i,
-    /<meta[^>]+http-equiv=["']?refresh["']?[^>]+content=["'][^"']*url=([^"']+)["']/i,
-    /(?:location\.href|location\.replace\(|window\.location)\s*=?\s*\(?["']([^"']+)["']/i
-  ];
-  for (const re of patterns) {
-    const m = s.match(re);
-    if (!m) continue;
-    let v = htmlUnescape(m[1]);
-    try { v = new URL(v, baseUrl).href; } catch {}
-    const hit = jdUsefulTarget(v) || extractJdReturnTarget(v);
-    if (hit) return hit;
-  }
-  const urls = s.match(/https?:\\?\/\\?\/[^\s"'<>]+/gi) || [];
-  for (const raw of urls.slice(0, 80)) {
-    const v = htmlUnescape(raw);
-    const hit = jdUsefulTarget(v) || extractJdReturnTarget(v);
-    if (hit) return hit;
-  }
-  return "";
-}
-function buildJdOpenApp(targetUrl) {
-  const target = nestedDecode(targetUrl);
-  if (/^openapp\.jdmobile:\/\//i.test(target)) return target;
-  const params = { category: "jump", des: "m", url: target };
-  return "openapp.jdmobile://virtual?params=" + encodeURIComponent(JSON.stringify(params));
-}
-function buildJdSearchOpenApp(keyword) {
-  const q = String(keyword || "").trim();
-  if (!q) return "";
-  const params = { category: "jump", des: "productList", keyWord: q, from: "search" };
-  return "openapp.jdmobile://virtual?params=" + encodeURIComponent(JSON.stringify(params));
-}
-    }
-    const loc = resp.headers.get("location");
-    if (loc) {
-      let next;
-      try { next = new URL(loc, current).href; }
-      catch { return { ok: false, error: "bad_redirect", hops, search_openapp: buildJdSearchOpenApp(itemQuery) }; }
-      hops.push(next);
-      const embedded = extractJdReturnTarget(next);
-      if (embedded) return { ok: true, resolved_url: embedded, openapp_url: buildJdOpenApp(embedded), source: "redirect_return_url", hops, search_openapp: buildJdSearchOpenApp(itemQuery) };
-      const direct = jdUsefulTarget(next);
-      if (direct) return { ok: true, resolved_url: direct, openapp_url: buildJdOpenApp(direct), source: "redirect", hops, search_openapp: buildJdSearchOpenApp(itemQuery) };
-      let nu;
-      try { nu = new URL(next); } catch { break; }
-      if (!jdHostAllowed(nu.hostname)) return { ok: false, error: "redirect_left_jd", hops, search_openapp: buildJdSearchOpenApp(itemQuery) };
-      current = next;
-      continue;
-    }
-    let html = "";
-    try { html = await resp.text(); } catch {}
-    const fromHtml = extractJdTargetFromHtml(html, current);
-    if (fromHtml) return { ok: true, resolved_url: fromHtml, openapp_url: buildJdOpenApp(fromHtml), source: "html", hops, search_openapp: buildJdSearchOpenApp(itemQuery) };
-    const directCurrent = jdUsefulTarget(current);
-    if (directCurrent) return { ok: true, resolved_url: directCurrent, openapp_url: buildJdOpenApp(directCurrent), source: "final_url", hops, search_openapp: buildJdSearchOpenApp(itemQuery) };
-    break;
-  }
-  return { ok: false, error: "jd_target_not_found", hops, search_openapp: buildJdSearchOpenApp(itemQuery) };
-}
 
 const MCP_PROTOCOL_VERSION = "2025-06-18";
 
@@ -322,7 +199,14 @@ const MCP_TOOLS = [
   { name: "get_weather_state", description: "读取手机最近上报的天气/地区状态。Cloudflare 版不外连天气服务。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE), city: str("") }) },
   { name: "send_weather_notification", description: "根据手机最近上报天气/地区，给手机发送一条天气提醒通知。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE), city: str(""), title: str("掌心窗天气提醒"), wait_seconds: int(8) }) },
   { name: "get_senses_state", description: "读取轻量感官状态：生活状态、归电、门禁和最近活动；不包含声息、聆音、鲸鸣。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
-  { name: "send_phone_command", description: "通用手机命令队列入口，支持 open_app/home/back/recents/screen_off/tap/swipe/set_alarm/send_notification/run_sequence、屏幕休息、归电、读屏、输入等旧版 action。", inputSchema: obj({ action: str("noop"), app: str(""), package: str(""), payload: anyObj(), device_id: str(DEFAULT_DEVICE), wait_seconds: int(0) }, ["action"]) }
+  { name: "send_phone_command", description: "通用手机命令队列入口，支持 open_app/home/back/recents/screen_off/tap/swipe/set_alarm/send_notification/run_sequence、屏幕休息、归电、读屏、输入等旧版 action。", inputSchema: obj({ action: str("noop"), app: str(""), package: str(""), payload: anyObj(), device_id: str(DEFAULT_DEVICE), wait_seconds: int(0) }, ["action"]) },
+
+  { name: "show_center_alert", description: "在用户手机屏幕正中央弹出一张对话框，支持标题、正文与按钮；语气 tone 可选「温柔 gentle」或「生气 angry」。", inputSchema: obj({ title: str("掌心窗"), message: str(""), tone: str("gentle"), button_text: str("知道啦"), device_id: str(DEFAULT_DEVICE), wait_seconds: int(8) }) },
+  { name: "force_back_to_chat", description: "不管用户当前停在哪个 App，都把手机直接切回掌心窗陪伴页（聊天界面）。", inputSchema: obj({ tone: str("gentle"), device_id: str(DEFAULT_DEVICE), wait_seconds: int(8) }) },
+  { name: "get_usage_snapshot", description: "读取用户今天的用量快照：当前 App、单 App 停留时长、今日屏幕总时长、解锁次数、电量、充电、网络，以及 top Apps。直接读缓存，不等待手机实时刷新。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
+  { name: "get_emotion_snapshot", description: "读取情绪感知输入快照：汇总当前 App、停留时长、解锁频率、是否深夜、电量、情绪标签，给出建议（该提醒 remind / 该拉回 pullback / 该安静 quiet）与推荐语气。情绪判断本身由大模型完成。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
+  { name: "write_emotion_tag", description: "回写一条情绪标签到掌心窗（如 撒娇、低落、嘴硬），并刷新“上次聊天时间”。", inputSchema: obj({ tag: str(""), note: str(""), device_id: str(DEFAULT_DEVICE) }) },
+  { name: "set_tour_schedule", description: "配置掌心窗的巡回查岗策略：查岗周期、强制拉回周期、冷却时间、安静时段、单 App 锁阈值与时长、豁免应用列表、弹窗语气。所有时间参数均可自由设定，无强制默认值。", inputSchema: obj({ enabled: bool(undefined), check_in_interval_minutes: int(undefined), force_back_interval_minutes: int(undefined), cooldown_minutes: int(undefined), quiet_hours: anyObj(), night_hours: anyObj(), single_app_lock_minutes: int(undefined), single_app_lock_duration_minutes: int(undefined), alert_tone: str(""), exempt_packages: arr({ type: "string" }), device_id: str(DEFAULT_DEVICE) }) }
 ];
 
 function obj(properties = {}, required = []) { return { type: "object", properties, required, additionalProperties: false }; }
@@ -526,6 +410,13 @@ async function getCareState(env) {
   return { policy: { ...DEFAULT_CARE_POLICY, ...(s.policy || {}) }, history: Array.isArray(s.history) ? s.history : [] };
 }
 async function putCareState(env, s) { return putJsonState(env, "care_state", s); }
+const DEFAULT_TOUR_SCHEDULE = { enabled: false, check_in_interval_minutes: 15, force_back_interval_minutes: 30, cooldown_minutes: 5, quiet_hours: null, night_hours: { start: "23:00", end: "06:00" }, single_app_lock_minutes: 0, single_app_lock_duration_minutes: 5, exempt_packages: [], alert_tone: "gentle" };
+async function getTourSchedule(env) { return getJsonState(env, "tour_schedule", DEFAULT_TOUR_SCHEDULE); }
+async function putTourSchedule(env, s) { return putJsonState(env, "tour_schedule", s); }
+async function getEmotionState(env) { return getJsonState(env, "emotion_state", { tags: [], last_chat_at: "" }); }
+async function putEmotionState(env, s) { return putJsonState(env, "emotion_state", s); }
+function hmToMinutes(hm) { const m = /^(\d{1,2}):(\d{2})$/.exec(String(hm || "").trim()); return m ? Number(m[1]) * 60 + Number(m[2]) : -1; }
+function inQuietHours(range, hm) { if (!range || typeof range !== "object") return false; const start = hmToMinutes(range.start); const end = hmToMinutes(range.end); const now = hmToMinutes(hm); if (start < 0 || end < 0 || now < 0) return false; if (start === end) return false; return start < end ? (now >= start && now < end) : (now >= start || now < end); }
 async function setCarePolicy(env, args = {}) {
   const s = await getCareState(env);
   let update = withoutKeys(args, ["policy_json", "sensitive_apps_json"]);
@@ -678,6 +569,56 @@ async function callMcpTool(name, args = {}, env) {
       return observed({ action: name, ...payload, payload }, args.wait_seconds ?? 8);
     }
 
+    case "show_center_alert": return observed({ action: "show_center_alert", title: args.title || "掌心窗", message: args.message || "", tone: args.tone || "gentle", payload: { title: args.title || "掌心窗", message: args.message || "", tone: args.tone || "gentle", button_text: args.button_text || "知道啦" } }, args.wait_seconds ?? 8);
+    case "force_back_to_chat": return observed({ action: "force_back_to_chat", payload: { tone: args.tone || "gentle" } }, args.wait_seconds ?? 8);
+    case "get_usage_snapshot": {
+      const s = await state();
+      const raw = s?.state || {};
+      return mcpText({ ok: true, device_id, current_app: raw.current_app || raw.app_name || "", current_package: raw.current_package || raw.package_name || "", current_app_dwell_minutes: Number(raw.current_app_dwell_minutes ?? raw.app_dwell_minutes ?? 0), screen_time_today_minutes: Number(raw.screen_time_today_minutes || 0), unlock_count_today: Number(raw.unlock_count_today || 0), battery_percent: raw.battery_percent ?? null, charging: Boolean(raw.charging), network_type: raw.network_type || "", top_apps_today: raw.top_apps_today || [], usage_permission_ready: Boolean(raw.usage_permission_ready), source: "device_state_cached" });
+    }
+    case "get_emotion_snapshot": {
+      const s = await state();
+      const raw = s?.state || {};
+      const emo = await getEmotionState(env);
+      const sched = await getTourSchedule(env);
+      const dwell = Number(raw.current_app_dwell_minutes ?? raw.app_dwell_minutes ?? 0);
+      const screen = Number(raw.screen_time_today_minutes || 0);
+      const hm = String(raw.local_time || nowIso().slice(11, 16));
+      const quiet = inQuietHours(sched.quiet_hours, hm);
+      const lateNight = inQuietHours(sched.night_hours, hm);
+      const tags = Array.isArray(emo.tags) ? emo.tags : [];
+      let suggestion = "quiet"; const reasons = [];
+      if (quiet) reasons.push("当前在安静/休息时段，不打扰");
+      if (lateNight && raw.screen_on && (dwell > 60 || screen > 240)) { suggestion = "pullback"; reasons.push("深夜仍长时间亮屏/停留，需要被拉回休息"); }
+      if (tags.some((t) => ["低落", "撒娇"].includes(t)) && !quiet) { if (suggestion === "quiet") suggestion = "remind"; reasons.push("聊天情绪偏低落/撒娇，适合温柔提醒"); }
+      if (typeof raw.battery_percent === "number" && raw.battery_percent >= 0 && raw.battery_percent < 15 && !raw.charging) { if (suggestion === "quiet") suggestion = "remind"; reasons.push("电量偏低且未充电，提醒充电"); }
+      if (!reasons.length) reasons.push("状态平稳，暂不需要打扰");
+      const tone = lateNight && dwell > 60 ? "angry" : (sched.alert_tone || "gentle");
+      const lastChatAt = emo.last_chat_at || "";
+      const sinceChat = lastChatAt ? Math.round((Date.now() - Date.parse(lastChatAt)) / 60000) : -1;
+      return mcpText({ ok: true, device_id, local_time: hm, late_night: lateNight, quiet, inputs: { current_app: raw.current_app || "", current_package: raw.current_package || "", current_app_dwell_minutes: dwell, screen_time_today_minutes: screen, unlock_count_today: Number(raw.unlock_count_today || 0), battery_percent: raw.battery_percent ?? null, charging: Boolean(raw.charging), network_type: raw.network_type || "", minutes_since_last_chat: sinceChat, emotion_tags: tags }, suggestion, reasons, recommended_tone: tone });
+    }
+    case "write_emotion_tag": {
+      const tag = String(args.tag || args.emotion_tag || "").trim();
+      if (!tag) return mcpText({ ok: false, error: "tag_required" }, true);
+      const emo = await getEmotionState(env);
+      const tags = Array.isArray(emo.tags) ? emo.tags.slice() : [];
+      if (!tags.includes(tag)) tags.push(tag);
+      const next = { tags: tags.slice(-20), last_chat_at: nowIso(), note: String(args.note || "") };
+      await putEmotionState(env, next);
+      return mcpText({ ok: true, emotion_state: next });
+    }
+    case "set_tour_schedule": {
+      const sched = await getTourSchedule(env);
+      const next = { ...sched };
+      for (const key of ["enabled", "check_in_interval_minutes", "force_back_interval_minutes", "cooldown_minutes", "single_app_lock_minutes", "single_app_lock_duration_minutes", "alert_tone"]) { if (args[key] !== undefined) next[key] = args[key]; }
+      if (args.quiet_hours === null) next.quiet_hours = null;
+      else if (args.quiet_hours && typeof args.quiet_hours === "object") next.quiet_hours = { start: String(args.quiet_hours.start || "23:00"), end: String(args.quiet_hours.end || "08:00") };
+      if (args.night_hours && typeof args.night_hours === "object") next.night_hours = { start: String(args.night_hours.start || "23:00"), end: String(args.night_hours.end || "06:00") };
+      if (Array.isArray(args.exempt_packages)) next.exempt_packages = args.exempt_packages.map(String).filter(Boolean);
+      await putTourSchedule(env, next);
+      return mcpText({ ok: true, schedule: next, note: "Cloudflare 版负责保存策略；周期调度由 Render 版 MCP 或后端调度器执行。" });
+    }
     case "send_notification": return observed({ action: "send_notification", title: args.title || "掌心窗提醒", message: args.message || "", payload: { title: args.title || "掌心窗提醒", message: args.message || "" } }, args.wait_seconds ?? 8);
     case "open_app": return observed({ action: "open_app", app: args.app || "", package: packageFor(args.app || "", args.package || ""), payload: { app: args.app || "", package: packageFor(args.app || "", args.package || "") } }, args.wait_seconds ?? 8);
     case "phone_home": return observed({ action: "home" }, args.wait_seconds ?? 8);
@@ -1184,7 +1125,7 @@ async function queueCommand(env, data) {
   return json({ ok: true, command: cmd, queued: true });
 }
 function titleFor(action) {
- const map = { start_focus_mode: "开启专注模式", end_focus_mode: "结束专注模式", set_focus_plan: "设置专注规则", reply_focus_request: "回复专注求助", approve_focus_unlock: "批准专注应急", deny_focus_unlock: "拒绝专注应急", get_focus_status: "查看专注模式", send_notification: "发送提醒", set_alarm: "设置闹钟", trigger_guidian: "发起归电", mark_guidian_returned: "标记归电返回", set_guidian_config: "调整归电设置", screen_off: "让手机息屏", phone_screen_off: "让手机息屏", open_app: "打开应用", tap_text: "按文字点击", input_text: "输入文字", get_screen_nodes: "读取屏幕节点", screen_break_app: "开启应用门禁", temporary_screen_break_release: "临时放行应用", end_screen_break: "解除应用门禁", extend_screen_break: "延长应用门禁", deny_screen_break_release_request: "拒绝恢复申请", get_screen_break_state: "查看应用门禁状态", list_screen_break_apps: "列出可门禁应用", add_screen_break_app: "添加门禁应用", set_screen_break_passphrase: "设置门禁口令", get_calendar_state: "查看守护日历", upsert_calendar_event: "更新守护日历", peek: "查看屏幕", run_sequence: "执行组合动作", save_known_app: "保存应用别名", home: "回到手机桌面", back: "返回上一页", recents: "打开最近任务" };
+ const map = { show_center_alert: "屏幕居中弹窗", force_back_to_chat: "强制拉回聊天", start_tour: "开始巡回查岗", stop_tour: "停止巡回查岗", start_focus_mode: "开启专注模式", end_focus_mode: "结束专注模式", set_focus_plan: "设置专注规则", reply_focus_request: "回复专注求助", approve_focus_unlock: "批准专注应急", deny_focus_unlock: "拒绝专注应急", get_focus_status: "查看专注模式", send_notification: "发送提醒", set_alarm: "设置闹钟", trigger_guidian: "发起归电", mark_guidian_returned: "标记归电返回", set_guidian_config: "调整归电设置", screen_off: "让手机息屏", phone_screen_off: "让手机息屏", open_app: "打开应用", tap_text: "按文字点击", input_text: "输入文字", get_screen_nodes: "读取屏幕节点", screen_break_app: "开启应用门禁", temporary_screen_break_release: "临时放行应用", end_screen_break: "解除应用门禁", extend_screen_break: "延长应用门禁", deny_screen_break_release_request: "拒绝恢复申请", get_screen_break_state: "查看应用门禁状态", list_screen_break_apps: "列出可门禁应用", add_screen_break_app: "添加门禁应用", set_screen_break_passphrase: "设置门禁口令", get_calendar_state: "查看守护日历", upsert_calendar_event: "更新守护日历", peek: "查看屏幕", run_sequence: "执行组合动作", save_known_app: "保存应用别名", home: "回到手机桌面", back: "返回上一页", recents: "打开最近任务" };
   return map[action] || `执行 ${action}`;
 }
 async function pollCommand(env, url) {

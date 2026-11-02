@@ -1,0 +1,40 @@
+{
+  "policy": {
+    "timezone_offset": "+08:00",
+    "history_limit": 1000,
+    "duplicate_window_minutes": 5,
+    "notes": "到访时间戳记录的是用户主动来找陪伴对象的关系痕迹，用于增强陪伴连续性、主动关心和日常记录；不是后台监控，也不限制用户来找陪伴对象的次数。"
+  },
+  "visits": [
+    {
+      "id": "1793640774716-1b844ed899318",
+      "at": "2026-11-02T17:32:54.716Z",
+      "source": "app",
+      "event": "visit",
+      "note": "用户来找陪伴对象",
+      "mood": "",
+      "conversation_hint": "",
+      "timezone_offset": "+08:00"
+    },
+    {
+      "id": "1793640041029-68331120f4d5d",
+      "at": "2026-11-02T17:20:41.029Z",
+      "source": "app",
+      "event": "visit",
+      "note": "用户来找陪伴对象",
+      "mood": "",
+      "conversation_hint": "",
+      "timezone_offset": "+08:00"
+    },
+    {
+      "id": "1793639644407-16282add6c55d",
+      "at": "2026-11-02T17:14:04.407Z",
+      "source": "app",
+      "event": "visit",
+      "note": "用户来找陪伴对象",
+      "mood": "",
+      "conversation_hint": "",
+      "timezone_offset": "+08:00"
+    }
+  ]
+}

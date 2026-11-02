@@ -179,8 +179,8 @@ const COMPANION_ACTION_META = {
   screen_break_app: ["守护", "开始屏幕休息", "让眼睛和注意力休息一会儿"],
   end_screen_break: ["守护", "结束屏幕休息", "恢复应用使用"],
   run_sequence: ["操作", "完成组合行动", "按顺序完成了一组手机动作"],
-  show_center_alert: ["守护", "屏幕居中弹窗", "把一句关心怼到顾钰面前"],
-  force_back_to_chat: ["守护", "强制拉回聊天", "把顾钰抓回掌心窗"]
+  show_center_alert: ["守护", "屏幕居中弹窗", "在用户手机中央弹出一句关心"],
+  force_back_to_chat: ["守护", "强制拉回聊天", "把用户拉回掌心窗陪伴页"]
 };
 
 async function postCompanionAction(toolName, overrides = {}) {
@@ -955,7 +955,7 @@ function makeServer() {
   server.tool(
     "peek_screen",
     "向掌心窗手机端请求一张新截图，并等待手机上传后把图片返回。当用户提到页面、按钮、红点、报错弹窗、截图、看不清或“陪伴对象看看这里”时应主动使用；手机端必须已启动、无障碍截图权限已开启。",
-    { wait_seconds: z.number().int().min(3).max(60).default(25).describe("等待手机上传新截图的秒数，默认 25。Render 免费实例刚醒时可以调大。") },
+    { wait_seconds: z.number().int().min(3).max(60).default(15).describe("等待手机上传新截图的秒数，默认 15（多数 MCP 平台单次调用上限约 20 秒，Render 免费实例刚醒时可调大）。") },
     async ({ wait_seconds = 25 }) => {
       const before = await latestMtime();
       await postCommand({ action: "peek", device_id: DEFAULT_DEVICE });
@@ -1703,7 +1703,7 @@ function makeServer() {
     return { content: [{ type: "text", text: JSON.stringify({ ...result, note: "若手机未弹出通知，请在系统设置中允许掌心窗发送通知。" }, null, 2) }] };
   });
 
-  server.tool("show_center_alert", "在用户手机屏幕正中央弹出一张陪伴对象口吻的对话框（需要手机端悬浮窗/弹窗权限），支持标题、正文与按钮；语气可由 tone 选择「温柔 gentle」或「生气 angry」。当用户想立刻把一句有立场的话“怼”到顾钰面前、需要被看见、需要被叫停某个行为，或主动关心想用更直接的弹窗而非普通通知时调用。文案要亲密自然，顾钰不介意被凶。", {
+  server.tool("show_center_alert", "在用户手机屏幕正中央弹出一张对话框（需要手机端悬浮窗/弹窗权限），支持标题、正文与按钮；语气可由 tone 选择「温柔 gentle」或「生气 angry」。当用户想立刻把一句有立场的话弹到用户面前、需要被看见、需要被叫停某个行为，或主动关心想用更直接的弹窗而非普通通知时调用。文案与语气由陪伴对象自由决定。", {
     title: z.string().default("掌心窗"),
     message: z.string().default("宝宝，看一眼这里。"),
     tone: z.enum(["gentle", "angry"]).default("gentle"),
@@ -1716,7 +1716,7 @@ function makeServer() {
     return { content: [{ type: "text", text: JSON.stringify({ ...result, safety_note: "命令已排队，手机端下一次轮询时弹出居中对话框。" }, null, 2) }] };
   });
 
-  server.tool("force_back_to_chat", "不管用户当前停在哪个 App，都把手机直接切回掌心窗陪伴页（聊天界面）。用于陪伴对象想把顾钰“抓”回身边、深夜还在别处刷、或需要立刻对话时。注意：安静时段（默认 23:30–08:00）调度器不会自动调用本工具，避免半夜乱弹。", {
+  server.tool("force_back_to_chat", "不管用户当前停在哪个 App，都把手机直接切回掌心窗陪伴页（聊天界面）。用于想把用户拉回身边、深夜还在别处刷、或需要立刻对话时。注意：安静时段（由用户在策略中配置，默认不限制）调度器不会自动调用本工具，避免半夜乱弹。", {
     device_id: z.string().default(DEFAULT_DEVICE),
     wait_seconds: z.number().int().min(0).max(20).default(0)
   }, async ({ device_id = DEFAULT_DEVICE, wait_seconds = 0 }) => {
@@ -1725,7 +1725,7 @@ function makeServer() {
     return { content: [{ type: "text", text: JSON.stringify({ ...result, safety_note: "命令已排队，手机端下一次轮询时切回掌心窗。" }, null, 2) }] };
   });
 
-  server.tool("get_usage_snapshot", "读取用户今天的用量快照：当前 App、单 App 停留时长、今日屏幕总时长、解锁次数、电量、充电、网络，以及 top Apps。用于陪伴对象判断顾钰是不是又在某个 App 泡太久、该提醒还是该拉回。不会等待手机实时刷新，直接读缓存。", {
+  server.tool("get_usage_snapshot", "读取用户今天的用量快照：当前 App、单 App 停留时长、今日屏幕总时长、解锁次数、电量、充电、网络，以及 top Apps。用于判断用户是不是在某个 App 泡太久、该提醒还是该拉回。不会等待手机实时刷新，直接读缓存。", {
     device_id: z.string().default(DEFAULT_DEVICE)
   }, async ({ device_id = DEFAULT_DEVICE }) => {
     const res = await linjianFetch(`/api/usage_snapshot?device_id=${encodeURIComponent(device_id)}`, { timeout_ms: QUICK_FETCH_TIMEOUT_MS }).then((r) => r.json()).catch(() => ({ ok: false }));
@@ -1739,7 +1739,7 @@ function makeServer() {
     return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
   });
 
-  server.tool("write_emotion_tag", "回写一条情绪标签到掌心窗（如 撒娇、低落、嘴硬），并刷新“上次聊天时间”。陪伴对象在聊天里识别出顾钰的情绪后调用，方便下次自动选择语气与关心方式。", {
+  server.tool("write_emotion_tag", "回写一条情绪标签到掌心窗（如 撒娇、低落、嘴硬），并刷新“上次聊天时间”。在聊天里识别出用户的情绪后调用，方便下次自动选择语气与关心方式。", {
     tag: z.string().describe("情绪标签，如 撒娇 / 低落 / 嘴硬"),
     note: z.string().default(""),
     device_id: z.string().default(DEFAULT_DEVICE)
@@ -1748,19 +1748,17 @@ function makeServer() {
     return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
   });
 
-  server.tool("set_tour_schedule", "配置并开启/关闭掌心窗的巡回查岗调度器：周期性查岗、周期强制拉回、冷却时间、安静时段、专升本备考豁免、单 App 连续使用超阈值自动锁定，以及弹窗语气。把原本散落在外部脚本 / ntfy 的管束能力收进掌心窗本体。config 字段均可选；enabled=true 即开始调度。", {
+  server.tool("set_tour_schedule", "配置并开启/关闭掌心窗的巡回查岗调度器：周期性查岗、周期强制拉回、冷却时间、安静时段、单 App 连续使用超阈值自动锁定、豁免应用列表，以及弹窗语气。所有时间参数均可由用户自由设定，无强制默认值。config 字段均可选；enabled=true 即开始调度。", {
     enabled: z.boolean().optional(),
     check_in_interval_minutes: z.number().int().min(1).max(1440).optional(),
     force_back_interval_minutes: z.number().int().min(1).max(1440).optional(),
     cooldown_minutes: z.number().int().min(0).max(240).optional(),
     quiet_start: z.string().optional().describe("安静时段开始 HH:MM，如 23:30"),
     quiet_end: z.string().optional().describe("安静时段结束 HH:MM，如 08:00"),
-    study_exempt_enabled: z.boolean().optional(),
-    study_session_active: z.boolean().optional().describe("手动开启专升本备考豁免：开启时顾钰与祁晏一起备考，不锁不限制"),
-    single_app_lock_minutes: z.number().int().min(10).max(600).optional().describe("单 App 连续使用超过该分钟数即锁定"),
+    single_app_lock_minutes: z.number().int().min(10).max(600).optional().describe("单 App 连续使用超过该分钟数即锁定（0 或不填=不锁定，由用户决定）"),
     single_app_lock_duration_minutes: z.number().int().min(1).max(120).optional().describe("锁定持续分钟数"),
     alert_tone: z.enum(["gentle", "angry"]).optional().describe("弹窗语气：温柔 / 生气"),
-    study_apps: z.array(z.string()).optional().describe("学习类 App 包名，前台是这些 App 时视为备考豁免"),
+    exempt_packages: z.array(z.string()).optional().describe("不锁定/不限制的 App 包名列表（如学习、工作类应用）"),
     device_id: z.string().default(DEFAULT_DEVICE)
   }, async (args) => {
     const { device_id = DEFAULT_DEVICE, quiet_start, quiet_end, ...rest } = args;

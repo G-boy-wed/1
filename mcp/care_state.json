@@ -1,0 +1,121 @@
+{
+  "policy": {
+    "active_care_enabled": true,
+    "consent_mode": "palm_window_open_is_active",
+    "care_style": "active_possessive_affectionate",
+    "allowed_actions": [
+      "get_phone_state",
+      "get_life_state",
+      "get_calendar_state",
+      "upsert_calendar_event",
+      "get_senses_state",
+      "send_notification",
+      "trigger_guidian",
+      "screen_break_app",
+      "end_screen_break",
+      "extend_screen_break",
+      "get_screen_break_state",
+      "get_lock_state",
+      "open_app",
+      "set_alarm",
+      "screen_off",
+      "run_sequence",
+      "show_center_alert",
+      "force_back_to_chat",
+      "start_tour",
+      "stop_tour",
+      "get_usage_snapshot"
+    ],
+    "sensitive_apps": [
+      {
+        "name": "小红书",
+        "package": "com.xingin.xhs",
+        "max_lock_minutes": 90
+      },
+      {
+        "name": "抖音",
+        "package": "com.ss.android.ugc.aweme",
+        "max_lock_minutes": 90
+      }
+    ],
+    "quiet_hours": {
+      "start": "23:30",
+      "end": "08:00"
+    },
+    "timezone_offset": "+08:00",
+    "history_limit": 80,
+    "repeat_cooldown_minutes": 10,
+    "notes": "用户喜欢陪伴对象主动管她、查岗、吃醋、归电和轻度管束。掌心窗开启就是运行态，陪伴对象应按聊天里的相近、同义、反话、撒娇、嘴硬表达主动想起工具，不要固定话术，要自然、有立场、有占有欲。"
+  },
+  "history": [
+    {
+      "id": "1793640783193-98c9c592bb4aa",
+      "at": "2026-11-02T17:33:03.193Z",
+      "action": "send_notification",
+      "target_app": "",
+      "package": "",
+      "duration_minutes": 30,
+      "reason": "测试",
+      "result": "pending",
+      "tone": "firm_affectionate",
+      "device_id": "android-phone"
+    },
+    {
+      "id": "1793640774700-4a1006d11a8a3",
+      "at": "2026-11-02T17:32:54.700Z",
+      "action": "测试",
+      "target_app": "",
+      "package": "",
+      "reason": "",
+      "result": "",
+      "tone": "",
+      "device_id": "android-phone"
+    },
+    {
+      "id": "1793640049505-0fc797f148114",
+      "at": "2026-11-02T17:20:49.505Z",
+      "action": "send_notification",
+      "target_app": "",
+      "package": "",
+      "duration_minutes": 30,
+      "reason": "测试",
+      "result": "pending",
+      "tone": "firm_affectionate",
+      "device_id": "android-phone"
+    },
+    {
+      "id": "1793640041008-9f50f5dcc22b2",
+      "at": "2026-11-02T17:20:41.008Z",
+      "action": "测试",
+      "target_app": "",
+      "package": "",
+      "reason": "",
+      "result": "",
+      "tone": "",
+      "device_id": "android-phone"
+    },
+    {
+      "id": "1793639652889-6719f2133725c",
+      "at": "2026-11-02T17:14:12.889Z",
+      "action": "send_notification",
+      "target_app": "",
+      "package": "",
+      "duration_minutes": 30,
+      "reason": "测试",
+      "result": "pending",
+      "tone": "firm_affectionate",
+      "device_id": "android-phone"
+    },
+    {
+      "id": "1793639644387-78aa7d698b028",
+      "at": "2026-11-02T17:14:04.387Z",
+      "action": "测试",
+      "target_app": "",
+      "package": "",
+      "reason": "",
+      "result": "",
+      "tone": "",
+      "device_id": "android-phone"
+    }
+  ]
+}
