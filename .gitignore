@@ -27,6 +27,7 @@ android/local.properties
 local.properties
 *.apk
 *.aab
+*.idsig
 
 # Build output
 dist/

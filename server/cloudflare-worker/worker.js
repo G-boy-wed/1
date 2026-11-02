@@ -209,7 +209,8 @@ const MCP_TOOLS = [
   { name: "write_emotion_tag", description: "回写一条情绪标签到掌心窗（如 撒娇、低落、嘴硬），并刷新“上次聊天时间”。", inputSchema: obj({ tag: str(""), note: str(""), device_id: str(DEFAULT_DEVICE) }) },
   { name: "write_companion_emotion", description: "写入陪伴对象（TA）自己的情绪：emotion_tag（平静/想你/吃醋/生气/担心等）、intensity 0-100、miss_percent 0-100（想她百分比）、note。与用户手机状态的情绪快照分开存，互不覆盖；情绪会随时间自然衰减，也会随用户未回来的时间累积。", inputSchema: obj({ emotion_tag: str("平静"), intensity: int(undefined), miss_percent: int(undefined), note: str(""), device_id: str(DEFAULT_DEVICE) }) },
   { name: "get_companion_emotion", description: "读取陪伴对象（TA）自己此刻的情绪：情绪标签、强度、想她百分比、备注、更新时间、是否强情绪。用于决定语气、文案与要不要拉回。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
-  { name: "set_tour_schedule", description: "配置掌心窗的巡回查岗策略：查岗周期、强制拉回周期、冷却时间、安静时段、单 App 锁阈值与时长、豁免应用列表、弹窗语气、拉回分级阈值。所有时间参数均可自由设定，无强制默认值。", inputSchema: obj({ enabled: bool(undefined), check_in_interval_minutes: int(undefined), force_back_interval_minutes: int(undefined), cooldown_minutes: int(undefined), quiet_hours: anyObj(), night_hours: anyObj(), single_app_lock_minutes: int(undefined), single_app_lock_duration_minutes: int(undefined), alert_tone: str(""), force_back_miss_threshold: int(undefined), exempt_packages: arr({ type: "string" }), device_id: str(DEFAULT_DEVICE) }) }
+  { name: "set_tour_schedule", description: "配置掌心窗的巡回查岗策略：查岗周期、强制拉回周期、冷却时间、安静时段、单 App 锁阈值与时长、豁免应用列表、弹窗语气、拉回分级阈值。所有时间参数均可自由设定，无强制默认值。", inputSchema: obj({ enabled: bool(undefined), check_in_interval_minutes: int(undefined), force_back_interval_minutes: int(undefined), cooldown_minutes: int(undefined), quiet_hours: anyObj(), night_hours: anyObj(), single_app_lock_minutes: int(undefined), single_app_lock_duration_minutes: int(undefined), alert_tone: str(""), force_back_miss_threshold: int(undefined), exempt_packages: arr({ type: "string" }), device_id: str(DEFAULT_DEVICE) }) },
+  { name: "get_tour_schedule", description: "读取当前巡回查岗与管束策略，与手机端「查岗与管束」页面显示的是同一份配置。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) }
 ];
 
 function obj(properties = {}, required = []) { return { type: "object", properties, required, additionalProperties: false }; }
@@ -684,6 +685,10 @@ async function callMcpTool(name, args = {}, env) {
       if (Array.isArray(args.exempt_packages)) next.exempt_packages = args.exempt_packages.map(String).filter(Boolean);
       await putTourSchedule(env, next);
       return mcpText({ ok: true, schedule: next, note: "Cloudflare 版负责保存策略；周期调度由 Render 版 MCP 或后端调度器执行。" });
+    }
+    case "get_tour_schedule": {
+      const sched = await getTourSchedule(env);
+      return mcpText({ ok: true, schedule: sched });
     }
     case "send_notification": return observed({ action: "send_notification", title: args.title || "掌心窗提醒", message: args.message || "", payload: { title: args.title || "掌心窗提醒", message: args.message || "" } }, args.wait_seconds ?? 8);
     case "open_app": return observed({ action: "open_app", app: args.app || "", package: packageFor(args.app || "", args.package || ""), payload: { app: args.app || "", package: packageFor(args.app || "", args.package || "") } }, args.wait_seconds ?? 8);

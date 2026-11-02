@@ -49,17 +49,17 @@ public class PullBackActivity extends Activity {
         setContentView(root);
 
         View card = PullBackCard.build(this, cfg, new PullBackCard.Listener() {
-            @Override public void accept(Context c, JSONObject config) {
+            @Override public void onAccept(Context c, JSONObject config) {
                 handled = true;
                 PullBackAction.accept(c, config);
                 finish();
             }
-            @Override public void decline(Context c, JSONObject config, String reason) {
+            @Override public void onDecline(Context c, JSONObject config, String reason) {
                 handled = true;
                 PullBackAction.decline(c, config, reason);
                 finish();
             }
-            @Override public void dismiss(Context c, JSONObject config) {
+            @Override public void onDismiss(Context c, JSONObject config) {
                 handled = true;
                 PullBackAction.dismiss(c, config);
                 finish();

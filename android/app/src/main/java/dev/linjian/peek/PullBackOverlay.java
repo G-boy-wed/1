@@ -41,15 +41,15 @@ public class PullBackOverlay {
             final WindowManager wm = manager(appCtx);
             if (wm == null) return false;
             final View card = PullBackCard.build(appCtx, cfg, new PullBackCard.Listener() {
-                @Override public void accept(Context c, JSONObject config) {
+                @Override public void onAccept(Context c, JSONObject config) {
                     PullBackAction.accept(c, config);
                     dismiss();
                 }
-                @Override public void decline(Context c, JSONObject config, String reason) {
+                @Override public void onDecline(Context c, JSONObject config, String reason) {
                     PullBackAction.decline(c, config, reason);
                     dismiss();
                 }
-                @Override public void dismiss(Context c, JSONObject config) {
+                @Override public void onDismiss(Context c, JSONObject config) {
                     PullBackAction.dismiss(c, config);
                     PullBackOverlay.dismiss();
                 }

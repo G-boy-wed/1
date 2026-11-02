@@ -1804,6 +1804,13 @@ function makeServer() {
     return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
   });
 
+  server.tool("get_tour_schedule", "读取当前巡回查岗与管束策略：开关、查岗间隔、强制拉回间隔、冷却时间、安静时段、深夜时段、单 App 锁阈值与时长、拉回分级阈值、弹窗语气、豁免应用列表。这是手机端「查岗与管束」页面显示的同一份配置，AI 改完可以再读回来确认。", {
+    device_id: z.string().default(DEFAULT_DEVICE)
+  }, async ({ device_id = DEFAULT_DEVICE }) => {
+    const res = await linjianFetch("/api/tour/state", { method: "GET", timeout_ms: COMMAND_QUEUE_TIMEOUT_MS }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
+    return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
+  });
+
   server.tool("set_alarm", "设置系统闹钟。可用于陪伴对象主动安排睡觉、休息、学习、出门、喝水、计划执行或生活提醒。当用户提到“一会儿要做/几点要去/等下提醒/今天计划”等相近表达时主动调用。hour 为 0-23，minute 为 0-59。", {
     hour: z.number().int().min(0).max(23), minute: z.number().int().min(0).max(59), message: z.string().default("掌心窗闹钟"), vibrate: z.boolean().default(true), skip_ui: z.boolean().default(true), device_id: z.string().default(DEFAULT_DEVICE)
   }, async ({ hour, minute, message = "掌心窗闹钟", vibrate = true, skip_ui = true, device_id = DEFAULT_DEVICE }) => {

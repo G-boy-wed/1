@@ -5,9 +5,11 @@ import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -46,7 +48,8 @@ public class AlertCenterActivity extends Activity {
         TextView m = findViewById(R.id.message);
         Button b = findViewById(R.id.btn);
         LinearLayout card = findViewById(R.id.card);
-        android.view.View root = findViewById(R.id.root);
+        // root 在布局里是 FrameLayout：它没有 setGravity，位置要靠 card 的 LayoutParams.gravity 控制。
+        FrameLayout root = findViewById(R.id.root);
 
         t.setText(title);
         m.setText(message);
@@ -60,10 +63,12 @@ public class AlertCenterActivity extends Activity {
         if (root != null) {
             root.setBackgroundColor(theme.scrim);
             // 位置跟随归电设置里的弹窗位置。
-            String position = GuidianState.popupPosition(this);
-            if (GuidianState.POSITION_TOP.equals(position)) root.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-            else if (GuidianState.POSITION_BOTTOM.equals(position)) root.setGravity(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-            else root.setGravity(Gravity.CENTER);
+            ViewGroup.LayoutParams raw = card.getLayoutParams();
+            FrameLayout.LayoutParams cardLp = raw instanceof FrameLayout.LayoutParams
+                    ? (FrameLayout.LayoutParams) raw
+                    : new FrameLayout.LayoutParams(-1, -2);
+            cardLp.gravity = gravityFor(GuidianState.popupPosition(this));
+            card.setLayoutParams(cardLp);
         }
         if (angry) {
             // 生气语气保留一点点压迫感：卡片描边用危险色。
@@ -74,6 +79,13 @@ public class AlertCenterActivity extends Activity {
             @Override
             public void onClick(View v) { finish(); }
         });
+    }
+
+    /** 位置跟随归电设置：顶部 / 居中 / 底部。 */
+    private static int gravityFor(String position) {
+        if (GuidianState.POSITION_TOP.equals(position)) return Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+        if (GuidianState.POSITION_BOTTOM.equals(position)) return Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        return Gravity.CENTER;
     }
 
     private static int blend(int from, int to, float amount) {

@@ -62,16 +62,16 @@ public class GuidianTheme {
         if ("白色".equals(n)) {
             return new GuidianTheme(n, 0xFFF7F6F5, 0xFFFFFFFF, 0xFFF0EDEF, 0xFF292529,
                     Color.WHITE, 0xFF242124, 0xFF777076, 0xFFE2DEE0, 0xFF514A50, 0xFFB7AFB4,
-                    0xFFF0ECEE, 0xFF79AB8F, 0x55000000, 0xFFC62828, .18f, .09f, false);
+                    0xFF79AB8F, 0x55000000, 0xFFC62828, .18f, .09f, false);
         }
         if ("黑色".equals(n)) {
             return new GuidianTheme(n, 0xFF0E0D10, 0xFF19171B, 0xFF211E23, 0xFFF08EAF, Color.WHITE,
                     0xFFF8F3F5, 0xFFAFA1A7, 0xFF393139, 0xFFF4DCE5, 0xFF72505D,
-                    0xFF29232A, 0xFF84B69B, 0x99000000, 0xFFE0637A, .20f, .11f, true);
+                    0xFF84B69B, 0x99000000, 0xFFE0637A, .20f, .11f, true);
         }
         return new GuidianTheme("粉色", 0xFFFFF3F7, 0xFFFFFCFD, 0xFFFFE7EF, 0xFFD46A91, Color.WHITE,
                 0xFF392C31, 0xFF8F6E7A, 0xFFF1CBD8, 0xFFB64F75, 0xFFE2A7BB,
-                0xFFFFDFE9, 0xFF78AE90, 0x550E0508, 0xFFC62828, .24f, .10f, false);
+                0xFF78AE90, 0x550E0508, 0xFFC62828, .24f, .10f, false);
     }
 
     /** 按语气（温柔 / 生气）取强调色：生气时用 danger 色，其余用 primary。 */
