@@ -1,6 +1,7 @@
 package dev.linjian.peek;
 
 import android.content.Context;
+import android.content.Intent;
 
 import org.json.JSONObject;
 
@@ -21,7 +22,21 @@ public class PullBackAction {
             ActivityEventStore.recordForced(ctx, "pull_back_accept",
                     "答应拉回" + companion, "情绪 " + tag + " · 想她 " + miss + "%");
             DebugState.append(ctx, "拉回被接受：" + tag + " " + miss + "%，已切回掌心窗");
-            CompanionService.bringAppToFront(ctx);
+            String pullTarget = GuidianState.targetPackage(ctx);
+            boolean opened = false;
+            if (pullTarget != null && !pullTarget.trim().isEmpty()) {
+                try {
+                    Intent launch = ctx.getPackageManager().getLaunchIntentForPackage(pullTarget.trim());
+                    if (launch != null) {
+                        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        ctx.startActivity(launch);
+                        opened = true;
+                    }
+                } catch (Exception e2) {
+                    DebugState.append(ctx, "拉回目标应用启动失败：" + ScreenshotService.shortMsg(e2));
+                }
+            }
+            if (!opened) CompanionService.bringAppToFront(ctx);
             CompanionEmotionState.markReturned(ctx);
         } catch (Exception e) {
             DebugState.append(ctx, "拉回处理异常：" + ScreenshotService.shortMsg(e));
