@@ -66,10 +66,16 @@ public class PullBackActivity extends Activity {
             }
         });
 
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, gravityFor(GuidianState.popupPosition(this)));
+        // 弹窗位置：设置页若单独覆盖了就用覆盖值，否则跟随归电。
+        String position = GuidianState.POSITION_CENTER;
+        String overridePos = PolicyStore.positionOverride(this);
+        if (overridePos != null && !overridePos.trim().isEmpty()) position = GuidianState.normalizePosition(overridePos);
+        else position = GuidianState.popupPosition(this);
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, gravityFor(position));
         int margin = (int) (18 * getResources().getDisplayMetrics().density + .5f);
-        if (GuidianState.POSITION_TOP.equals(GuidianState.popupPosition(this))) lp.topMargin = margin;
-        if (GuidianState.POSITION_BOTTOM.equals(GuidianState.popupPosition(this))) lp.bottomMargin = margin;
+        if (GuidianState.POSITION_TOP.equals(position)) lp.topMargin = margin;
+        if (GuidianState.POSITION_BOTTOM.equals(position)) lp.bottomMargin = margin;
         root.addView(card, lp);
     }
 

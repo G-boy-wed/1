@@ -46,7 +46,11 @@ public class PullBackCard {
 
     /** 构建卡片视图；调用方负责把它放到屏幕的合适位置。 */
     public static View build(final Context ctx, final JSONObject cfg, final Listener listener) {
-        final GuidianTheme theme = GuidianTheme.from(GuidianState.themeName(ctx));
+        // 弹窗配色：设置页若单独覆盖了就用覆盖值，否则跟随归电主题。
+        String themeName = GuidianState.themeName(ctx);
+        String overrideTheme = PolicyStore.themeOverride(ctx);
+        if (overrideTheme != null && !overrideTheme.trim().isEmpty()) themeName = GuidianTheme.normalize(overrideTheme);
+        final GuidianTheme theme = GuidianTheme.from(themeName);
         final boolean strong = isStrongLevel(cfg);
         final int accent = theme.accentFor(cfg.optString("tone", "gentle"));
         String companion = AppPrefs.companionName(ctx);

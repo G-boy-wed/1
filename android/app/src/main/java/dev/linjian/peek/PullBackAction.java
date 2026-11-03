@@ -1,7 +1,6 @@
 package dev.linjian.peek;
 
 import android.content.Context;
-import android.content.Intent;
 
 import org.json.JSONObject;
 
@@ -13,30 +12,22 @@ public class PullBackAction {
 
     private PullBackAction() { }
 
-    /** 用户选择「现在就回去」：把手机切回掌心窗陪伴页，并把想她清零。 */
+    /** 用户选择「现在就回去」：跳到本机设定的目标 App（默认 com.psyche.kelivo），并把想她清零。 */
     public static void accept(Context ctx, JSONObject cfg) {
         try {
             String companion = AppPrefs.companionName(ctx);
             int miss = cfg == null ? 0 : cfg.optInt("miss_percent", 0);
             String tag = cfg == null ? "" : cfg.optString("emotion_tag", "");
             ActivityEventStore.recordForced(ctx, "pull_back_accept",
-                    "答应拉回" + companion, "情绪 " + tag + " · 想她 " + miss + "%");
-            DebugState.append(ctx, "拉回被接受：" + tag + " " + miss + "%，已切回掌心窗");
-            String pullTarget = GuidianState.targetPackage(ctx);
-            boolean opened = false;
-            if (pullTarget != null && !pullTarget.trim().isEmpty()) {
-                try {
-                    Intent launch = ctx.getPackageManager().getLaunchIntentForPackage(pullTarget.trim());
-                    if (launch != null) {
-                        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        ctx.startActivity(launch);
-                        opened = true;
-                    }
-                } catch (Exception e2) {
-                    DebugState.append(ctx, "拉回目标应用启动失败：" + ScreenshotService.shortMsg(e2));
-                }
+                    "答应拉回" + companion, "情绪 " + tag + " · 想她 " + miss + "% · 目标 " + PolicyStore.targetPackage(ctx));
+            DebugState.append(ctx, "拉回被接受：" + tag + " " + miss + "%，跳转到 " + PolicyStore.targetPackage(ctx));
+            // 「现在就回去」跳到本机设定的目标 App（默认 com.psyche.kelivo）。
+            String result = CompanionService.openPackageResult(ctx, PolicyStore.targetPackage(ctx));
+            if (!result.startsWith("opened_")) {
+                // 目标 App 没装或打不开：退回掌心窗陪伴页，保证不会卡住。
+                DebugState.append(ctx, "目标 App 跳转失败(" + result + ")，退回掌心窗");
+                CompanionService.bringAppToFront(ctx);
             }
-            if (!opened) CompanionService.bringAppToFront(ctx);
             CompanionEmotionState.markReturned(ctx);
         } catch (Exception e) {
             DebugState.append(ctx, "拉回处理异常：" + ScreenshotService.shortMsg(e));

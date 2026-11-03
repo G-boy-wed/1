@@ -12,6 +12,9 @@ import android.view.WindowManager;
 
 import org.json.JSONObject;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
 /**
  * 拉回弹窗的悬浮窗通道：真正的「盖在其他 App 之上」的一层，
  * 位置跟随归电设置里的弹窗位置（顶部 / 居中 / 底部）。
@@ -65,21 +68,38 @@ public class PullBackOverlay {
             params.x = 0;
             params.y = 0;
 
-            main.post(new Runnable() {
-                @Override public void run() {
-                    try {
-                        dismiss();
-                        wm.addView(card, params);
-                        current = card;
-                        DebugState.append(ctx, "拉回弹窗已悬浮显示");
-                    } catch (Exception e) {
-                        DebugState.append(ctx, "拉回悬浮窗失败：" + ScreenshotService.shortMsg(e));
-                    }
-                }
-            });
-            return true;
+            return addSynchronously(wm, card, params, appCtx);
         } catch (Exception e) {
             DebugState.append(ctx, "拉回悬浮窗异常：" + ScreenshotService.shortMsg(e));
+            return false;
+        }
+    }
+
+    private static boolean addSynchronously(final WindowManager wm, final View view, final WindowManager.LayoutParams params, final Context ctx) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return doAdd(wm, view, params, ctx);
+        }
+        final boolean[] ok = {false};
+        final CountDownLatch latch = new CountDownLatch(1);
+        main.post(new Runnable() {
+            @Override public void run() {
+                ok[0] = doAdd(wm, view, params, ctx);
+                latch.countDown();
+            }
+        });
+        try { latch.await(800, TimeUnit.MILLISECONDS); } catch (InterruptedException ignored) { }
+        return ok[0];
+    }
+
+    private static boolean doAdd(WindowManager wm, View view, WindowManager.LayoutParams params, Context ctx) {
+        try {
+            dismiss();
+            wm.addView(view, params);
+            current = view;
+            DebugState.append(ctx, "拉回弹窗已悬浮显示");
+            return true;
+        } catch (Exception e) {
+            DebugState.append(ctx, "拉回悬浮窗失败：" + ScreenshotService.shortMsg(e));
             return false;
         }
     }

@@ -92,6 +92,7 @@ public class ScreenshotService extends AccessibilityService {
         super.onServiceConnected();
         instance = this;
         NowState.start(this);
+        PolicyScheduler.start(this);
         DebugState.append(this, "无障碍服务已连接：截图/读屏/节点坐标/活动轨迹/远程息屏/专注模式可用 v0.3.9.0");
         watchdog = new Handler(Looper.getMainLooper());
         watchdog.postDelayed(watchdogTick, 15000);
@@ -129,14 +130,15 @@ public class ScreenshotService extends AccessibilityService {
         if (backgroundPollThread != null) { backgroundPollThread.quitSafely(); backgroundPollThread = null; }
     }
 
+    @Override public void onDestroy() {
+        PolicyScheduler.stop(this);
+        markDisconnected("无障碍服务已销毁");
+        super.onDestroy();
+    }
+
     @Override public boolean onUnbind(Intent intent) {
         markDisconnected("无障碍服务已解绑：系统可能已关闭权限");
         return super.onUnbind(intent);
-    }
-
-    @Override public void onDestroy() {
-        markDisconnected("无障碍服务已断开");
-        super.onDestroy();
     }
 
     private void startBackgroundPolling() {

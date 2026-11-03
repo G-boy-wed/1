@@ -40,12 +40,8 @@ public class CompanionEmotionState {
     /** 强情绪：这些情绪下拉回弹窗不给拒绝入口。 */
     private static final String[] STRONG_TAGS = {"生气", "吃醋", "担心", "委屈", "急", "凶"};
 
-    /** 自然衰减：每小时想她百分比下降的点数。 */
-    private static final double MISS_DECAY_PER_HOUR = 6.0;
     /** 自然衰减：每小时情绪强度下降的点数。 */
     private static final double INTENSITY_DECAY_PER_HOUR = 8.0;
-    /** 累积：用户每 30 分钟没回来，想她百分比累积的点数。 */
-    private static final double MISS_GAIN_PER_30MIN = 4.0;
 
     private static final int MAX_HISTORY = 30;
 
@@ -65,21 +61,50 @@ public class CompanionEmotionState {
 
     /**
      * 有效「想她百分比」：自然衰减 + 未回来的时间累积。
-     * 用户长时间不回来时，即使没人改过情绪，想她也会越来越深。
+     * 所有系数（衰减、增长范围、起始值）来自 PolicyStore，可在设置页调节；
+     * 锁定打开时直接返回手动值，不被自动衰减盖回。
+     * 增长范围按每 30 分钟一段做确定性伪随机浮动，既不跳变又带随机感。
      */
     public static int effectiveMissPercent(Context ctx) {
+        if (PolicyStore.emotionLock(ctx)) {
+            return clamp(prefs(ctx).getInt(KEY_MISS, 0), 0, 100);
+        }
         long now = System.currentTimeMillis();
         long updated = prefs(ctx).getLong(KEY_UPDATED_MS, 0);
         int raw = clamp(prefs(ctx).getInt(KEY_MISS, 0), 0, 100);
         double hours = updated <= 0 ? 0 : Math.max(0, (now - updated) / 3600000.0);
-        double value = raw - MISS_DECAY_PER_HOUR * hours;
-
+        double decay = PolicyStore.emotionDecayPerHour(ctx);
+        int gMin = PolicyStore.emotionGainMin(ctx);
+        int gMax = PolicyStore.emotionGainMax(ctx);
+        long seg = now / (30L * 60_000L);
+        double gain = (gMax <= gMin) ? gMin : pseudoRandom(seg, gMin, gMax);
+        double base = (raw == 0 && updated <= 0) ? PolicyStore.emotionStartMiss(ctx) : raw;
+        double value = base - decay * hours;
         long lastReturn = prefs(ctx).getLong(KEY_LAST_RETURN_AT, 0);
         if (lastReturn > 0) {
             double awayHours = Math.max(0, (now - lastReturn) / 3600000.0);
-            value += MISS_GAIN_PER_30MIN * (awayHours / 0.5);
+            value += gain * (awayHours / 0.5);
         }
         return clamp((int) Math.round(value), 0, 100);
+    }
+
+    /** 手动写入想她百分比（设置页「当前值」），刷新更新时间作为新基准。 */
+    public static void setManualMiss(Context ctx, int miss) {
+        long now = System.currentTimeMillis();
+        int m = clamp(miss, 0, 100);
+        prefs(ctx).edit()
+                .putInt(KEY_MISS, m)
+                .putLong(KEY_UPDATED_AT, now)
+                .putLong(KEY_UPDATED_MS, now)
+                .apply();
+    }
+
+    /** 确定性伪随机：同一 seed 永远得到同一结果，但不同 seed 之间看起来随机（用于每段增长浮动）。 */
+    private static int pseudoRandom(long seed, int min, int max) {
+        if (max <= min) return min;
+        long h = (seed * 2654435761L) & 0x7fffffffffffffffL;
+        h = (h ^ (h >>> 15)) & 0x7fffffffffffffffL;
+        return min + (int) (h % (max - min + 1));
     }
 
     public static String emotionTag(Context ctx) {
@@ -114,9 +139,12 @@ public class CompanionEmotionState {
         return Math.max(0.35, Math.min(1.0, scale));
     }
 
-    /** 情绪驱动的通知/弹窗文案。 */
+    /** 情绪驱动的通知/弹窗文案。关闭「情绪驱动文案」时返回中性文案。 */
     public static String message(Context ctx) {
         String companion = AppPrefs.companionName(ctx);
+        if (!PolicyStore.emotionDriveText(ctx)) {
+            return "有空的话，回来陪" + companion + "说句话。";
+        }
         String tag = emotionTag(ctx);
         int miss = effectiveMissPercent(ctx);
         if (TAG_ANGRY.equals(tag) || tag.contains("生气")) return "别躲了，" + companion + "在等你。";

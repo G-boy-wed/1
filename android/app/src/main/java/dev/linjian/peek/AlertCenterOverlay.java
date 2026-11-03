@@ -11,6 +11,9 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.WindowManager;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
 /**
  * 居中弹窗的悬浮窗通道：真正「盖在你当前所在 App 之上」的一层。
  * 不再依赖后台启动 Activity 的权限，所以不用切回掌心窗才看得到。
@@ -33,51 +36,52 @@ public class AlertCenterOverlay {
     }
 
     /** 显示居中弹窗；返回 false 表示没能用悬浮窗展示（调用方应改用 Activity）。 */
-    public static boolean show(Context ctx, String title, String message, String tone, String buttonText) {
+    public static boolean show(final Context ctx, final String title, final String message, final String tone, final String buttonText) {
         final Context appCtx = ctx.getApplicationContext();
         try {
             if (!canShow(appCtx)) return false;
             final WindowManager wm = manager(appCtx);
             if (wm == null) return false;
 
-            final View root = LayoutInflater.from(appCtx).inflate(R.layout.activity_alert_center, null);
-            if (root == null) return false;
-
-            String t = (title == null || title.trim().isEmpty()) ? "掌心窗" : title;
-            String m = (message == null || message.trim().isEmpty()) ? AppPrefs.userName(appCtx) + "，看一眼这里。" : message;
-            String b = (buttonText == null || buttonText.trim().isEmpty()) ? "知道啦" : buttonText;
-
-            AlertCenterActivity.bind(root, t, m, tone, b, new Runnable() {
-                @Override public void run() { dismiss(); }
-            });
-
-            final WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                    WindowManager.LayoutParams.MATCH_PARENT,
-                    WindowManager.LayoutParams.MATCH_PARENT,
-                    overlayType(),
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                    PixelFormat.TRANSLUCENT);
-            params.gravity = Gravity.TOP | Gravity.START;
-            params.x = 0;
-            params.y = 0;
-
-            main.post(new Runnable() {
+            final boolean[] ok = {false};
+            final CountDownLatch latch = new CountDownLatch(1);
+            Runnable work = new Runnable() {
                 @Override public void run() {
                     try {
-                        View old = current;
-                        current = null;
-                        if (old != null) {
-                            try { wm.removeView(old); } catch (Exception ignored) { }
-                        }
+                        View root = LayoutInflater.from(appCtx).inflate(R.layout.activity_alert_center, null);
+                        if (root == null) { latch.countDown(); return; }
+                        String t = (title == null || title.trim().isEmpty()) ? "掌心窗" : title;
+                        String m = (message == null || message.trim().isEmpty()) ? AppPrefs.userName(appCtx) + "，看一眼这里。" : message;
+                        String b = (buttonText == null || buttonText.trim().isEmpty()) ? "知道啦" : buttonText;
+                        AlertCenterActivity.bind(root, t, m, tone, b, new Runnable() {
+                            @Override public void run() { dismiss(); }
+                        });
+                        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                                WindowManager.LayoutParams.MATCH_PARENT,
+                                WindowManager.LayoutParams.MATCH_PARENT,
+                                overlayType(),
+                                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                                PixelFormat.TRANSLUCENT);
+                        params.gravity = Gravity.TOP | Gravity.START;
+                        params.x = 0;
+                        params.y = 0;
+                        dismiss();
                         wm.addView(root, params);
                         current = root;
                         DebugState.append(appCtx, "居中弹窗已悬浮显示");
+                        ok[0] = true;
                     } catch (Exception e) {
                         DebugState.append(appCtx, "居中悬浮窗失败：" + ScreenshotService.shortMsg(e));
+                        ok[0] = false;
+                    } finally {
+                        latch.countDown();
                     }
                 }
-            });
-            return true;
+            };
+            // 主线程直接执行；非主线程 post 到主线程并等待结果，保证返回值真实。
+            if (Looper.myLooper() == Looper.getMainLooper()) work.run();
+            else { main.post(work); latch.await(800, TimeUnit.MILLISECONDS); }
+            return ok[0];
         } catch (Exception e) {
             DebugState.append(appCtx, "居中悬浮窗异常：" + ScreenshotService.shortMsg(e));
             return false;
