@@ -1,6 +1,7 @@
 package dev.linjian.peek;
 
 import android.app.Activity;
+import android.content.Context;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -14,12 +15,11 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 /**
- * 屏幕居中弹窗：用 Activity + 半透明根布局把卡片固定在屏幕上，
- * 不需要把内容写进 MainActivity，也不依赖特定 App 的界面。
- * 文案与语气由后端下发（tone: gentle / angry）；
- * 配色与位置复用归电设置（GuidianTheme + 归电弹窗位置），归电改了这里跟着变。
+ * 屏幕居中弹窗的 Activity 兜底通道：锁屏、或没有悬浮窗权限时才用。
+ * 正常情况下优先走 AlertCenterOverlay，直接盖在当前 App 之上。
  */
 public class AlertCenterActivity extends Activity {
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -39,46 +39,49 @@ public class AlertCenterActivity extends Activity {
         if (title == null || title.isEmpty()) title = "掌心窗";
         if (message == null || message.isEmpty()) message = AppPrefs.userName(this) + "，看一眼这里。";
         if (buttonText == null || buttonText.isEmpty()) buttonText = "知道啦";
-        boolean angry = "angry".equalsIgnoreCase(tone);
 
-        GuidianTheme theme = GuidianTheme.from(GuidianState.themeName(this));
+        bind(findViewById(R.id.root), title, message, tone, buttonText, new Runnable() {
+            @Override public void run() { finish(); }
+        });
+    }
+
+    /** 卡片绑定：Activity 与悬浮窗两条通道共用同一份样式与位置逻辑。 */
+    public static void bind(View root, String title, String message, String tone, String buttonText, final Runnable onDismiss) {
+        if (root == null) return;
+        Context ctx = root.getContext();
+        boolean angry = "angry".equalsIgnoreCase(tone);
+        GuidianTheme theme = GuidianTheme.from(GuidianState.themeName(ctx));
         int accent = theme.accentFor(tone);
 
-        TextView t = findViewById(R.id.title);
-        TextView m = findViewById(R.id.message);
-        Button b = findViewById(R.id.btn);
-        LinearLayout card = findViewById(R.id.card);
-        // root 在布局里是 FrameLayout：它没有 setGravity，位置要靠 card 的 LayoutParams.gravity 控制。
-        FrameLayout root = findViewById(R.id.root);
+        TextView t = root.findViewById(R.id.title);
+        TextView m = root.findViewById(R.id.message);
+        Button b = root.findViewById(R.id.btn);
+        LinearLayout card = root.findViewById(R.id.card);
+        FrameLayout rootFrame = root.findViewById(R.id.root);
 
-        t.setText(title);
-        m.setText(message);
-        b.setText(buttonText);
-
-        t.setTextColor(accent);
-        m.setTextColor(theme.text);
-        card.setBackgroundColor(theme.panel);
-        b.setTextColor(theme.onPrimary);
-        b.setBackgroundColor(accent);
-        if (root != null) {
-            root.setBackgroundColor(theme.scrim);
-            // 位置跟随归电设置里的弹窗位置。
-            ViewGroup.LayoutParams raw = card.getLayoutParams();
-            FrameLayout.LayoutParams cardLp = raw instanceof FrameLayout.LayoutParams
-                    ? (FrameLayout.LayoutParams) raw
-                    : new FrameLayout.LayoutParams(-1, -2);
-            cardLp.gravity = gravityFor(GuidianState.popupPosition(this));
-            card.setLayoutParams(cardLp);
+        if (t != null) { t.setText(title); t.setTextColor(accent); }
+        if (m != null) { m.setText(message); m.setTextColor(theme.text); }
+        if (b != null) {
+            b.setText(buttonText);
+            b.setTextColor(theme.onPrimary);
+            b.setBackgroundColor(accent);
+            b.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { if (onDismiss != null) onDismiss.run(); }
+            });
         }
-        if (angry) {
-            // 生气语气保留一点点压迫感：卡片描边用危险色。
-            card.setBackgroundColor(blend(theme.panel, accent, 0.12f));
+        if (card != null) {
+            card.setBackgroundColor(theme.panel);
+            if (angry) card.setBackgroundColor(blend(theme.panel, accent, 0.12f));
+            if (rootFrame != null) {
+                ViewGroup.LayoutParams raw = card.getLayoutParams();
+                FrameLayout.LayoutParams cardLp = raw instanceof FrameLayout.LayoutParams
+                        ? (FrameLayout.LayoutParams) raw
+                        : new FrameLayout.LayoutParams(-1, -2);
+                cardLp.gravity = gravityFor(GuidianState.popupPosition(ctx));
+                card.setLayoutParams(cardLp);
+            }
         }
-
-        b.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) { finish(); }
-        });
+        if (rootFrame != null) rootFrame.setBackgroundColor(theme.scrim);
     }
 
     /** 位置跟随归电设置：顶部 / 居中 / 底部。 */

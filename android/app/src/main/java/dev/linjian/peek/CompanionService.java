@@ -474,6 +474,7 @@ public class CompanionService extends Service {
     /** 屏幕正中弹窗：用独立 Activity 把卡片固定在屏幕正中央，覆盖在其他 App 之上。 */
     public static void showCenterAlert(Context ctx, String title, String message, String tone, String buttonText) {
         try {
+            if (AlertCenterOverlay.canShow(ctx) && AlertCenterOverlay.show(ctx, title, message, tone, buttonText)) { DebugState.append(ctx, "屏幕居中弹窗已悬浮下发"); return; }
             Intent i = new Intent(ctx, AlertCenterActivity.class);
             i.putExtra("title", title == null ? "" : title);
             i.putExtra("message", message == null ? "" : message);

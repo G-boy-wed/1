@@ -40,3 +40,7 @@ build/
 
 # Archives
 *.zip
+server/data/
+*.bak
+server/data/
+*.bak
