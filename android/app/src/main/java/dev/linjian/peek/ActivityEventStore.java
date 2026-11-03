@@ -66,6 +66,15 @@ public final class ActivityEventStore {
         catch (Exception ignored) { }
     }
 
+    /**
+     * 强制记录并上报，不受「记录本机今日轨迹」开关影响。
+     * 拉回弹窗的接受 / 拒绝 / 忽略属于承诺过要留痕的行为，必须始终写进日志并上报。
+     */
+    public static void recordForced(Context ctx, String type, String title, String subtitle) {
+        try { add(ctx, new JSONObject().put("source", "phone").put("type", type).put("title", title).put("subtitle", subtitle).put("status", "completed"), true); }
+        catch (Exception ignored) { }
+    }
+
     public static JSONArray list(Context ctx, String source, int limit, boolean todayOnly) {
         JSONArray out = new JSONArray();
         String today = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date());

@@ -95,8 +95,15 @@ public class PullBackCard {
         metaLp.topMargin = dp(ctx, 8);
         card.addView(metaText, metaLp);
 
-        // 拒绝理由抽屉（只有软级别、且允许拒绝时才会用到）
-        final LinearLayout reasonDrawer = buildReasonDrawer(ctx, theme, cfg, listener, strong);
+        // 拒绝理由抽屉（只有软级别才会出现；强级别没有拒绝入口，抽屉整个不挂载）
+        final LinearLayout reasonDrawer = strong ? null : buildReasonDrawer(ctx, theme, cfg, listener);
+        if (reasonDrawer != null) {
+            // 关键：抽屉必须真的挂进视图树，否则点「再等一会儿」什么都不会发生。
+            // 它默认 GONE，点按钮时展开在按钮行下方。
+            LinearLayout.LayoutParams drawerLp = new LinearLayout.LayoutParams(-1, -2);
+            drawerLp.topMargin = dp(ctx, 12);
+            card.addView(reasonDrawer, drawerLp);
+        }
 
         LinearLayout actions = new LinearLayout(ctx);
         actions.setOrientation(LinearLayout.HORIZONTAL);
@@ -105,11 +112,11 @@ public class PullBackCard {
         actionsLp.topMargin = dp(ctx, 16);
         card.addView(actions, actionsLp);
 
-        TextView accept = button(ctx, strong ? "现在就回去" : "现在就回去", true, strong ? theme.danger : accent);
-        TextView later = button(ctx, "再等一会儿", false, theme.primary);
+        TextView accept = button(ctx, "现在就回去", true, strong ? theme.danger : accent);
+        TextView later = strong ? null : button(ctx, "再等一会儿", false, theme.primary);
 
         if (strong) {
-            accept.setText(theme.danger == accent ? "现在就回去" : "现在就回去");
+            // 强级别：只有一个按钮，没有拒绝入口，点下去强制跳回聊天界面。
             LinearLayout.LayoutParams acceptLp = new LinearLayout.LayoutParams(-1, -1);
             actions.addView(accept, acceptLp);
         } else {
@@ -123,9 +130,11 @@ public class PullBackCard {
         accept.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { if (listener != null) listener.onAccept(ctx, cfg); }
         });
-        later.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { reasonDrawer.setVisibility(View.VISIBLE); }
-        });
+        if (!strong) {
+            later.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { if (reasonDrawer != null) reasonDrawer.setVisibility(View.VISIBLE); }
+            });
+        }
 
         // 卡片外层容器：软级别允许点外面关闭，强级别不允许（必须表态）
         FrameLayout wrapper = new FrameLayout(ctx);
@@ -145,7 +154,7 @@ public class PullBackCard {
     }
 
     private static LinearLayout buildReasonDrawer(final Context ctx, final GuidianTheme theme, final JSONObject cfg,
-                                                  final Listener listener, boolean strong) {
+                                                  final Listener listener) {
         LinearLayout drawer = new LinearLayout(ctx);
         drawer.setOrientation(LinearLayout.VERTICAL);
         drawer.setPadding(dp(ctx, 18), dp(ctx, 16), dp(ctx, 18), dp(ctx, 16));

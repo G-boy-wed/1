@@ -350,8 +350,9 @@
 
                 <Button android:id="@+id/drawerCalendarButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="守护日历  ›" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginBottom="8dp" />
 
-                <!-- 查岗与管束：把巡回周期、安静时段、单 App 锁阈值、豁免应用、弹窗语气交给用户自己设定 -->
-                <Button android:id="@+id/drawerPolicyButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="查岗与管束  ›" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginBottom="8dp" />
+                <!-- 查岗与管束的入口不在这里：sectionGate 会被 buildMagazinePages() 用
+                     replaceScrollContent() 整体重建，XML 里的按钮会被 removeAllViews() 清掉，
+                     真机上就看不见了。入口统一放在 MainActivity.buildGuardMagazine() 里。 -->
                 <LinearLayout android:id="@+id/drawerCalendar" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/card_bg" android:layout_marginBottom="8dp" android:visibility="gone">
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="添加一个日子" android:textStyle="bold" android:textSize="16sp" android:textColor="#FF2D3E39" />
                     <TextView android:id="@+id/calendarSummaryText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="把重要日子轻轻放进窗边。" android:textSize="11sp" android:textColor="#FF6E6282" android:layout_marginTop="8dp" android:lineSpacingExtra="4dp" />

@@ -18,7 +18,7 @@ public class PullBackAction {
             String companion = AppPrefs.companionName(ctx);
             int miss = cfg == null ? 0 : cfg.optInt("miss_percent", 0);
             String tag = cfg == null ? "" : cfg.optString("emotion_tag", "");
-            ActivityEventStore.recordPhone(ctx, "pull_back_accept",
+            ActivityEventStore.recordForced(ctx, "pull_back_accept",
                     "答应拉回" + companion, "情绪 " + tag + " · 想她 " + miss + "%");
             DebugState.append(ctx, "拉回被接受：" + tag + " " + miss + "%，已切回掌心窗");
             CompanionService.bringAppToFront(ctx);
@@ -36,7 +36,7 @@ public class PullBackAction {
             if (why.isEmpty()) why = "没有说理由";
             int miss = cfg == null ? 0 : cfg.optInt("miss_percent", 0);
             String tag = cfg == null ? "" : cfg.optString("emotion_tag", "");
-            ActivityEventStore.recordPhone(ctx, "pull_back_decline",
+            ActivityEventStore.recordForced(ctx, "pull_back_decline",
                     "拒绝拉回" + companion, why + "（情绪 " + tag + " · 想她 " + miss + "%）");
             DebugState.append(ctx, "拉回被拒绝，理由：" + why);
         } catch (Exception e) {
@@ -48,7 +48,7 @@ public class PullBackAction {
     public static void dismiss(Context ctx, JSONObject cfg) {
         try {
             int miss = cfg == null ? 0 : cfg.optInt("miss_percent", 0);
-            ActivityEventStore.recordPhone(ctx, "pull_back_ignore", "忽略了拉回弹窗", "想她 " + miss + "%");
+            ActivityEventStore.recordForced(ctx, "pull_back_ignore", "忽略了拉回弹窗", "想她 " + miss + "%");
             DebugState.append(ctx, "拉回弹窗被忽略");
         } catch (Exception e) {
             DebugState.append(ctx, "拉回忽略记录异常：" + ScreenshotService.shortMsg(e));
