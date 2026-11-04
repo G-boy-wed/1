@@ -77,6 +77,7 @@ public class MainActivity extends Activity {
     private TextView overviewBatteryLabel, overviewAppLabel, overviewScreenLabel, overviewWeatherLabel, quickSeeTitle, quickSeeDetail, quickSeeArrow, quickGuardTitle, quickGuardDetail, quickGuardArrow;
     private ImageView quickSeeIcon, quickGuardIcon;
     private TextView guidianSummaryText, guidianDetailText, guidianSettingsStatusText, guidianAvatarText, versionStatusText, updateChangelogText, licenseSummaryText;
+    private TextView emotionSummaryText;
     private Button toggleButton, accessibilityButton, usageAccessButton, testButton, openXhsButton, openTargetAppButton, homeButton, backButton, recentsButton, alarmTestButton, notifyTestButton, refreshLifeButton;
     private Button addPackageButton, testPackageButton, sequenceTestButton, refreshGateButton, addGateAppButton, addWeatherLocationButton, setCurrentWeatherButton;
     private Button testGuidianButton, saveGuidianSettingsButton, chooseGuidianAvatarButton, guidianThemeDuskButton, guidianThemeCloudButton, guidianThemeBerryButton;
@@ -1120,6 +1121,8 @@ public class MainActivity extends Activity {
         root.addView(guardSettingBlock("主动提醒", "电量、休息与喝水", R.drawable.ic_clock, drawerReminder), marginBottom(7));
         root.addView(guardSettingBlock("周期提醒", AppPrefs.userName(this) + "的周期与关怀", R.drawable.ic_heart_wave, drawerCycle), marginBottom(11));
 
+        root.addView(buildEmotionCard(), marginBottom(11));
+
         root.addView(label("回家与设备", 9), marginBottom(6));
         root.addView(guardSettingBlock("回家模式", "回来时打开熟悉的窗", R.drawable.ic_home, drawerHomeMode), marginBottom(10));
 
@@ -1141,6 +1144,26 @@ public class MainActivity extends Activity {
         ending.addView(endingCopy, weightedWrap(1f, 10));
         root.addView(ending);
         return root;
+    }
+
+    /**
+     * 实时情绪卡片：直接展示陪伴对象的情绪标签、情绪强度、想她百分比（修复 P1.4 前端不展示的问题）。
+     * 数据来自本机 CompanionEmotionState，updateUI() 会刷新 emotionSummaryText。
+     */
+    private View buildEmotionCard() {
+        LinearLayout card = editorialCard();
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(14), dp(12), dp(14), dp(12));
+        TextView head = title("此刻她的心情", 15);
+        card.addView(head, marginBottom(6));
+        emotionSummaryText = body("情绪加载中…", 11);
+        emotionSummaryText.setTextColor(UITheme.current(this).subtext);
+        card.addView(emotionSummaryText, marginBottom(8));
+        Button detail = iconButton("去设置情绪", "打开查岗与管束");
+        detail.setTextSize(13);
+        detail.setOnClickListener(v -> openPolicySettings());
+        card.addView(detail);
+        return card;
     }
 
     /**
@@ -2795,6 +2818,16 @@ public class MainActivity extends Activity {
         if (guidianAvatarText != null) {
             String avatar = AppPrefs.get(this).getString(GuidianState.KEY_AVATAR_URI, "");
             guidianAvatarText.setText(avatar == null || avatar.length() == 0 ? "当前使用默认头像。" : "已使用你选择的头像。\n" + avatar);
+        }
+        if (emotionSummaryText != null) {
+            try {
+                JSONObject snap = CompanionEmotionState.snapshot(this);
+                String line = "情绪标签：" + snap.optString("emotion_tag", "平静")
+                        + "　强度：" + snap.optInt("intensity", 0)
+                        + "　想她：" + snap.optInt("miss_percent", 0) + "%";
+                if (PolicyStore.emotionLock(this)) line += "（已锁定）";
+                emotionSummaryText.setText(line + "\n文案：" + snap.optString("message", ""));
+            } catch (Exception ignored) { }
         }
         renderCompanionAvatar();
         updateCompanionDays();

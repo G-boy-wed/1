@@ -225,6 +225,37 @@ public class CompanionService extends Service {
                 return;
             }
 
+            if ("get_plugin_registry".equals(action) || "plugin_registry".equals(action)) {
+                JSONObject rr = PluginRegistry.categorizedJson();
+                DebugState.append(ctx, "执行插件分类查询：" + rr.length() + " 个分类");
+                try { reportCommand(ctx, serverUrl, token, id, true, rr.toString()); } catch (Exception ignored) { }
+                return;
+            }
+            if (action.contains("class_schedule")) {
+                JSONObject rr = ClassScheduleState.handleCommand(ctx, cmd);
+                boolean ok = rr.optBoolean("ok", false);
+                String result = rr.optString("result", rr.toString());
+                DebugState.append(ctx, "执行课表命令 " + action + "：" + result);
+                try { reportCommand(ctx, serverUrl, token, id, ok, result); } catch (Exception ignored) { }
+                return;
+            }
+            if (action.contains("shared_memory")) {
+                JSONObject rr = SharedMemoryState.handleCommand(ctx, cmd);
+                boolean ok = rr.optBoolean("ok", false);
+                String result = rr.optString("result", rr.toString());
+                DebugState.append(ctx, "执行共同记忆命令 " + action + "：" + result);
+                try { reportCommand(ctx, serverUrl, token, id, ok, result); } catch (Exception ignored) { }
+                return;
+            }
+            if (action.contains("ocr") || "extract_screen".equals(action) || "scan_screen".equals(action)) {
+                JSONObject rr = OcrPlugin.handleCommand(ctx, cmd);
+                boolean ok = rr.optBoolean("ok", false);
+                String result = rr.optString("result", rr.toString());
+                DebugState.append(ctx, "执行识图命令 " + action + "：" + result);
+                try { reportCommand(ctx, serverUrl, token, id, ok, result); } catch (Exception ignored) { }
+                return;
+            }
+
             if ("show_center_alert".equals(action)) {
                 String tone = cmd.optString("tone", "gentle");
                 String buttonText = cmd.optString("button_text", "知道啦");
@@ -581,6 +612,15 @@ public class CompanionService extends Service {
 
     public static boolean showHomeModeNotification(Context ctx, String title, String message) {
         return showReminderNotification(ctx, title, message, HOME_MODE_NOTIFICATION_ID);
+    }
+
+    /** 公开的 best-effort POST：用于识图等插件的远程可选增强通道，失败返回以 "ERROR" 开头的描述。 */
+    public static String postJsonSafe(String urlStr, String token, JSONObject obj) {
+        try {
+            return postJson(urlStr, token, obj);
+        } catch (Exception e) {
+            return "ERROR " + e.getClass().getSimpleName() + ": " + e.getMessage();
+        }
     }
 
     public static void cancelHomeModeNotification(Context ctx) {

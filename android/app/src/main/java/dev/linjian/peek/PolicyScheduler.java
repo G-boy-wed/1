@@ -56,6 +56,9 @@ public final class PolicyScheduler {
     private long lastWeeklyAt = 0;
     private long lastHomeAt = 0;
     private long lastPeriodAt = 0;
+    private String usagePkg = "";          // 正在统计连续使用时长的包名
+    private long usageStartAt = 0;         // 该包连续使用起始时间
+    private long lastUsageLockAt = 0;      // 上次自动锁定的时间（限频）
 
     private PolicyScheduler(Context ctx) {
         this.appCtx = ctx.getApplicationContext();
@@ -108,11 +111,14 @@ public final class PolicyScheduler {
         if (inTarget) {
             lastUserActivityAt = now;
             lastDistractionPkg = ""; // 回到目标 App，清空分心记忆
+            if (PolicyStore.distractionCount(appCtx) != 0) PolicyStore.setDistractionCount(appCtx, 0); // 连续分心计数清零
         }
 
         evaluateCheckIn(now, current);
         evaluateInitiative(now, current);
         evaluateDistraction(now, current);
+        evaluateUsageLock(now, current);
+        evaluateClassSchedule();
         evaluatePermissions(now, current);
     }
 
@@ -121,6 +127,11 @@ public final class PolicyScheduler {
     private void evaluateCheckIn(long now, String current) {
         if (!PolicyStore.checkinEnabled(appCtx)) {
             nextCheckInAt = now + PolicyStore.nextCheckInDelayMs(appCtx);
+            return;
+        }
+        if (ClassScheduleState.isInClassNow(appCtx)) {
+            // 上课期间静默守护（免打扰）：不主动查岗，把下一次查岗推到 1 分钟后重新判断。
+            nextCheckInAt = now + 60_000L;
             return;
         }
         if (nextCheckInAt == 0) nextCheckInAt = now + delayWithScale();
@@ -233,34 +244,42 @@ public final class PolicyScheduler {
         if (current.equals(lastDistractionPkg)) return; // 同一个 App 不重复记
         lastDistractionPkg = current;
         String app = appLabel(current);
-        ActivityEventStore.recordPhone(appCtx, "distraction", "分心到" + app, current);
-        DebugState.append(appCtx, "检测到分心：" + app);
+        // 连续分心计数 +1（回到目标 App 时清零，见 evaluate()）
+        int cnt = PolicyStore.distractionCount(appCtx) + 1;
+        PolicyStore.setDistractionCount(appCtx, cnt);
+        ActivityEventStore.recordPhone(appCtx, "distraction", "分心到" + app + "（累计 " + cnt + " 次）", current);
+        DebugState.append(appCtx, "检测到分心：" + app + "（累计 " + cnt + " 次）");
         if (PolicyStore.disciplineEnabled(appCtx)) discipline("distraction", "分心到" + app);
 
         boolean every = PolicyStore.distractionEveryTime(appCtx);
         boolean byEmotion = CompanionEmotionState.effectiveMissPercent(appCtx) >= PolicyStore.forceBackThreshold(appCtx)
                 || CompanionEmotionState.isStrong(appCtx);
-        if ((every || byEmotion) && !PolicyStore.isInCooldown(appCtx) && !PolicyStore.isQuietNow(appCtx)) {
+        // 累计分心超阈值：自动触发强拉回（与情绪无关，强制带回）。
+        boolean byAccumulated = PolicyStore.distractionAutoPullback(appCtx)
+                && cnt >= PolicyStore.distractionThreshold(appCtx);
+        boolean strong = byEmotion || byAccumulated;
+        if ((every || strong) && !PolicyStore.isInCooldown(appCtx) && !PolicyStore.isQuietNow(appCtx)
+                && !ClassScheduleState.isInClassNow(appCtx)) {
             JSONObject cfg = new JSONObject();
             try {
                 int miss = CompanionEmotionState.effectiveMissPercent(appCtx);
-                boolean strong = byEmotion;
                 cfg.put("level", strong ? "strong" : "soft");
                 cfg.put("strong", strong);
                 cfg.put("allow_decline", !strong);
                 cfg.put("emotion_tag", CompanionEmotionState.emotionTag(appCtx));
                 cfg.put("miss_percent", miss);
                 cfg.put("intensity", CompanionEmotionState.effectiveIntensity(appCtx));
-                cfg.put("threshold", PolicyStore.forceBackThreshold(appCtx));
+                cfg.put("threshold", PolicyStore.distractionThreshold(appCtx));
                 cfg.put("title", strong ? AppPrefs.companionName(appCtx) + "要你回来" : AppPrefs.companionName(appCtx) + "在等你");
-                cfg.put("message", CompanionEmotionState.message(appCtx));
+                cfg.put("message", byAccumulated ? ("已经分心 " + cnt + " 次了，先回来陪" + AppPrefs.companionName(appCtx) + "。") : CompanionEmotionState.message(appCtx));
                 cfg.put("tone", strong ? "angry" : CompanionEmotionState.tone(appCtx));
-                cfg.put("from", "distraction");
+                cfg.put("from", byAccumulated ? "distraction_accumulated" : "distraction");
             } catch (Exception ignored) { }
             PullBackActivity.show(appCtx, cfg);
             PolicyStore.markAction(appCtx);
+            if (byAccumulated) PolicyStore.setDistractionCount(appCtx, 0); // 已触发强拉回，计数归零重新累计
             ActivityEventStore.recordForced(appCtx, "distraction_pull_back",
-                    "分心拉回(" + (byEmotion ? "强" : "软") + ")", "切到 " + app);
+                    "分心拉回(" + (strong ? "强" : "软") + ")", "切到 " + app + (byAccumulated ? " 累计超阈值" : ""));
         }
     }
 
@@ -363,7 +382,57 @@ public final class PolicyScheduler {
         }
     }
 
-    // ============ 训诫插件 ============
+    // ============ 应用连续使用时长自动锁 ============
+
+    /** 跟踪前台连续使用时长，超阈值自动锁该 App（用时长与锁定时间手机端/MCP 可调）。 */
+    private void evaluateUsageLock(long now, String current) {
+        if (!PolicyStore.usageLockEnabled(appCtx)) { usagePkg = ""; usageStartAt = 0; return; }
+        // 计算要监控的包名集合：未指定则只监控目标 App（聊天对象所在 App）。
+        java.util.Set<String> watch = new java.util.HashSet<>();
+        String pkgs = PolicyStore.usageLockPackages(appCtx);
+        if (pkgs == null || pkgs.trim().isEmpty()) {
+            watch.add(PolicyStore.targetPackage(appCtx));
+        } else {
+            for (String p : pkgs.split("[,，\\s]+")) if (!p.trim().isEmpty()) watch.add(p.trim());
+        }
+        boolean watched = current != null && watch.contains(current);
+        if (!watched) { usagePkg = ""; usageStartAt = 0; return; }
+        if (!current.equals(usagePkg)) { usagePkg = current; usageStartAt = now; return; }
+        if (usageStartAt == 0) { usageStartAt = now; return; }
+        long usedMin = (now - usageStartAt) / 60_000L;
+        int limit = PolicyStore.usageLockMinutes(appCtx);
+        if (usedMin >= limit && now - lastUsageLockAt > 60_000L) {
+            lastUsageLockAt = now; usageStartAt = now; // 锁定后重置统计
+            int lockMin = PolicyStore.usageLockDuration(appCtx);
+            try {
+                JSONObject cmd = new JSONObject();
+                cmd.put("action", "lock_app");
+                cmd.put("package", current);
+                cmd.put("duration_minutes", lockMin);
+                cmd.put("reason", "连续使用超 " + limit + " 分钟，自动锁 " + lockMin + " 分钟");
+                cmd.put("app_name", AppGate.labelOf(appCtx, current));
+                AppGate.handleCommand(appCtx, cmd);
+                DebugState.append(appCtx, "使用时长自动锁：" + AppGate.labelOf(appCtx, current) + " 锁 " + lockMin + " 分");
+                ActivityEventStore.recordForced(appCtx, "usage_auto_lock", "连续使用超阈值自动锁", AppGate.labelOf(appCtx, current) + " → " + lockMin + "分");
+            } catch (Exception e) {
+                DebugState.append(appCtx, "使用时长自动锁失败：" + ScreenshotService.shortMsg(e));
+            }
+        }
+    }
+
+    // ============ 课表插件评估（上课静默守护 + 课前/下课提醒）============
+
+    private void evaluateClassSchedule() {
+        try {
+            // ClassScheduleState.evaluate 内部会发课前/下课提醒；上课期间的免打扰由
+            // evaluateCheckIn / evaluateDistraction 调用 inClassNow 实现。
+            ClassScheduleState.evaluate(appCtx);
+        } catch (Exception e) {
+            DebugState.append(appCtx, "课表评估异常：" + ScreenshotService.shortMsg(e));
+        }
+    }
+    /** 当前是否上课中（供其它评估逻辑判断是否免打扰）。 */
+    public static boolean inClassNow(Context ctx) { return ClassScheduleState.isInClassNow(ctx); }
 
     private void discipline(String cause, String detail) {
         if (!PolicyStore.disciplineEnabled(appCtx)) return;

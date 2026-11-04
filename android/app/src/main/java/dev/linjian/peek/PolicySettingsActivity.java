@@ -1,6 +1,7 @@
 package dev.linjian.peek;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -55,6 +56,8 @@ public class PolicySettingsActivity extends Activity {
     private final List<View> allRows = new ArrayList<>();
     private String emotionTagDraft = "";
     private int emotionIntensityDraft = 0;
+    private String addGateDraft = "";
+    private String memoryDraft = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -124,15 +127,17 @@ public class PolicySettingsActivity extends Activity {
         g3.addView(rowSpinner("生成方式", "自由生成（每次内容不同）或固定模板。", new String[]{"自由生成", "自定义模板"}, PolicyStore.initiativeMode(this).equals("template") ? 1 : 0, s -> PolicyStore.setInitiativeMode(this, s.equals("自定义模板") ? "template" : "free")));
         g3.addView(rowText("自定义模板", "生成方式选「自定义模板」时使用的文案。", PolicyStore.initiativeTemplate(this), s -> PolicyStore.setInitiativeTemplate(this, s)));
 
-        LinearLayout g4 = card(container, "训诫插件", "只你本人能开，默认关闭，分四档强度。");
-        g4.addView(rowSwitch("训诫总开关", "关闭则训诫完全不生效。默认关闭。", PolicyStore.disciplineEnabled(this), (v, c) -> PolicyStore.setDisciplineEnabled(this, c)));
+        LinearLayout g4 = card(container, "训诫插件（SM 小圈管束）", "专属小圈管束风格；仅你本人能开，默认关闭，分四档强度。");
+        g4.addView(rowSwitch("训诫总开关", "关闭则训诫完全不生效。默认关闭。仅用户本人可在手机端主动开启。", PolicyStore.disciplineEnabled(this), (v, c) -> PolicyStore.setDisciplineEnabled(this, c)));
         g4.addView(rowSpinner("训诫档位", "0关闭/1轻/2中/3重/4极。档位越高措辞越硬。", new String[]{"0 关闭", "1 轻", "2 中", "3 重", "4 极"}, PolicyStore.disciplineLevel(this), s -> PolicyStore.setDisciplineLevel(this, parseLevel(s))));
-        g4.addView(rowSwitch("开启标志", "打开后界面明确显示「训诫已开启」，让你随时知道状态。", PolicyStore.disciplineBadge(this), (v, c) -> PolicyStore.setDisciplineBadge(this, c)));
-        g4.addView(rowText("说明", "仅用户本人可开启，不设安全词、不写日志，但界面必须有明确开启标志。", "仅本人可开", s -> { }));
+        g4.addView(rowSwitch("强视觉警示标志", "打开后界面明确显示「训诫已开启」警示，让你随时知道状态。", PolicyStore.disciplineBadge(this), (v, c) -> PolicyStore.setDisciplineBadge(this, c)));
+        g4.addView(rowText("说明", "SM 小圈训诫管束风格：仅本人可开、不设安全词、不写日志，但界面必须有明确开启标志。", "仅本人可开", s -> { }));
 
         LinearLayout g5 = card(container, "分心判定", "检测到切屏到其它 App 时怎么处理。");
         g5.addView(rowSwitch("切屏算分心", "聊天中切到其它 App 标记为分心。默认开启。", PolicyStore.distractionEnabled(this), (v, c) -> PolicyStore.setDistractionEnabled(this, c)));
         g5.addView(rowSwitch("每次切屏都拉回", "关闭时是否拉回由她当时的情绪决定；打开则每次切屏都拉回。默认关闭。", PolicyStore.distractionEveryTime(this), (v, c) -> PolicyStore.setDistractionEveryTime(this, c)));
+        g5.addView(rowNumber("累计分心阈值（次）", "连续分心达到该次数自动触发强拉回（强制带回）。默认 5。", PolicyStore.distractionThreshold(this), 1, 999, v -> PolicyStore.setDistractionThreshold(this, v)));
+        g5.addView(rowSwitch("超阈值自动强拉回", "分心累计达到阈值时，不论情绪如何都强制拉回。默认开启。", PolicyStore.distractionAutoPullback(this), (v, c) -> PolicyStore.setDistractionAutoPullback(this, c)));
 
         LinearLayout g6 = card(container, "权限开关", "逐项管理 App 的各种守护功能。");
         addPerm(g6, PolicyStore.KEY_PERM_SCREEN_TIME, "屏幕时长上限", "限制每天可用屏幕总时长（填分钟，0=不限）。");
@@ -144,6 +149,31 @@ public class PolicySettingsActivity extends Activity {
         addPerm(g6, PolicyStore.KEY_PERM_WEEKLY, "每周回顾", "每周生成一次使用回顾（填 星期,HH:mm）。");
         addPerm(g6, PolicyStore.KEY_PERM_HOME, "到家报备", "到家后提醒报备（填地点）。");
         addPerm(g6, PolicyStore.KEY_PERM_PERIOD, "生理期照顾", "按周期给予照顾提醒（填周期天数）。");
+
+        LinearLayout g8 = card(container, "应用时长查岗与自动锁", "实时展示目标 App 使用时长；连续使用超 N 分钟自动锁 M 分钟。");
+        g8.addView(rowSwitch("连续使用自动锁", "开启后监控目标 App（或指定包名）的连续使用时长，超阈值自动锁。", PolicyStore.usageLockEnabled(this), (v, c) -> PolicyStore.setUsageLockEnabled(this, c)));
+        g8.addView(rowNumber("连续使用阈值（分钟）", "连续使用达到该分钟数触发锁定。默认 45。", PolicyStore.usageLockMinutes(this), 1, 1440, v -> PolicyStore.setUsageLockMinutes(this, v)));
+        g8.addView(rowNumber("自动锁定时长（分钟）", "触发后锁定该 App 多少分钟。默认 15。", PolicyStore.usageLockDuration(this), 1, 1440, v -> PolicyStore.setUsageLockDuration(this, v)));
+        g8.addView(rowText("监控包名（逗号分隔）", "留空=只监控目标 App；也可填多个包名，如 com.tencent.mm,com.ss.android.ugc.aweme。", PolicyStore.usageLockPackages(this), s -> PolicyStore.setUsageLockPackages(this, s)));
+        g8.addView(rowButton("查看当前使用状态", "显示当前前台 App 与连续使用时长。", "查看", v -> showUsageStatus()));
+
+        LinearLayout g9 = card(container, "自主锁应用与包名管理", "自由添加、保存、修改、移除受限 App 的包名与别名。");
+        g9.addView(rowText("新增受限 App", "填「别名|包名」一行，如 微博|com.sina.weibo，点下方保存。", "", s -> addGateDraft = s));
+        g9.addView(rowButton("保存新增", "把上面填的包名加入受限列表。", "保存", v -> { saveGateDraft(); }));
+        g9.addView(buildGateAppList(g9));
+
+        LinearLayout g10 = card(container, "插件分类（架构整理）", "所有扩展能力统一归类管理，杜绝硬编码，独立持久化与配置。");
+        g10.addView(rowButton("查看插件分类", "按 管束查岗/情绪感知/日程作息/系统控制/记忆视觉 展示全部插件。", "查看", v -> showPluginRegistry()));
+
+        LinearLayout g11 = card(container, "课表插件", "录入课表，到点自动判定上课、上课静默守护、课前/下课提醒。");
+        g11.addView(rowButton("录入一节新课", "填 星期/节次/起止/科目/教室 后保存。", "录入", v -> addClassEntry()));
+        g11.addView(rowButton("导入示例课表", "写入几条示例课表用于验证。", "导入示例", v -> importSampleSchedule()));
+        g11.addView(rowButton("查看课表", "列出全部课表与当前是否上课中。", "查看", v -> showClassSchedule()));
+
+        LinearLayout g12 = card(container, "共同记忆", "双方可增/改/删、双向修改实时生效的记忆面板。");
+        g12.addView(rowText("新增记忆", "写下一条共同记忆，点下方保存。", "", s -> memoryDraft = s));
+        g12.addView(rowButton("保存记忆", "把上面写的记忆加入共同记忆。", "保存", v -> saveMemory()));
+        g12.addView(rowButton("查看共同记忆", "列出全部记忆条目。", "查看", v -> showSharedMemory()));
 
         LinearLayout g7 = card(container, "验收与调试", "本地触发拉回弹窗、把配置同步给服务器（可选）。");
         g7.addView(rowButton("试一下软级别拉回", "想她低于阈值：两个按钮，可拒绝但必须留理由。", "试软级", v -> testPullBack(false)));
@@ -470,6 +500,145 @@ public class PolicySettingsActivity extends Activity {
         } catch (Exception e) {
             status("触发失败：" + ScreenshotService.shortMsg(e));
         }
+    }
+
+    // ============ 包名管理 / 课表 / 共同记忆 / 插件 / 使用时长 ============
+
+    private void saveGateDraft() {
+        try {
+            String t = addGateDraft == null ? "" : addGateDraft.trim();
+            if (t.isEmpty()) { Toast.makeText(this, "请先填写 别名|包名", Toast.LENGTH_SHORT).show(); return; }
+            String[] p = t.split("\\|", 2);
+            if (p.length != 2 || !AppPrefs.isPackageLike(p[1].trim())) {
+                Toast.makeText(this, "格式应为 别名|包名，如 微博|com.sina.weibo", Toast.LENGTH_LONG).show(); return;
+            }
+            AppGate.addGateApp(this, p[0].trim(), p[1].trim());
+            Toast.makeText(this, "已添加受限 App：" + p[0].trim(), Toast.LENGTH_SHORT).show();
+            addGateDraft = ""; buildUI();
+        } catch (Exception e) { status("添加失败：" + ScreenshotService.shortMsg(e)); }
+    }
+
+    /** 构建一个列出当前受限 App、每行可移除的视图。 */
+    private LinearLayout buildGateAppList(LinearLayout group) {
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        java.util.Map<String, String> apps = AppGate.gateApps(this);
+        if (apps.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("暂无受限 App（内置默认：小红书、抖音）");
+            empty.setTextSize(11); empty.setTextColor(0xFF8B7D99);
+            list.addView(empty);
+        }
+        for (final java.util.Map.Entry<String, String> e : apps.entrySet()) {
+            final LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setPadding(0, dp(4), 0, dp(4));
+            TextView lab = new TextView(this);
+            lab.setText(e.getKey() + "  →  " + e.getValue());
+            lab.setTextSize(12); lab.setTextColor(0xFF2D3E39);
+            lab.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1f));
+            row.addView(lab);
+            Button rm = new Button(this);
+            rm.setText("移除"); rm.setTextSize(11); rm.setBackgroundResource(R.drawable.pill_danger);
+            rm.setOnClickListener(v -> { AppGate.removeGateApp(this, e.getValue()); Toast.makeText(this, "已移除 " + e.getKey(), Toast.LENGTH_SHORT).show(); buildUI(); });
+            row.addView(rm);
+            list.addView(row);
+        }
+        return list;
+    }
+
+    private void showUsageStatus() {
+        try {
+            String pkg = ScreenshotService.currentPackage();
+            String label = AppGate.labelOf(this, pkg);
+            boolean watched = PolicyStore.usageLockEnabled(this)
+                    && (PolicyStore.usageLockPackages(this).trim().isEmpty()
+                        ? PolicyStore.targetPackage(this).equals(pkg)
+                        : PolicyStore.usageLockPackages(this).contains(pkg));
+            AlertDialog.Builder b = new AlertDialog.Builder(this);
+            b.setTitle("当前使用状态");
+            b.setMessage("前台 App：" + label + "\n包名：" + pkg + "\n是否在自动锁监控中：" + (watched ? "是" : "否")
+                    + "\n（连续使用时长由本地调度器实时统计，达到阈值即自动锁）");
+            b.setPositiveButton("知道了", null).show();
+        } catch (Exception e) { status("读取失败：" + ScreenshotService.shortMsg(e)); }
+    }
+
+    private void showPluginRegistry() {
+        try {
+            JSONObject reg = PluginRegistry.categorizedJson();
+            StringBuilder sb = new StringBuilder("插件分类（共 " + PluginRegistry.all().size() + " 个）：\n\n");
+            java.util.Iterator<String> it = reg.keys();
+            while (it.hasNext()) {
+                String cat = it.next();
+                sb.append("【").append(cat).append("】\n");
+                org.json.JSONArray arr = reg.optJSONArray(cat);
+                for (int i = 0; i < arr.length(); i++) {
+                    org.json.JSONObject o = arr.optJSONObject(i);
+                    sb.append("· ").append(o.optString("name", "")).append("：").append(o.optString("desc", "")).append("\n");
+                }
+                sb.append("\n");
+            }
+            AlertDialog.Builder b = new AlertDialog.Builder(this);
+            b.setTitle("插件分类").setMessage(sb.toString().trim()).setPositiveButton("知道了", null).show();
+        } catch (Exception e) { status("读取失败：" + ScreenshotService.shortMsg(e)); }
+    }
+
+    private void addClassEntry() {
+        final EditText input = new EditText(this);
+        input.setHint("周几 起-止 科目@教室，如 1 09:00-09:45 高数@教三201");
+        input.setTextSize(13);
+        AlertDialog.Builder b = new AlertDialog.Builder(this);
+        b.setTitle("录入课表").setView(input)
+                .setPositiveButton("保存", (d, w) -> {
+                    try {
+                        String t = input.getText().toString().trim();
+                        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+)\\s+(\\d{1,2}:\\d{2})\\s*-\\s*(\\d{1,2}:\\d{2})\\s+(.+?)(?:@(.+))?$").matcher(t);
+                        if (!m.matches()) { Toast.makeText(this, "格式不对，参考：1 09:00-09:45 高数@教三201", Toast.LENGTH_LONG).show(); return; }
+                        JSONObject e = new JSONObject();
+                        e.put("weekday", Integer.parseInt(m.group(1)));
+                        e.put("start", m.group(2));
+                        e.put("end", m.group(3));
+                        e.put("subject", m.group(4).trim());
+                        e.put("room", m.group(5) == null ? "" : m.group(5).trim());
+                        ClassScheduleState.upsertEntry(this, e);
+                        Toast.makeText(this, "已保存课程", Toast.LENGTH_SHORT).show();
+                        buildUI();
+                    } catch (Exception ex) { status("保存失败：" + ScreenshotService.shortMsg(ex)); }
+                })
+                .setNegativeButton("取消", null).show();
+    }
+
+    private void importSampleSchedule() {
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray();
+            arr.put(new JSONObject().put("weekday", 1).put("start", "09:00").put("end", "09:45").put("subject", "高等数学").put("room", "教三201"));
+            arr.put(new JSONObject().put("weekday", 1).put("start", "10:00").put("end", "10:45").put("subject", "大学英语").put("room", "教二105"));
+            arr.put(new JSONObject().put("weekday", 3).put("start", "14:00").put("end", "15:30").put("subject", "数据结构").put("room", "实验楼B"));
+            arr.put(new JSONObject().put("weekday", 5).put("start", "08:00").put("end", "09:35").put("subject", "线性代数").put("room", "教一302"));
+            ClassScheduleState.importEntries(this, arr);
+            Toast.makeText(this, "已导入示例课表", Toast.LENGTH_SHORT).show();
+            buildUI();
+        } catch (Exception e) { status("导入失败：" + ScreenshotService.shortMsg(e)); }
+    }
+
+    private void showClassSchedule() {
+        AlertDialog.Builder b = new AlertDialog.Builder(this);
+        b.setTitle("课表").setMessage(ClassScheduleState.pretty(this)).setPositiveButton("知道了", null).show();
+    }
+
+    private void saveMemory() {
+        try {
+            String t = memoryDraft == null ? "" : memoryDraft.trim();
+            if (t.isEmpty()) { Toast.makeText(this, "请先填写记忆内容", Toast.LENGTH_SHORT).show(); return; }
+            SharedMemoryState.add(this, t, AppPrefs.userName(this));
+            Toast.makeText(this, "已保存记忆", Toast.LENGTH_SHORT).show();
+            memoryDraft = ""; buildUI();
+        } catch (Exception e) { status("保存失败：" + ScreenshotService.shortMsg(e)); }
+    }
+
+    private void showSharedMemory() {
+        AlertDialog.Builder b = new AlertDialog.Builder(this);
+        b.setTitle("共同记忆").setMessage(SharedMemoryState.pretty(this)).setPositiveButton("知道了", null).show();
     }
 
     // ============ 工具 ============

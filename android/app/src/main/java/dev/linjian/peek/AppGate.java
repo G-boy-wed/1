@@ -105,6 +105,33 @@ public class AppGate {
         return apps;
     }
 
+    /** 从用户自定义受限 App 列表（以及锁定状态）中移除某个 App（按包名）。 */
+    public static void removeGateApp(Context ctx, String pkg) {
+        pkg = pkg == null ? "" : pkg.trim();
+        if (pkg.length() == 0) return;
+        // 从自定义列表删除
+        StringBuilder sb = new StringBuilder();
+        String raw = AppPrefs.get(ctx).getString(KEY_GATE_APPS, "");
+        boolean changed = false;
+        for (String line : raw.split("\\n")) {
+            if (line == null) continue;
+            String t = line.trim();
+            if (t.isEmpty()) continue;
+            String[] p = t.split("\\|", 2);
+            String pk = p.length == 2 ? p[1].trim() : "";
+            if (pk.equals(pkg)) { changed = true; continue; }
+            sb.append(t).append("\n");
+        }
+        if (changed) AppPrefs.get(ctx).edit().putString(KEY_GATE_APPS, sb.toString()).apply();
+        // 同步从锁定状态解除（如果有）
+        try {
+            JSONObject s = state(ctx); JSONObject l = locks(s).optJSONObject(pkg);
+            if (l != null) { l.put("active", false); save(ctx, s); }
+        } catch (Exception ignored) { }
+        AppPrefs.removeCustomApp(ctx, pkg);
+        log(ctx, "移除受限 App：" + (pkg.length() == 0 ? "-" : pkg));
+    }
+
     public static JSONObject handleCommand(Context ctx, JSONObject cmd) {
         JSONObject out = new JSONObject();
         String action = cmd.optString("action", "");

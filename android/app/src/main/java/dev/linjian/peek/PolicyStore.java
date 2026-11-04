@@ -70,6 +70,15 @@ public final class PolicyStore {
     // —— 分心判定 ——
     public static final String KEY_DISTRACTION_ENABLED = PREFIX + "dist_enabled"; // 切屏算不算分心，默认 true
     public static final String KEY_DISTRACTION_EVERY = PREFIX + "dist_every";    // 是否每次切屏都拉回，默认 false
+    public static final String KEY_DISTRACTION_THRESHOLD = PREFIX + "dist_threshold";   // 累计分心阈值（默认 5 次）
+    public static final String KEY_DISTRACTION_AUTO_PULLBACK = PREFIX + "dist_auto_pullback"; // 超阈值自动强拉回，默认 true
+    public static final String KEY_DISTRACTION_COUNT = PREFIX + "dist_count";     // 当前连续分心计数（运行时累计）
+
+    // —— 应用使用时长自动锁 ——
+    public static final String KEY_USAGE_LOCK_ENABLED = PREFIX + "usage_lock_enabled"; // 连续使用超 N 分钟自动锁，默认 false
+    public static final String KEY_USAGE_LOCK_MINUTES = PREFIX + "usage_lock_min";     // 连续使用 N 分钟触发锁定，默认 45
+    public static final String KEY_USAGE_LOCK_DURATION = PREFIX + "usage_lock_dur";    // 锁定 M 分钟，默认 15
+    public static final String KEY_USAGE_LOCK_PACKAGES = PREFIX + "usage_lock_pkgs";   // 监控的包名（逗号分隔，空=仅目标 App）
 
     // —— 安静时段 / 深夜时段（支持跨零点）——
     public static final String KEY_QUIET_START = PREFIX + "quiet_start";         // "23:30"
@@ -116,6 +125,11 @@ public final class PolicyStore {
     private static final boolean DEF_DISC_BADGE = true;
     private static final boolean DEF_DIST_ENABLED = true;
     private static final boolean DEF_DIST_EVERY = false;
+    private static final int DEF_DIST_THRESHOLD = 5;
+    private static final boolean DEF_DIST_AUTO_PULLBACK = true;
+    private static final boolean DEF_USAGE_LOCK_ENABLED = false;
+    private static final int DEF_USAGE_LOCK_MIN = 45;
+    private static final int DEF_USAGE_LOCK_DUR = 15;
     private static final String DEF_QUIET_START = "23:30";
     private static final String DEF_QUIET_END = "08:00";
     private static final String DEF_NIGHT_START = "23:00";
@@ -259,6 +273,26 @@ public final class PolicyStore {
     public static void setDistractionEnabled(Context ctx, boolean v) { putBool(ctx, KEY_DISTRACTION_ENABLED, v, "切屏算分心"); }
     public static boolean distractionEveryTime(Context ctx) { return getBool(ctx, KEY_DISTRACTION_EVERY, DEF_DIST_EVERY); }
     public static void setDistractionEveryTime(Context ctx, boolean v) { putBool(ctx, KEY_DISTRACTION_EVERY, v, "每次切屏都拉回"); }
+    public static int distractionThreshold(Context ctx) { return getInt(ctx, KEY_DISTRACTION_THRESHOLD, DEF_DIST_THRESHOLD); }
+    public static void setDistractionThreshold(Context ctx, int v) { putInt(ctx, KEY_DISTRACTION_THRESHOLD, clamp(v, 1, 999), "分心自动拉回阈值(次)"); }
+    public static boolean distractionAutoPullback(Context ctx) { return getBool(ctx, KEY_DISTRACTION_AUTO_PULLBACK, DEF_DIST_AUTO_PULLBACK); }
+    public static void setDistractionAutoPullback(Context ctx, boolean v) { putBool(ctx, KEY_DISTRACTION_AUTO_PULLBACK, v, "超阈值自动强拉回"); }
+
+    /** 连续分心计数（运行时累计，回到目标 App 清零）。 */
+    public static int distractionCount(Context ctx) { return getInt(ctx, KEY_DISTRACTION_COUNT, 0); }
+    public static void setDistractionCount(Context ctx, int v) {
+        sp(ctx).edit().putInt(KEY_DISTRACTION_COUNT, Math.max(0, v)).apply();
+    }
+
+    // —— 应用使用时长自动锁 ——
+    public static boolean usageLockEnabled(Context ctx) { return getBool(ctx, KEY_USAGE_LOCK_ENABLED, DEF_USAGE_LOCK_ENABLED); }
+    public static void setUsageLockEnabled(Context ctx, boolean v) { putBool(ctx, KEY_USAGE_LOCK_ENABLED, v, "连续使用自动锁"); }
+    public static int usageLockMinutes(Context ctx) { return getInt(ctx, KEY_USAGE_LOCK_MINUTES, DEF_USAGE_LOCK_MIN); }
+    public static void setUsageLockMinutes(Context ctx, int v) { putInt(ctx, KEY_USAGE_LOCK_MINUTES, clamp(v, 1, 1440), "连续使用阈值(分钟)"); }
+    public static int usageLockDuration(Context ctx) { return getInt(ctx, KEY_USAGE_LOCK_DURATION, DEF_USAGE_LOCK_DUR); }
+    public static void setUsageLockDuration(Context ctx, int v) { putInt(ctx, KEY_USAGE_LOCK_DURATION, clamp(v, 1, 1440), "自动锁定时长(分钟)"); }
+    public static String usageLockPackages(Context ctx) { return getString(ctx, KEY_USAGE_LOCK_PACKAGES, ""); }
+    public static void setUsageLockPackages(Context ctx, String v) { putString(ctx, KEY_USAGE_LOCK_PACKAGES, v, "时长自动锁监控包名"); }
 
     // —— 安静 / 深夜时段 ——
     public static String quietStart(Context ctx) { return getString(ctx, KEY_QUIET_START, DEF_QUIET_START); }
@@ -449,6 +483,13 @@ public final class PolicyStore {
         e.putBoolean(KEY_DISCIPLINE_BADGE, DEF_DISC_BADGE);
         e.putBoolean(KEY_DISTRACTION_ENABLED, DEF_DIST_ENABLED);
         e.putBoolean(KEY_DISTRACTION_EVERY, DEF_DIST_EVERY);
+        e.putInt(KEY_DISTRACTION_THRESHOLD, DEF_DIST_THRESHOLD);
+        e.putBoolean(KEY_DISTRACTION_AUTO_PULLBACK, DEF_DIST_AUTO_PULLBACK);
+        e.putInt(KEY_DISTRACTION_COUNT, 0);
+        e.putBoolean(KEY_USAGE_LOCK_ENABLED, DEF_USAGE_LOCK_ENABLED);
+        e.putInt(KEY_USAGE_LOCK_MINUTES, DEF_USAGE_LOCK_MIN);
+        e.putInt(KEY_USAGE_LOCK_DURATION, DEF_USAGE_LOCK_DUR);
+        e.putString(KEY_USAGE_LOCK_PACKAGES, "");
         e.putString(KEY_QUIET_START, DEF_QUIET_START);
         e.putString(KEY_QUIET_END, DEF_QUIET_END);
         e.putString(KEY_NIGHT_START, DEF_NIGHT_START);
@@ -477,6 +518,8 @@ public final class PolicyStore {
           .append(" 目标App=").append(targetPackage(ctx))
           .append(" 冷却=").append(cooldownMinutes(ctx)).append("分")
           .append(" 想她锁定=").append(emotionLock(ctx))
+          .append(" 分心计数=").append(distractionCount(ctx)).append("/").append(distractionThreshold(ctx))
+          .append(" 时长自动锁=").append(usageLockEnabled(ctx) ? usageLockMinutes(ctx)+"分→锁"+usageLockDuration(ctx)+"分" : "关")
           .append(" 变更记录=").append(changeLogCount(ctx)).append("条");
         return sb.toString();
     }

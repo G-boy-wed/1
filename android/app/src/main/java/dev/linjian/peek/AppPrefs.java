@@ -311,6 +311,25 @@ public class AppPrefs {
         get(ctx).edit().putString(KEY_CUSTOM_APPS, sb.toString()).putString("pkg_" + alias.toLowerCase(Locale.US), pkg).apply();
     }
 
+    /** 从自定义 App 列表中移除某个包名对应的记录（按包名匹配，同时清掉别名反向索引）。 */
+    public static void removeCustomApp(Context ctx, String pkg) {
+        pkg = pkg == null ? "" : pkg.trim();
+        if (pkg.isEmpty()) return;
+        LinkedHashMap<String, String> custom = new LinkedHashMap<>();
+        String old = get(ctx).getString(KEY_CUSTOM_APPS, "");
+        for (String line : old.split("\\n")) {
+            if (line == null || !line.contains("|")) continue;
+            String[] parts = line.trim().split("\\|", 2);
+            if (parts.length == 2 && !parts[0].trim().isEmpty() && isPackageLike(parts[1].trim())) {
+                if (parts[1].trim().equals(pkg)) continue; // 跳过要删除的
+                custom.put(parts[0].trim(), parts[1].trim());
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, String> e : custom.entrySet()) sb.append(e.getKey()).append("|").append(e.getValue()).append("\n");
+        get(ctx).edit().putString(KEY_CUSTOM_APPS, sb.toString()).apply();
+    }
+
     public static String knownAppsText(Context ctx) {
         StringBuilder sb = new StringBuilder();
         for (Map.Entry<String, String> e : allApps(ctx).entrySet()) {
