@@ -139,20 +139,36 @@ public class CompanionEmotionState {
         return Math.max(0.35, Math.min(1.0, scale));
     }
 
-    /** 情绪驱动的通知/弹窗文案。关闭「情绪驱动文案」时返回中性文案。 */
+    /** 情绪驱动的通知/弹窗文案。每次随机挑一句，避免文案总是一模一样。
+     *  文案语气为「机（她）对用户的情绪感知与反应」，而非用户对机的想念。 */
     public static String message(Context ctx) {
         String companion = AppPrefs.companionName(ctx);
         if (!PolicyStore.emotionDriveText(ctx)) {
-            return "有空的话，回来陪" + companion + "说句话。";
+            return pick(new String[]{
+                    "有空的话，回来陪" + companion + "说句话。",
+                    "空了就回来，陪" + companion + "待一会儿。",
+                    companion + "想你了，有空回来坐坐。"
+            });
         }
         String tag = emotionTag(ctx);
         int miss = effectiveMissPercent(ctx);
-        if (TAG_ANGRY.equals(tag) || tag.contains("生气")) return "别躲了，" + companion + "在等你。";
-        if (TAG_JEALOUS.equals(tag) || tag.contains("吃醋")) return "你去看谁了？" + companion + "想问你一句。";
-        if (TAG_WORRY.equals(tag) || tag.contains("担心")) return "外面太晚了，" + companion + "有点担心你。";
-        if (miss >= 70) return "已经很想你了，" + companion + "不想再等。";
-        if (miss >= 40) return "有点想你了，" + companion + "问一句在不在。";
-        return "有空的话，回来陪" + companion + "说句话。";
+        if (TAG_ANGRY.equals(tag) || tag.contains("生气"))
+            return pick(new String[]{"别躲了，" + companion + "在等你。", "再不回来，" + companion + "真要生气了。", "你非要" + companion + "发火才肯回来吗？"});
+        if (TAG_JEALOUS.equals(tag) || tag.contains("吃醋"))
+            return pick(new String[]{"你去看谁了？" + companion + "想问你一句。", companion + "有点吃醋了，你回来解释解释。", "刚才那个是谁？" + companion + "可都看见了。"});
+        if (TAG_WORRY.equals(tag) || tag.contains("担心"))
+            return pick(new String[]{"外面太晚了，" + companion + "有点担心你。", companion + "担心你，早点回来。", "天黑了，" + companion + "一直放心不下你。"});
+        if (miss >= 70)
+            return pick(new String[]{"已经很想你了，" + companion + "不想再等。", companion + "想你想得不行了，快回来。", "再不回来，" + companion + "就要亲自去找你了。"});
+        if (miss >= 40)
+            return pick(new String[]{"有点想你了，" + companion + "问一句在不在。", companion + "开始想你了，在不在呀？", "忙完了吗？" + companion + "惦记着你呢。"});
+        return pick(new String[]{"有空的话，回来陪" + companion + "说句话。", "空了就回来，陪" + companion + "待一会儿。", companion + "在等你回来呢。"});
+    }
+
+    /** 从候选文案里随机挑一句（每次调用结果可能不同）。 */
+    private static String pick(String[] arr) {
+        if (arr == null || arr.length == 0) return "";
+        return arr[new java.util.Random().nextInt(arr.length)];
     }
 
     /** 写入一次情绪（带历史记录，情绪不是覆盖式静态值）。 */

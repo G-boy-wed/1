@@ -12,6 +12,7 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.Window;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -116,17 +117,17 @@ public class PolicySettingsActivity extends Activity {
         g1.addView(rowTimePair("安静时段", "这段时间里不主动打扰（支持跨零点，如 23:30→08:00）。", PolicyStore.quietStart(this), PolicyStore.quietEnd(this), s -> PolicyStore.setQuietStart(this, s), s -> PolicyStore.setQuietEnd(this, s)));
         g1.addView(rowTimePair("深夜时段", "用于情绪感知判断的深夜范围（支持跨零点）。", PolicyStore.nightStart(this), PolicyStore.nightEnd(this), s -> PolicyStore.setNightStart(this, s), s -> PolicyStore.setNightEnd(this, s)));
 
-        LinearLayout g2 = card(container, "情绪感知", "她自己的情绪，独立于你的手机状态、不覆盖你的快照。", "emotion");
-        g2.addView(rowNumber("想她百分比（当前值）", "手动写当前的想她程度；锁定后不被自动衰减盖回。", PolicyStore.emotionCurrentMiss(this), 0, 100, v -> PolicyStore.setEmotionCurrentMiss(this, v)));
-        g2.addView(rowSwitch("想她锁定", "打开后当前想她值固定不变，衰减与累积都不再动它。", PolicyStore.emotionLock(this), (v, c) -> PolicyStore.setEmotionLock(this, c)));
-        g2.addView(rowNumber("起始值", "很久没互动时的初始想她值，低一点更自然。默认 8。", PolicyStore.emotionStartMiss(this), 0, 100, v -> PolicyStore.setEmotionStartMiss(this, v)));
-        g2.addView(rowNumber("每30分钟增长下限", "你越久不回来想她累积越快；这是增长的下限。默认 2。", PolicyStore.emotionGainMin(this), 0, 20, v -> PolicyStore.setEmotionGainMin(this, v)));
+        LinearLayout g2 = card(container, "情绪感知", "机（她）对你情绪状态的感知与反应，独立于你的手机状态、不覆盖你的快照。", "emotion");
+        g2.addView(rowNumber("想你程度（当前值）", "她（机）当前想你的程度；锁定后不被自动衰减盖回。", PolicyStore.emotionCurrentMiss(this), 0, 100, v -> PolicyStore.setEmotionCurrentMiss(this, v)));
+        g2.addView(rowSwitch("想你锁定", "打开后她想你的当前值固定不变，衰减与累积都不再动它。", PolicyStore.emotionLock(this), (v, c) -> PolicyStore.setEmotionLock(this, c)));
+        g2.addView(rowNumber("平静起始值", "很久没互动时她对你的初始想念值，低一点更自然。默认 8。", PolicyStore.emotionStartMiss(this), 0, 100, v -> PolicyStore.setEmotionStartMiss(this, v)));
+        g2.addView(rowNumber("每30分钟增长下限", "你越久不回来，她想你累积越快；这是增长的下限。默认 2。", PolicyStore.emotionGainMin(this), 0, 20, v -> PolicyStore.setEmotionGainMin(this, v)));
         g2.addView(rowNumber("每30分钟增长上限", "增长上限，配合下限形成随机浮动，不会一直匀速。默认 5。", PolicyStore.emotionGainMax(this), 0, 20, v -> PolicyStore.setEmotionGainMax(this, v)));
-        g2.addView(rowNumber("回落速度（每小时）", "被安抚后想她每小时回落的点数。默认 4。", PolicyStore.emotionDecayPerHour(this), 0, 50, v -> PolicyStore.setEmotionDecayPerHour(this, v)));
-        g2.addView(rowText("情绪标签", "如 平静/想你/吃醋/生气/担心。点下方「保存情绪」生效。", CompanionEmotionState.emotionTag(this), s -> emotionTagDraft = s));
-        g2.addView(rowNumber("情绪强度", "0-100，影响语气与拉回频率。点下方「保存情绪」生效。", CompanionEmotionState.snapshot(this).optInt("intensity", 0), 0, 100, v -> emotionIntensityDraft = v));
-        g2.addView(rowSwitch("情绪驱动文案", "打开后弹窗文案随情绪变化；关闭则用中性文案。", PolicyStore.emotionDriveText(this), (v, c) -> PolicyStore.setEmotionDriveText(this, c)));
-        g2.addView(rowButton("保存情绪（标签/强度）", "把上面填的情绪标签与强度写进陪伴对象情绪。", "保存情绪",
+        g2.addView(rowNumber("回落速度（每小时）", "被安抚后想你回落速度（每小时点数）。默认 4。", PolicyStore.emotionDecayPerHour(this), 0, 50, v -> PolicyStore.setEmotionDecayPerHour(this, v)));
+        g2.addView(rowText("情绪标签（她对用户的）", "如 平静/想你/吃醋/生气/担心。点下方「保存情绪」生效。", CompanionEmotionState.emotionTag(this), s -> emotionTagDraft = s));
+        g2.addView(rowNumber("情绪强度（0-100）", "影响语气与拉回频率。点下方「保存情绪」生效。", CompanionEmotionState.snapshot(this).optInt("intensity", 0), 0, 100, v -> emotionIntensityDraft = v));
+        g2.addView(rowSwitch("情绪驱动文案（随机）", "打开后弹窗文案随情绪随机生成，每次都不一样；关闭则用中性文案。", PolicyStore.emotionDriveText(this), (v, c) -> PolicyStore.setEmotionDriveText(this, c)));
+        g2.addView(rowButton("保存情绪（标签/强度）", "把上面填的情绪标签与强度写进她对用户的情绪。", "保存情绪",
                 v -> { CompanionEmotionState.write(this, emotionTagDraft, emotionIntensityDraft, PolicyStore.emotionCurrentMiss(this), ""); Toast.makeText(this, "情绪已保存", Toast.LENGTH_SHORT).show(); refreshStatus(); }));
 
         LinearLayout g3 = card(container, "主动找她", "你太久没发消息，她会主动找你发一条。", "initiative");
@@ -187,9 +188,6 @@ public class PolicySettingsActivity extends Activity {
         addPerm(g6, PolicyStore.KEY_PERM_HOME, "到家报备", "到家后提醒报备（填地点）。");
         addPerm(g6, PolicyStore.KEY_PERM_PERIOD, "生理期照顾", "按周期给予照顾提醒（填周期天数）。");
 
-        LinearLayout g10 = card(container, "插件分类", "所有扩展能力统一归类管理，杜绝硬编码，独立持久化与配置。", "plugins");
-        g10.addView(rowButton("查看插件分类", "按 管束查岗/情绪感知/日程作息/系统控制/记忆视觉 展示全部插件。", "查看", v -> showPluginRegistry()));
-
         LinearLayout g11 = card(container, "课表作息", "录入课表，到点自动判定上课、上课静默守护、课前/下课提醒。", "schedule");
         g11.addView(rowButton("录入一节新课", "填 星期/节次/起止/科目/教室 后保存。", "录入", v -> addClassEntry()));
         g11.addView(rowButton("导入示例课表", "写入几条示例课表用于验证。", "导入示例", v -> importSampleSchedule()));
@@ -200,7 +198,8 @@ public class PolicySettingsActivity extends Activity {
         g12.addView(rowButton("保存记忆", "把上面写的记忆加入共同记忆。", "保存", v -> saveMemory()));
         g12.addView(rowButton("查看共同记忆", "列出全部记忆条目。", "查看", v -> showSharedMemory()));
 
-        LinearLayout gOcr = card(container, "识图感知", "用读屏节点树从当前屏幕读取可见文字与状态。", "ocr");
+        LinearLayout gOcr = card(container, "识图感知", "用读屏节点树从当前屏幕读取可见文字与状态；可随时关闭，关后本地与 MCP 都无法调用。", "ocr");
+        gOcr.addView(rowSwitch("开启识图感知", "关闭后不再读取屏幕文字，MCP 与本地都无法调用识图。默认开启。", PolicyStore.ocrEnabled(this), (v, c) -> PolicyStore.setOcrEnabled(this, c)));
         gOcr.addView(rowButton("读取当前屏幕文字", "需要无障碍权限；读取后展示提取到的文字。", "读取", v -> runOcr()));
 
         LinearLayout gWeather = card(container, "天气地区", "家与常用地点，天气提醒按地区给出。", "weather");
@@ -315,14 +314,24 @@ public class PolicySettingsActivity extends Activity {
                 if (c instanceof LinearLayout && c.getVisibility() != View.VISIBLE) c.setVisibility(View.VISIBLE);
             }
         }
-        final ScrollView sv = (ScrollView) container.getParent();
-        final int top = g.getTop();
-        container.post(() -> sv.scrollTo(0, top));
+        // 容器（policyContainer）的父级是 policyRoot，再外层才是 ScrollView；向上找真实的 ScrollView
+        ViewParent p = container.getParent();
+        while (p != null && !(p instanceof ScrollView)) p = p.getParent();
+        if (!(p instanceof ScrollView)) return;
+        final ScrollView sv = (ScrollView) p;
+        // g.getTop() 是相对 container 的偏移；加上 container 在 ScrollView 内容里的偏移才是绝对位置
+        final int top = container.getTop() + g.getTop();
+        sv.post(() -> sv.scrollTo(0, top));
     }
 
     // ============ 识图 / 天气 / 回家模式 详情 ============
 
     private void runOcr() {
+        if (!PolicyStore.ocrEnabled(this)) {
+            AlertDialog.Builder b = new AlertDialog.Builder(this);
+            b.setTitle("识图感知已关闭").setMessage("当前已关闭识图感知。打开上方「开启识图感知」开关后即可读取屏幕文字。").setPositiveButton("知道了", null).show();
+            return;
+        }
         try {
             JSONObject r = OcrPlugin.extractLocal(this);
             AlertDialog.Builder b = new AlertDialog.Builder(this);

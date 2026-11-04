@@ -80,6 +80,9 @@ public final class PolicyStore {
     public static final String KEY_USAGE_LOCK_DURATION = PREFIX + "usage_lock_dur";    // 锁定 M 分钟，默认 15
     public static final String KEY_USAGE_LOCK_PACKAGES = PREFIX + "usage_lock_pkgs";   // 监控的包名（逗号分隔，空=仅目标 App）
 
+    // —— 识图感知（可开关；默认开启，用户可在「查岗与管束」里关闭）——
+    public static final String KEY_OCR_ENABLED = PREFIX + "ocr_enabled";          // 识图感知总开关，默认 true
+
     // —— 安静时段 / 深夜时段（支持跨零点）——
     public static final String KEY_QUIET_START = PREFIX + "quiet_start";         // "23:30"
     public static final String KEY_QUIET_END = PREFIX + "quiet_end";             // "08:00"
@@ -130,6 +133,7 @@ public final class PolicyStore {
     private static final boolean DEF_USAGE_LOCK_ENABLED = false;
     private static final int DEF_USAGE_LOCK_MIN = 45;
     private static final int DEF_USAGE_LOCK_DUR = 15;
+    private static final boolean DEF_OCR_ENABLED = true;
     private static final String DEF_QUIET_START = "23:30";
     private static final String DEF_QUIET_END = "08:00";
     private static final String DEF_NIGHT_START = "23:00";
@@ -293,6 +297,10 @@ public final class PolicyStore {
     public static void setUsageLockDuration(Context ctx, int v) { putInt(ctx, KEY_USAGE_LOCK_DURATION, clamp(v, 1, 1440), "自动锁定时长(分钟)"); }
     public static String usageLockPackages(Context ctx) { return getString(ctx, KEY_USAGE_LOCK_PACKAGES, ""); }
     public static void setUsageLockPackages(Context ctx, String v) { putString(ctx, KEY_USAGE_LOCK_PACKAGES, v, "时长自动锁监控包名"); }
+
+    // —— 识图感知（可开关）——
+    public static boolean ocrEnabled(Context ctx) { return getBool(ctx, KEY_OCR_ENABLED, DEF_OCR_ENABLED); }
+    public static void setOcrEnabled(Context ctx, boolean v) { putBool(ctx, KEY_OCR_ENABLED, v, "识图感知开关"); }
 
     // —— 安静 / 深夜时段 ——
     public static String quietStart(Context ctx) { return getString(ctx, KEY_QUIET_START, DEF_QUIET_START); }
@@ -490,6 +498,7 @@ public final class PolicyStore {
         e.putInt(KEY_USAGE_LOCK_MINUTES, DEF_USAGE_LOCK_MIN);
         e.putInt(KEY_USAGE_LOCK_DURATION, DEF_USAGE_LOCK_DUR);
         e.putString(KEY_USAGE_LOCK_PACKAGES, "");
+        e.putBoolean(KEY_OCR_ENABLED, DEF_OCR_ENABLED);
         e.putString(KEY_QUIET_START, DEF_QUIET_START);
         e.putString(KEY_QUIET_END, DEF_QUIET_END);
         e.putString(KEY_NIGHT_START, DEF_NIGHT_START);

@@ -1133,8 +1133,7 @@ public class MainActivity extends Activity {
         root.addView(actionSettingBlock("守护日历", "纪念日、节日和倒数日", R.drawable.ic_clock, this::showGuardianCalendarDetailPage), marginBottom(7));
         root.addView(actionSettingBlock("课表作息", "上课静默守护与提醒", R.drawable.ic_clock, () -> openPolicySettings("schedule")), marginBottom(7));
         root.addView(actionSettingBlock("共同记忆", "双方可改的共享记忆", R.drawable.ic_heart_wave, () -> openPolicySettings("memory")), marginBottom(7));
-        root.addView(actionSettingBlock("识图感知", "从当前屏幕读取文字", R.drawable.ic_eye, () -> openPolicySettings("ocr")), marginBottom(7));
-        root.addView(actionSettingBlock("插件分类", "全部扩展能力归类总览", R.drawable.ic_shield, () -> openPolicySettings("plugins")), marginBottom(11));
+        root.addView(actionSettingBlock("识图感知", "从当前屏幕读取文字", R.drawable.ic_eye, () -> openPolicySettings("ocr")), marginBottom(11));
 
         root.addView(label("地点与设备", 9), marginBottom(6));
         root.addView(actionSettingBlock("天气地区", "家与常用地点", R.drawable.ic_cloud, () -> openPolicySettings("weather")), marginBottom(7));
@@ -1170,7 +1169,7 @@ public class MainActivity extends Activity {
         LinearLayout card = editorialCard();
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(14), dp(12), dp(14), dp(12));
-        TextView head = title("此刻她的心情", 15);
+        TextView head = title("此刻她对你的心情", 15);
         card.addView(head, marginBottom(6));
         emotionSummaryText = body("情绪加载中…", 11);
         emotionSummaryText.setTextColor(UITheme.current(this).subtext);
