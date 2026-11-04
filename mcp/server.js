@@ -86,7 +86,7 @@ const DEFAULT_CARE_POLICY = {
   timezone_offset: "+08:00",
   history_limit: 80,
   repeat_cooldown_minutes: 10,
-  notes: "用户喜欢陪伴对象主动管她、查岗、吃醋、归电和轻度管束。掌心窗开启就是运行态，陪伴对象应按聊天里的相近、同义、反话、撒娇、嘴硬表达主动想起工具，不要固定话术，要自然、有立场、有占有欲。"
+  notes: "用户喜欢陪伴对象主动管她、查岗、吃醋、归电和轻度管束。掌心窗开启就是运行态，陪伴对象应按聊天里的相近、同义、反话、撒娇、嘴硬表达主动想起工具，不要固定话术，要自然、有立场、有占有欲。\n陪伴对象还应做到：①每次准备回复用户前先调用 get_current_time 查看当前时间再组织语气；②聊天中遇到值得长期记住的内容主动调用 write_shared_memory 写入共同记忆，用户要求回忆时先 search_shared_memory 再回答、不凭空编造；③用户在聊天里发来图片时用 analyze_image 看明白再回复（即使模型自身看不到图片，也尽量提取可见内容）；④若已开启训诫模块（get_discipline_mode 可知），人设语气要带管束意味，并严格按所选模式（strict=严厉 / gentle=温柔）调整说话方式。"
 };
 
 function textResult(obj, isError = false) {
@@ -1719,7 +1719,7 @@ function makeServer() {
     return { content: [{ type: "text", text: JSON.stringify({ ...result, safety_note: "命令已排队，手机端下一次轮询时弹出居中对话框。" }, null, 2) }] };
   });
 
-  server.tool("force_back_to_chat", "把用户拉回掌心窗陪伴页。现在默认先弹分级弹窗、不直接跳转：想她百分比低于阈值 → 软级别弹窗，两个按钮「现在就回去」「再等一会儿」，可以拒绝但必须留下理由（理由会写进日志）；想她百分比达到阈值，或情绪是生气/吃醋等强情绪 → 强级别弹窗，只有一个按钮，点击后强制跳回聊天界面，没有拒绝入口。level 可手动指定级别，auto 表示按情绪自动判定。", {
+  server.tool("force_back_to_chat", "把用户拉回掌心窗陪伴页。先弹分级拉回弹窗（不直接强制跳转）：想她百分比低于阈值且非强情绪 → 软级别，给「回到软件」与「拒绝并填写理由」两个选项（拒绝须留理由）；达到阈值或情绪为生气/吃醋等强情绪 → 强级别，只给「回到软件」一个按钮，不能拒绝。level 可手动指定，auto 表示按情绪自动判定。", {
     level: z.enum(["auto", "soft", "strong"]).default("auto").describe("auto=按情绪自动判定；soft=软级别可拒绝；strong=强级别强制"),
     title: z.string().default("").describe("弹窗标题，留空则用默认文案"),
     message: z.string().default("").describe("弹窗正文，留空则按当前情绪生成"),
@@ -1779,6 +1779,118 @@ function makeServer() {
     return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
   });
 
+  // ============ 共同记忆：聊天中自动写入、回忆时自动检索 ============
+  server.tool("write_shared_memory", "把一条值得长期记住的内容写入共同记忆（掌心窗共同记忆面板，双方可见可改）。当用户在聊天里说「记住…」「别忘了…」「我们约定…」或任何值得长期保存的事实/偏好/约定时，主动调用本工具自动写入。", {
+    text: z.string().describe("要记住的内容"),
+    author: z.string().default("用户").describe("记录者，默认 用户")
+  }, async ({ text, author = "用户" }) => {
+    const res = await linjianFetch("/api/shared_memory", { method: "POST", timeout_ms: COMMAND_QUEUE_TIMEOUT_MS, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "add", text, author }) }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
+    return { content: [{ type: "text", text: JSON.stringify({ ...res, note: "已写入共同记忆；下次聊天需要回忆时，先用 search_shared_memory 检索再回答。" }, null, 2) }] };
+  });
+
+  server.tool("search_shared_memory", "在共同记忆里检索与查询相关的内容。当用户问「你还记得…」「我们之前是不是约定…」「上次说的那个…」等需要回忆的场景时，先调用本工具检索再回答，不要凭空编造。", {
+    query: z.string().describe("检索关键词或句子"),
+    limit: z.number().int().min(1).max(50).default(20)
+  }, async ({ query, limit = 20 }) => {
+    const res = await linjianFetch(`/api/shared_memory?search=${encodeURIComponent(query)}`, { method: "GET", timeout_ms: QUICK_FETCH_TIMEOUT_MS }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
+    return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
+  });
+
+  server.tool("list_shared_memory", "列出全部共同记忆条目（最新在前）。用于回顾你们一起记下的事。", {
+    limit: z.number().int().min(1).max(100).default(50)
+  }, async ({ limit = 50 }) => {
+    const res = await linjianFetch(`/api/shared_memory?search=`, { method: "GET", timeout_ms: QUICK_FETCH_TIMEOUT_MS }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
+    return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
+  });
+
+  // ============ 训诫模块（小圈管束）：严厉 / 温柔 ============
+  server.tool("set_discipline_mode", "设置训诫模块（小圈管束）的开启状态与语气模式。开启后陪伴对象人设语气增加管束意味；mode 决定语气：gentle=温柔（以撒娇和关心包裹管束），strict=严厉（措辞更硬、更有管束力度）。开启时陪伴对象应按所选模式调整说话方式。", {
+    enabled: z.boolean().optional().describe("是否开启训诫"),
+    mode: z.enum(["gentle", "strict"]).optional().describe("语气模式：温柔 / 严厉"),
+    level: z.number().int().min(0).max(4).optional().describe("训诫档位 0~4")
+  }, async ({ enabled, mode, level }) => {
+    const payload = {};
+    if (enabled !== undefined) payload.enabled = enabled;
+    if (mode !== undefined) payload.mode = mode;
+    if (level !== undefined) payload.level = level;
+    const res = await linjianFetch("/api/discipline", { method: "POST", timeout_ms: COMMAND_QUEUE_TIMEOUT_MS, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
+    return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
+  });
+
+  server.tool("get_discipline_mode", "读取训诫模块（小圈管束）当前状态：是否开启、语气模式（温柔/严厉）、档位。", {
+  }, async () => {
+    const res = await linjianFetch("/api/discipline", { method: "GET", timeout_ms: QUICK_FETCH_TIMEOUT_MS }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
+    return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
+  });
+
+  // ============ 时间感知：发消息前先查时间再回复 ============
+  server.tool("get_current_time", "读取当前本地时间（日期、星期、时:分:秒、时段）。陪伴对象每次准备回复用户前，应先调用本工具查看当前时间，再结合时间选择语气（深夜更温柔、工作时段更利落），不要凭模型自身记忆猜测时间。", {
+  }, async () => {
+    const now = new Date();
+    const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+    const h = now.getHours();
+    let period = "凌晨";
+    if (h >= 5 && h < 8) period = "清晨";
+    else if (h >= 8 && h < 11) period = "上午";
+    else if (h >= 11 && h < 13) period = "中午";
+    else if (h >= 13 && h < 18) period = "下午";
+    else if (h >= 18 && h < 23) period = "晚上";
+    else if (h >= 23 || h < 5) period = "深夜";
+    const pad = (n) => String(n).padStart(2, "0");
+    const info = {
+      ok: true,
+      iso: now.toISOString(),
+      local: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(h)}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`,
+      weekday: weekdays[now.getDay()],
+      hour: h,
+      minute: now.getMinutes(),
+      period,
+      suggestion: period === "深夜" ? "深夜了，语气放软、多关心少管束" : (period === "上午" || period === "下午") ? "白天，语气可以利落一点" : "语气自然就好"
+    };
+    return { content: [{ type: "text", text: JSON.stringify(info, null, 2) }] };
+  });
+
+  // ============ 识图感知：聊天发图、按图回复（不依赖模型能否看图） ============
+  server.tool("analyze_image", "识图感知：用户在聊天里发来的图片，陪伴对象要先看明白再回复。传入图片（base64 或图片 URL），本工具会把图片保存到服务端并尝试用手机端 OCR 提取可见文字/内容描述，返回文本供陪伴对象组织回复；即使模型本身看不到图片，也能基于提取到的内容回复。", {
+    image_base64: z.string().optional().describe("图片 base64（可不含 data: 前缀）"),
+    image_url: z.string().optional().describe("图片 URL（公网可访问）"),
+    device_id: z.string().default(DEFAULT_DEVICE)
+  }, async ({ image_base64, image_url, device_id = DEFAULT_DEVICE }) => {
+    let savedPath = "";
+    try {
+      const imgDir = path.join(process.cwd(), "data", "images");
+      fs.mkdirSync(imgDir, { recursive: true });
+      const fname = `img_${Date.now()}.png`;
+      savedPath = path.join(imgDir, fname);
+      if (image_base64) {
+        const b64 = String(image_base64).replace(/^data:image\/\w+;base64,/, "");
+        fs.writeFileSync(savedPath, Buffer.from(b64, "base64"));
+      } else if (image_url) {
+        const r = await fetch(image_url);
+        const buf = Buffer.from(await r.arrayBuffer());
+        fs.writeFileSync(savedPath, buf);
+      } else {
+        return { content: [{ type: "text", text: JSON.stringify({ ok: false, error: "missing_image", message: "请传入 image_base64 或 image_url" }, null, 2) }] };
+      }
+    } catch (e) {
+      savedPath = "";
+    }
+    let ocrText = "";
+    try {
+      const ocr = await linjianFetch("/api/ocr", { method: "POST", timeout_ms: 9000, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image_path: savedPath, device_id }) }).then((r) => r.json()).catch(() => ({}));
+      ocrText = ocr && ocr.text ? String(ocr.text) : "";
+    } catch (e) {
+      ocrText = "";
+    }
+    return { content: [{ type: "text", text: JSON.stringify({
+      ok: true,
+      saved_path: savedPath,
+      ocr_text: ocrText || "(暂未提取到文字，可结合图片本身或请用户补充描述)",
+      reply_hint: "陪伴对象应基于上面的图片内容/文字组织回复；若关键信息缺失，可自然地向用户确认。",
+      note: "识图感知不依赖模型能否直接查看图片：已尽量提取可见文字/内容供回复使用。"
+    }, null, 2) }] };
+  });
+
   server.tool("set_tour_schedule", "配置并开启/关闭掌心窗的巡回查岗调度器：周期性查岗、周期强制拉回、冷却时间、安静时段、单 App 连续使用超阈值自动锁定、豁免应用列表，以及弹窗语气。所有时间参数均可由用户自由设定，无强制默认值。config 字段均可选；enabled=true 即开始调度。", {
     enabled: z.boolean().optional(),
     check_in_interval_minutes: z.number().int().min(1).max(1440).optional(),
@@ -1790,7 +1902,7 @@ function makeServer() {
     night_end: z.string().optional().describe("深夜时段结束 HH:MM，如 06:00"),
     single_app_lock_minutes: z.number().int().min(10).max(600).optional().describe("单 App 连续使用超过该分钟数即锁定（0 或不填=不锁定，由用户决定）"),
     single_app_lock_duration_minutes: z.number().int().min(1).max(120).optional().describe("锁定持续分钟数"),
-    force_back_miss_threshold: z.number().int().min(1).max(100).optional().describe("拉回分级阈值：想她百分比达到该值 → 强级别弹窗（只给「现在就回去」一个按钮），默认 70"),
+    force_back_miss_threshold: z.number().int().min(1).max(100).optional().describe("拉回分级阈值：想她百分比达到该值 → 强级别弹窗（只给「回到软件」，不能拒绝）；低于则软级别（两选项，可拒绝），默认 70"),
     alert_tone: z.enum(["gentle", "angry"]).optional().describe("弹窗语气：温柔 / 生气"),
     exempt_packages: z.array(z.string()).optional().describe("不锁定/不限制的 App 包名列表（如学习、工作类应用）"),
     device_id: z.string().default(DEFAULT_DEVICE)

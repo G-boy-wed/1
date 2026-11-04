@@ -12,7 +12,7 @@ public class PullBackAction {
 
     private PullBackAction() { }
 
-    /** 用户选择「现在就回去」：跳到本机设定的目标 App（默认 com.psyche.kelivo），并把想她清零。 */
+    /** 用户选择「回到软件」：跳到本机设定的目标 App（默认 com.psyche.kelivo），并把想她清零。 */
     public static void accept(Context ctx, JSONObject cfg) {
         try {
             String companion = AppPrefs.companionName(ctx);
@@ -21,7 +21,7 @@ public class PullBackAction {
             ActivityEventStore.recordForced(ctx, "pull_back_accept",
                     "答应拉回" + companion, "情绪 " + tag + " · 想她 " + miss + "% · 目标 " + PolicyStore.targetPackage(ctx));
             DebugState.append(ctx, "拉回被接受：" + tag + " " + miss + "%，跳转到 " + PolicyStore.targetPackage(ctx));
-            // 「现在就回去」跳到本机设定的目标 App（默认 com.psyche.kelivo）。
+            // 「回到软件」跳到本机设定的目标 App（默认 com.psyche.kelivo）。
             String result = CompanionService.openPackageResult(ctx, PolicyStore.targetPackage(ctx));
             if (!result.startsWith("opened_")) {
                 // 目标 App 没装或打不开：退回掌心窗陪伴页，保证不会卡住。

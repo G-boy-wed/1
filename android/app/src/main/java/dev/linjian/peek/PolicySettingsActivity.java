@@ -86,6 +86,12 @@ public class PolicySettingsActivity extends Activity {
         allRows.clear();
 
         LinearLayout top = card(container, "全局", "总开关与配置管理");
+        top.addView(rowButton("保存设置", "把本页所有改动确认写入本机底层存储，并让守护调度器立即按新配置运行；点保存后设置持久生效、不会丢失。", "保存设置", v -> {
+            PolicyStore.flush(this);                 // 同步落盘，确认所有改动都在底层配置里
+            PolicyScheduler.start(this);             // 幂等：已在跑则无副作用，未跑则按新配置启动
+            refreshChangeLog();
+            Toast.makeText(this, "设置已保存并生效", Toast.LENGTH_SHORT).show();
+        }));
         top.addView(rowSwitch("一键全部关闭（拿回手机）", "关掉后所有查岗、拉回、主动找她、训诫全部暂停。",
                 PolicyStore.isMasterOn(this), (v, c) -> PolicyStore.setMaster(this, c)));
         top.addView(rowButton("恢复默认", "把所有参数恢复成默认值（不会清空变更记录）。", "恢复默认",
@@ -97,9 +103,9 @@ public class PolicySettingsActivity extends Activity {
         g1.addView(rowSwitch("开启查岗", "关闭后不再自动查岗（其它拉回逻辑仍可手动触发）。", PolicyStore.checkinEnabled(this), (v, c) -> PolicyStore.setCheckinEnabled(this, c)));
         g1.addView(rowNumber("查岗随机上限（分钟）", "每次查岗间隔在这个上限内随机取值，避免太机械。默认 60。", PolicyStore.randomUpper(this), 5, 1440, v -> PolicyStore.setRandomUpper(this, v)));
         g1.addView(rowNumber("查岗随机下限（分钟）", "间隔不会低于这个值，避免连续两次挨着弹。默认 8。", PolicyStore.randomLower(this), 1, 120, v -> PolicyStore.setRandomLower(this, v)));
-        g1.addView(rowNumber("拉回分级阈值（%）", "想她达到该值→强级弹窗（只给「现在就回去」）；低于则软级（可拒绝）。默认 70。", PolicyStore.forceBackThreshold(this), 1, 100, v -> PolicyStore.setForceBackThreshold(this, v)));
+        g1.addView(rowNumber("拉回分级阈值（%）", "想她达到该值 → 强级弹窗（达到阈值只能「回到软件」）；低于则软级（「回到软件 / 拒绝并填写理由」两选项）。默认 70。", PolicyStore.forceBackThreshold(this), 1, 100, v -> PolicyStore.setForceBackThreshold(this, v)));
         g1.addView(rowSwitch("拒绝理由必填", "软级弹窗拒绝拉回必须留理由才放你走；关闭则可空拒绝。", PolicyStore.declineReasonRequired(this), (v, c) -> PolicyStore.setDeclineReasonRequired(this, c)));
-        g1.addView(rowText("拉回目标 App", "点「现在就回去」要跳回的 App 包名。默认 com.psyche.kelivo。", PolicyStore.targetPackage(this), s -> PolicyStore.setTargetPackage(this, s)));
+        g1.addView(rowText("拉回目标 App", "点「强制拉回」要跳回的 App 包名。默认 com.psyche.kelivo。", PolicyStore.targetPackage(this), s -> PolicyStore.setTargetPackage(this, s)));
         g1.addView(rowSpinner("弹窗主题", "跟随归电，或单独覆盖一套主题。", themeOptions(), themeOverrideIndex(), s -> PolicyStore.setThemeOverride(this, normalizeTheme(s))));
         g1.addView(rowSpinner("弹窗位置", "跟随归电，或单独覆盖（顶部/居中/底部）。", positionOptions(), positionOverrideIndex(), s -> PolicyStore.setPositionOverride(this, normalizePosition(s))));
         g1.addView(rowNumber("冷却时间（分钟）", "同类提醒最短间隔；改任意参数后冷却立即重算。默认 5。", PolicyStore.cooldownMinutes(this), 0, 240, v -> PolicyStore.setCooldown(this, v)));
@@ -127,17 +133,21 @@ public class PolicySettingsActivity extends Activity {
         g3.addView(rowSpinner("生成方式", "自由生成（每次内容不同）或固定模板。", new String[]{"自由生成", "自定义模板"}, PolicyStore.initiativeMode(this).equals("template") ? 1 : 0, s -> PolicyStore.setInitiativeMode(this, s.equals("自定义模板") ? "template" : "free")));
         g3.addView(rowText("自定义模板", "生成方式选「自定义模板」时使用的文案。", PolicyStore.initiativeTemplate(this), s -> PolicyStore.setInitiativeTemplate(this, s)));
 
-        LinearLayout g4 = card(container, "训诫插件（SM 小圈管束）", "专属小圈管束风格；仅你本人能开，默认关闭，分四档强度。");
+        LinearLayout g4 = card(container, "训诫插件（小圈管束）", "接入小圈管束设定与话语；开启后人设语气增加管束意味，可选严厉 / 温柔两种语气模式。仅你本人能开，默认关闭。");
         g4.addView(rowSwitch("训诫总开关", "关闭则训诫完全不生效。默认关闭。仅用户本人可在手机端主动开启。", PolicyStore.disciplineEnabled(this), (v, c) -> PolicyStore.setDisciplineEnabled(this, c)));
+        g4.addView(rowSpinner("语气模式", "温柔 gentle：管束意味轻、以撒娇和关心包裹；严厉 strict：措辞更硬、更有管束力度。开启后由所选模式决定人设语气。", new String[]{"温柔", "严厉"}, PolicyStore.disciplineMode(this).equals("strict") ? 1 : 0, s -> PolicyStore.setDisciplineMode(this, s.equals("严厉") ? "strict" : "gentle")));
         g4.addView(rowSpinner("训诫档位", "0关闭/1轻/2中/3重/4极。档位越高措辞越硬。", new String[]{"0 关闭", "1 轻", "2 中", "3 重", "4 极"}, PolicyStore.disciplineLevel(this), s -> PolicyStore.setDisciplineLevel(this, parseLevel(s))));
         g4.addView(rowSwitch("强视觉警示标志", "打开后界面明确显示「训诫已开启」警示，让你随时知道状态。", PolicyStore.disciplineBadge(this), (v, c) -> PolicyStore.setDisciplineBadge(this, c)));
-        g4.addView(rowText("说明", "SM 小圈训诫管束风格：仅本人可开、不设安全词、不写日志，但界面必须有明确开启标志。", "仅本人可开", s -> { }));
+        g4.addView(rowText("说明", "小圈训诫管束风格：仅本人可开、不设安全词，但界面必须有明确开启标志。", "仅本人可开", s -> { }));
 
-        LinearLayout g5 = card(container, "分心判定", "检测到切屏到其它 App 时怎么处理。");
-        g5.addView(rowSwitch("切屏算分心", "聊天中切到其它 App 标记为分心。默认开启。", PolicyStore.distractionEnabled(this), (v, c) -> PolicyStore.setDistractionEnabled(this, c)));
-        g5.addView(rowSwitch("每次切屏都拉回", "关闭时是否拉回由她当时的情绪决定；打开则每次切屏都拉回。默认关闭。", PolicyStore.distractionEveryTime(this), (v, c) -> PolicyStore.setDistractionEveryTime(this, c)));
-        g5.addView(rowNumber("累计分心阈值（次）", "连续分心达到该次数自动触发强拉回（强制带回）。默认 5。", PolicyStore.distractionThreshold(this), 1, 999, v -> PolicyStore.setDistractionThreshold(this, v)));
-        g5.addView(rowSwitch("超阈值自动强拉回", "分心累计达到阈值时，不论情绪如何都强制拉回。默认开启。", PolicyStore.distractionAutoPullback(this), (v, c) -> PolicyStore.setDistractionAutoPullback(this, c)));
+        LinearLayout g5 = card(container, "分心查岗（常开）", "分心检测始终开启（不只在聊天）。定义：聊天中切出去到其它 App，又立马切回来，来回几次就是分心。未达阈值时给「回到软件 / 拒绝并填写理由」两选项；达到阈值后只能「回到软件」。");
+        g5.addView(rowSwitch("切屏算分心", "常开：检测到切到其它 App 即标记为分心。默认开启。", PolicyStore.distractionEnabled(this), (v, c) -> PolicyStore.setDistractionEnabled(this, c)));
+        g5.addView(rowSwitch("切出切回算分心", "开启后按「切出去又切回来回」判定分心查岗。默认开启。", PolicyStore.distractionLoopEnabled(this), (v, c) -> PolicyStore.setDistractionLoopEnabled(this, c)));
+        g5.addView(rowNumber("分心来回次数", "几个「切出→切回」来回算一次分心查岗。默认 2。", PolicyStore.distractionLoopTimes(this), 1, 99, v -> PolicyStore.setDistractionLoopTimes(this, v)));
+        g5.addView(rowNumber("来回时间窗口（秒）", "两次切换间隔超过它就不算「立马切回」。默认 90。", PolicyStore.distractionLoopWindowSec(this), 5, 600, v -> PolicyStore.setDistractionLoopWindowSec(this, v)));
+        g5.addView(rowSwitch("每次切屏都拉回", "关闭时仅按分心查岗/累计触发；打开则每次切屏都拉回（可拒绝）。默认关闭。", PolicyStore.distractionEveryTime(this), (v, c) -> PolicyStore.setDistractionEveryTime(this, c)));
+        g5.addView(rowNumber("累计分心阈值（次）", "连续分心达到该次数弹一次可实行拉回弹窗。默认 5。", PolicyStore.distractionThreshold(this), 1, 999, v -> PolicyStore.setDistractionThreshold(this, v)));
+        g5.addView(rowSwitch("超阈值自动提醒", "分心累计达到阈值时弹一次可实行拉回弹窗（不再无理由强制）。默认开启。", PolicyStore.distractionAutoPullback(this), (v, c) -> PolicyStore.setDistractionAutoPullback(this, c)));
 
         LinearLayout g6 = card(container, "权限开关", "逐项管理 App 的各种守护功能。");
         addPerm(g6, PolicyStore.KEY_PERM_SCREEN_TIME, "屏幕时长上限", "限制每天可用屏幕总时长（填分钟，0=不限）。");
@@ -176,8 +186,8 @@ public class PolicySettingsActivity extends Activity {
         g12.addView(rowButton("查看共同记忆", "列出全部记忆条目。", "查看", v -> showSharedMemory()));
 
         LinearLayout g7 = card(container, "验收与调试", "本地触发拉回弹窗、把配置同步给服务器（可选）。");
-        g7.addView(rowButton("试一下软级别拉回", "想她低于阈值：两个按钮，可拒绝但必须留理由。", "试软级", v -> testPullBack(false)));
-        g7.addView(rowButton("试一下强级别拉回", "想她达到阈值：只有「现在就回去」一个按钮。", "试强级", v -> testPullBack(true)));
+        g7.addView(rowButton("试一下软级别拉回", "想她低于阈值：弹「回到软件 / 拒绝并填写理由」两选项，可拒绝但要留理由。", "试软级", v -> testPullBack(false)));
+        g7.addView(rowButton("试一下强级别拉回", "想她达到阈值：只给「回到软件」一个按钮，不能拒绝。", "试强级", v -> testPullBack(true)));
         g7.addView(rowButton("同步给服务器（可选）", "若已配置服务器地址，把配置 best-effort 同步过去；不影响本机生效。", "同步", v -> syncToServer()));
 
         refreshChangeLog();
@@ -488,7 +498,7 @@ public class PolicySettingsActivity extends Activity {
             int miss = strong ? Math.max(PolicyStore.forceBackThreshold(this), 80) : 35;
             cfg.put("level", strong ? "strong" : "soft");
             cfg.put("strong", strong);
-            cfg.put("allow_decline", !strong);
+            cfg.put("allow_decline", !strong); // 强级别只能「回到软件」，软级别可「拒绝并填写理由」
             cfg.put("emotion_tag", strong ? "生气" : CompanionEmotionState.emotionTag(this));
             cfg.put("miss_percent", miss);
             cfg.put("intensity", strong ? 85 : 45);

@@ -574,7 +574,7 @@ public class MainActivity extends Activity {
         root.addView(actionPreview, marginBottom(10));
 
         root.addView(sectionHeading("更多陪伴"), marginBottom(8));
-        root.addView(actionSettingBlock("TA 的日记", "把今天看见的你，轻轻写下来。", R.drawable.ic_heart_wave, this::showDiaryHomePage), marginBottom(7));
+        root.addView(actionSettingBlock("用户的日记", "把今天看见的你，轻轻写下来。", R.drawable.ic_heart_wave, this::showDiaryHomePage), marginBottom(7));
         root.addView(guardSettingBlock("归电", "很久没回来时，" + AppPrefs.companionName(this) + "来敲门", R.drawable.ic_clock, drawerGuidian), marginBottom(7));
         root.addView(actionSettingBlock("看见", "查看屏幕并回应此刻", R.drawable.ic_eye, this::testScreenshot), marginBottom(10));
         return root;
@@ -703,7 +703,7 @@ public class MainActivity extends Activity {
 
         LinearLayout plate = new LinearLayout(this); plate.setOrientation(LinearLayout.VERTICAL); plate.setGravity(Gravity.CENTER); plate.setPadding(dp(8), dp(8), dp(8), dp(8));
         TextView tiny = label("PRIVATE NOTEBOOK", 8); tiny.setTextColor(Color.parseColor("#895B6C")); tiny.setLetterSpacing(.14f); tiny.setGravity(Gravity.CENTER); tiny.setShadowLayer(dp(.8f), 0, dp(.5f), Color.parseColor("#99FFF9FC")); plate.addView(tiny);
-        TextView name = title(book == null ? "TA 的日记" : book.optString("name", "TA 的日记"), 21); name.setTextColor(Color.parseColor("#5E3D4A")); name.setGravity(Gravity.CENTER); name.setLineSpacing(dp(4), 1f); name.setShadowLayer(dp(1.1f), 0, dp(.7f), Color.parseColor("#B8FFF9FC")); plate.addView(name, matchWrapTop(13));
+        TextView name = title(book == null ? "用户的日记" : book.optString("name", "用户的日记"), 21); name.setTextColor(Color.parseColor("#5E3D4A")); name.setGravity(Gravity.CENTER); name.setLineSpacing(dp(4), 1f); name.setShadowLayer(dp(1.1f), 0, dp(.7f), Color.parseColor("#B8FFF9FC")); plate.addView(name, matchWrapTop(13));
         View rule = new View(this); rule.setBackgroundColor(Color.parseColor("#C18A9E")); LinearLayout.LayoutParams ruleLp = new LinearLayout.LayoutParams(dp(76), dp(1)); ruleLp.topMargin = dp(12); ruleLp.gravity = Gravity.CENTER; plate.addView(rule, ruleLp);
         TextView subtitle = body(book == null ? "把今天轻轻藏起来" : book.optString("subtitle", "把今天轻轻藏起来"), 9); subtitle.setTextColor(Color.parseColor("#74515F")); subtitle.setGravity(Gravity.CENTER); subtitle.setShadowLayer(dp(.8f), 0, dp(.5f), Color.parseColor("#A8FFF9FC")); plate.addView(subtitle, matchWrapTop(9));
         int entryCount = DiaryState.listEntries(this, book == null ? "" : book.optString("id", "")).length();
@@ -733,7 +733,7 @@ public class MainActivity extends Activity {
         JSONObject book = DiaryState.bookById(this, diaryBookId);
         LinearLayout top = horizontal();
         Button back = iconButton("←", "返回日记封面"); back.setOnClickListener(v -> showDiaryHomePage()); top.addView(back, new LinearLayout.LayoutParams(dp(36), dp(32)));
-        top.addView(title(book == null ? "TA 的日记" : book.optString("name", "TA 的日记"), 15), weightedWrap(1f, 9));
+        top.addView(title(book == null ? "用户的日记" : book.optString("name", "用户的日记"), 15), weightedWrap(1f, 9));
         Button search = iconButton("⌕", "搜索日记"); search.setOnClickListener(v -> showDiarySearchDialog()); top.addView(search, new LinearLayout.LayoutParams(dp(36), dp(32)));
         Button more = iconButton("⋯", "更多"); more.setOnClickListener(v -> showDiaryMoreMenu()); LinearLayout.LayoutParams moreLp = new LinearLayout.LayoutParams(dp(36), dp(32)); moreLp.leftMargin = dp(5); top.addView(more, moreLp);
         root.addView(top, marginBottom(8));
@@ -1122,6 +1122,10 @@ public class MainActivity extends Activity {
         root.addView(guardSettingBlock("周期提醒", AppPrefs.userName(this) + "的周期与关怀", R.drawable.ic_heart_wave, drawerCycle), marginBottom(11));
 
         root.addView(buildEmotionCard(), marginBottom(11));
+
+        root.addView(label("归电（陪伴对象）", 9), marginBottom(6));
+        root.addView(guardSettingBlock("归电设置", "陪伴对象来敲门的节奏、位置与语气，改完点保存即可生效", R.drawable.ic_clock, drawerGuidianSettings), marginBottom(7));
+        root.addView(guardSettingBlock("归电主题与位置", "拉回弹窗的配色与出现在屏幕的上下位置", R.drawable.ic_heart_wave, drawerGuidian), marginBottom(11));
 
         root.addView(label("回家与设备", 9), marginBottom(6));
         root.addView(guardSettingBlock("回家模式", "回来时打开熟悉的窗", R.drawable.ic_home, drawerHomeMode), marginBottom(10));
@@ -2006,7 +2010,7 @@ public class MainActivity extends Activity {
         String date = new SimpleDateFormat("M月d日 · EEEE", Locale.CHINA).format(new Date());
         if ("life".equals(tab)) { headerTitle.setText(greeting() + "，" + AppPrefs.userName(this)); headerSubtitle.setText(date); }
         else if ("see".equals(tab)) {
-            if (diaryPageOpen) { headerTitle.setText("TA 的日记"); headerSubtitle.setText(diaryContentOpen ? "翻开纸页，读一读 TA 留下的今天。" : "把今天看见的你，轻轻写下来。"); }
+            if (diaryPageOpen) { headerTitle.setText("用户的日记"); headerSubtitle.setText(diaryContentOpen ? "翻开纸页，读一读 TA 留下的今天。" : "把今天看见的你，轻轻写下来。"); }
             else { headerTitle.setText("总有人在窗边等你"); headerSubtitle.setText("记录温柔的小事，也看见" + AppPrefs.companionName(this) + "的陪伴。"); }
         }
         else if ("gate".equals(tab)) {
@@ -2014,7 +2018,7 @@ public class MainActivity extends Activity {
             else { headerTitle.setText("Toujours à tes côtés"); headerSubtitle.setText("一直在你身边 · 守护状态与重要日子"); }
         }
         else { headerTitle.setText("设置这扇窗"); headerSubtitle.setText("调整" + AppPrefs.companionName(this) + "、窗面、提醒与隐私记录。"); }
-        if (brandText != null) brandText.setText("掌心窗  ·  " + ("life".equals(tab) ? "今天" : ("see".equals(tab) ? (diaryPageOpen ? "TA 的日记" : "陪伴") : ("gate".equals(tab) ? (guardianCalendarDetailOpen ? "守护日历" : "守护") : "设置"))));
+        if (brandText != null) brandText.setText("掌心窗  ·  " + ("life".equals(tab) ? "今天" : ("see".equals(tab) ? (diaryPageOpen ? "用户的日记" : "陪伴") : ("gate".equals(tab) ? (guardianCalendarDetailOpen ? "守护日历" : "守护") : "设置"))));
     }
     private String greeting() { int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY); return h < 5 ? "夜深了" : (h < 11 ? "早上好" : (h < 14 ? "午安" : (h < 18 ? "下午好" : (h < 23 ? "晚上好" : "夜深了")))); }
     private void setVisible(View v, boolean visible) { if (v != null) v.setVisibility(visible ? View.VISIBLE : View.GONE); }

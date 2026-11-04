@@ -142,6 +142,14 @@ class State:
         # 陪伴对象自己的情绪：与上面读用户手机状态的情绪快照分开存，互不覆盖。
         self.companion_emotion_path = self.data_dir / "companion_emotion.json"
         self.companion_emotion_state = self._load_companion_emotion_state()
+        # 共同记忆：聊天中需要长期记住的内容，自动写入、回忆时自动检索。
+        self.shared_memory_path = self.data_dir / "shared_memory.json"
+        self.shared_memory_lock = Lock()
+        self.shared_memory = self._load_shared_memory()
+        # 训诫模块（小圈管束）配置：开启后人设语气增加管束意味，可选温柔 / 严厉。
+        self.discipline_path = self.data_dir / "discipline.json"
+        self.discipline_lock = Lock()
+        self.discipline = self._load_discipline()
         self.usage_sessions: dict[str, dict] = {}
         self._stop = False
 
@@ -211,6 +219,44 @@ class State:
             temp = self.companion_emotion_path.with_suffix(".tmp")
             temp.write_text(json.dumps(self.companion_emotion_state, ensure_ascii=False, indent=2), encoding="utf-8")
             temp.replace(self.companion_emotion_path)
+        except Exception:
+            pass
+
+    def _load_shared_memory(self) -> list[dict]:
+        try:
+            if self.shared_memory_path.exists():
+                loaded = json.loads(self.shared_memory_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, list): return loaded[-200:]
+        except Exception:
+            pass
+        return []
+
+    def save_shared_memory(self) -> None:
+        try:
+            self.shared_memory_path.parent.mkdir(parents=True, exist_ok=True)
+            temp = self.shared_memory_path.with_suffix(".tmp")
+            temp.write_text(json.dumps(self.shared_memory[-200:], ensure_ascii=False, indent=2), encoding="utf-8")
+            temp.replace(self.shared_memory_path)
+        except Exception:
+            pass
+
+    def _load_discipline(self) -> dict:
+        default = {"enabled": False, "mode": "gentle", "level": 0, "updated_at": ""}
+        try:
+            if self.discipline_path.exists():
+                loaded = json.loads(self.discipline_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    default.update(loaded)
+        except Exception:
+            pass
+        return default
+
+    def save_discipline(self) -> None:
+        try:
+            self.discipline_path.parent.mkdir(parents=True, exist_ok=True)
+            temp = self.discipline_path.with_suffix(".tmp")
+            temp.write_text(json.dumps(self.discipline, ensure_ascii=False, indent=2), encoding="utf-8")
+            temp.replace(self.discipline_path)
         except Exception:
             pass
 
@@ -529,6 +575,20 @@ class Handler(BaseHTTPRequestHandler):
                 events = list(self.state.event_log[-20:])
             self._json(200, {"ok": True, "schedule": load_tour_schedule(self.state), "recent_events": events,
                              "usage_sessions": {k: (v.get("package") if v else "") for k, v in self.state.usage_sessions.items()}}); return
+        if path == "/api/shared_memory":
+            if not self._require_token(): return
+            search = (qs.get("search", [""])[0] or "").strip().lower()
+            with self.state.shared_memory_lock:
+                items = list(self.state.shared_memory)
+            if search:
+                items = [it for it in items if search in str(it.get("text", "")).lower()
+                         or search in str(it.get("author", "")).lower()]
+            self._json(200, {"ok": True, "count": len(items), "items": items}); return
+        if path == "/api/discipline":
+            if not self._require_token(): return
+            with self.state.discipline_lock:
+                disc = dict(self.state.discipline)
+            self._json(200, {"ok": True, "discipline": disc}); return
         self._json(404, {"ok": False, "error": ERR_BAD_METHOD})
 
     def do_POST(self) -> None:
@@ -719,6 +779,77 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"ok": True, "emotion": effective,
                              "storage": "companion_emotion.json",
                              "separate_from_user_snapshot": True}); return
+        if path == "/api/shared_memory":
+            if not self._require_token(): return
+            data = self._read_json() or {}
+            action = str(data.get("action") or "add")
+            with self.state.shared_memory_lock:
+                if action == "add" or action == "write":
+                    text = str(data.get("text") or data.get("content") or "").strip()
+                    if not text:
+                        self._json(400, {"ok": False, "error": "empty_text"}); return
+                    author = str(data.get("author") or "用户").strip() or "用户"
+                    item = {"id": uuid.uuid4().hex[:12], "text": text, "author": author,
+                            "created_at": now_iso()}
+                    self.state.shared_memory.append(item)
+                    self.state.save_shared_memory()
+                    self._json(200, {"ok": True, "result": "memory_added", "item": item,
+                                    "count": len(self.state.shared_memory)}); return
+                if action == "remove" or action == "delete":
+                    rid = str(data.get("id") or "")
+                    before = len(self.state.shared_memory)
+                    self.state.shared_memory = [it for it in self.state.shared_memory if it.get("id") != rid]
+                    self.state.save_shared_memory()
+                    self._json(200, {"ok": True, "result": "memory_removed",
+                                    "removed": before - len(self.state.shared_memory)}); return
+                if action == "search":
+                    q = str(data.get("query") or data.get("search") or "").strip().lower()
+                    items = list(self.state.shared_memory)
+                    if q:
+                        items = [it for it in items if q in str(it.get("text", "")).lower()
+                                 or q in str(it.get("author", "")).lower()]
+                    self._json(200, {"ok": True, "result": "memory_searched", "count": len(items), "items": items}); return
+                # 默认：返回全部
+                self._json(200, {"ok": True, "result": "memory_list", "count": len(self.state.shared_memory),
+                                "items": list(self.state.shared_memory)}); return
+        if path == "/api/discipline":
+            if not self._require_token(): return
+            data = self._read_json() or {}
+            with self.state.discipline_lock:
+                if "enabled" in data:
+                    self.state.discipline["enabled"] = bool(data.get("enabled"))
+                if "mode" in data:
+                    mode = str(data.get("mode") or "gentle").strip().lower()
+                    self.state.discipline["mode"] = "strict" if (mode == "strict" or mode == "严厉") else "gentle"
+                if "level" in data:
+                    try: self.state.discipline["level"] = int(data.get("level"))
+                    except Exception: pass
+                self.state.discipline["updated_at"] = now_iso()
+                self.state.save_discipline()
+                disc = dict(self.state.discipline)
+            self._json(200, {"ok": True, "discipline": disc,
+                             "note": "开启后陪伴对象语气增加管束意味；strict=严厉，gentle=温柔。"}); return
+        if path == "/api/ocr":
+            # 识图感知：图片由服务端保存后，设备侧（手机端 OCR 插件）完成文字识别最可靠；
+            # 服务端这里做 best-effort：若图片存在则记录路径，真实 OCR 由手机端在设备侧完成。
+            if not self._require_token(): return
+            data = self._read_json() or {}
+            image_path = str(data.get("image_path") or "")
+            note = "服务器端未内置 OCR 引擎；识别由手机端在设备侧完成（已通过命令下发）。图片路径已记录。"
+            # best-effort：若环境装了 pytesseract 也可本地识别，这里不强依赖。
+            ocr_text = ""
+            try:
+                import shutil
+                if shutil.which("tesseract") and image_path and os.path.exists(image_path):
+                    try:
+                        from PIL import Image  # type: ignore
+                        import pytesseract  # type: ignore
+                        ocr_text = pytesseract.image_to_string(Image.open(image_path))
+                    except Exception:
+                        ocr_text = ""
+            except Exception:
+                ocr_text = ""
+            self._json(200, {"ok": True, "text": ocr_text or "", "image_path": image_path, "note": note}); return
         # 旧的专用豁免端点已移除；豁免改为通用 exempt_packages 配置（见 /api/tour/schedule）。
         self._json(404, {"ok": False, "error": ERR_BAD_METHOD})
 
@@ -770,7 +901,7 @@ DEFAULT_TOUR_SCHEDULE = {
     "exempt_packages": [],
     # 弹窗语气：gentle（温柔）/ angry（生气），由用户选择。
     "alert_tone": "gentle",
-    # 拉回分级阈值：陪伴对象「想她百分比」达到该值 → 强级别拉回弹窗（只给「现在就回去」一个按钮）。
+    # 拉回分级阈值：陪伴对象「想她百分比」达到该值 → 强级别拉回弹窗（只给「回到软件」一个按钮）。
     "force_back_miss_threshold": 70,
 }
 

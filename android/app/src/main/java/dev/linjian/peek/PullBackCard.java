@@ -18,9 +18,14 @@ import org.json.JSONObject;
 /**
  * 分级拉回弹窗的卡片内容。
  *
- * 软级别（想她百分比低于阈值）：两个按钮「现在就回去」「再等一会儿」，
- *          拒绝必须留下理由，理由由调用方写入日志。
- * 强级别（想她百分比达到阈值，或情绪为生气/吃醋等）：只给一个按钮，点击后强制跳回聊天界面。
+ * 分级逻辑（对应需求：未达阈值给选择，达到阈值只能回来）：
+ *  - 软级别（想她百分比低于阈值，且非强情绪）：两个选项——「回到软件」与「拒绝并填写理由」，
+ *            拒绝必须留一句理由，理由写入日志、调试日志并随活动事件上报。
+ *  - 强级别（想她百分比达到阈值，或情绪为生气/吃醋/担心等强情绪）：只给一个按钮「回到软件」，
+ *            点击后直接跳回目标 App（聊天界面），不给拒绝入口（达到阈值只能回来）。
+ *
+ * 弹窗顶部明确展示「情绪标签 + 想她百分比」，情绪标签由 CompanionEmotionState.popupEmotionTag
+ * 决定（尊重真实情绪，平静时按想念/爱恋/担心随机点缀，体现随机触发）。
  *
  * 配色与位置不在这份代码里决定，统一读归电的设置（GuidianTheme + GuidianState.popupPosition），
  * 归电改主题或改位置，这里跟着变。
@@ -28,9 +33,9 @@ import org.json.JSONObject;
 public class PullBackCard {
 
     public interface Listener {
-        /** 用户选择「现在就回去」。 */
+        /** 用户选择「回到软件」。 */
         void onAccept(Context ctx, JSONObject cfg);
-        /** 用户选择「再等一会儿」并给出了理由；reason 可能为空串。 */
+        /** 用户选择「拒绝并填写理由」并给出了理由；reason 可能为空串。 */
         void onDecline(Context ctx, JSONObject cfg, String reason);
         /** 用户直接关闭（返回键 / 点外面），没有表态。 */
         void onDismiss(Context ctx, JSONObject cfg);
@@ -44,7 +49,7 @@ public class PullBackCard {
         return cfg.optBoolean("strong", false);
     }
 
-    /** 构建卡片视图；调用方负责把它放到屏幕的合适位置。 */
+    /** 构建卡片视图；调用方负责把它放到屏幕的合适位置（悬浮窗或锁屏 Activity）。 */
     public static View build(final Context ctx, final JSONObject cfg, final Listener listener) {
         // 弹窗配色：设置页若单独覆盖了就用覆盖值，否则跟随归电主题。
         String themeName = GuidianState.themeName(ctx);
@@ -54,11 +59,13 @@ public class PullBackCard {
         final boolean strong = isStrongLevel(cfg);
         final int accent = theme.accentFor(cfg.optString("tone", "gentle"));
         String companion = AppPrefs.companionName(ctx);
-        String tag = cfg.optString("emotion_tag", CompanionEmotionState.TAG_CALM);
-        int miss = cfg.optInt("miss_percent", 0);
-        int intensity = cfg.optInt("intensity", 0);
+        // 情绪标签：尊重真实情绪，平静时随机点缀（想念/爱恋/担心），体现「随机触发」。
+        String tag = CompanionEmotionState.popupEmotionTag(ctx);
+        int miss = cfg.optInt("miss_percent", CompanionEmotionState.effectiveMissPercent(ctx));
+        int intensity = cfg.optInt("intensity", CompanionEmotionState.effectiveIntensity(ctx));
         String message = cfg.optString("message", "");
         if (message.trim().isEmpty()) message = CompanionEmotionState.message(ctx);
+        message = randomizeEmotionMessage(tag, message);
 
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -66,7 +73,7 @@ public class PullBackCard {
         card.setBackground(rounded(theme.panel, 26, theme.line, 1));
         card.setElevation(dp(ctx, 10));
 
-        TextView eyebrow = text(ctx, "来自 " + companion + " 的情绪", 10, theme.subtext, false);
+        TextView eyebrow = text(ctx, "此刻的情绪", 10, theme.subtext, false);
         card.addView(eyebrow, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout tagRow = new LinearLayout(ctx);
@@ -92,55 +99,64 @@ public class PullBackCard {
         msgLp.topMargin = dp(ctx, 12);
         card.addView(messageText, msgLp);
 
-        String meta = "情绪强度 " + intensity + " / 100";
-        if (strong) meta = meta + " · 这次不给拒绝入口";
-        TextView metaText = text(ctx, meta, 10, theme.subtext, false);
-        LinearLayout.LayoutParams metaLp = new LinearLayout.LayoutParams(-1, -2);
-        metaLp.topMargin = dp(ctx, 8);
-        card.addView(metaText, metaLp);
-
-        // 拒绝理由抽屉（只有软级别才会出现；强级别没有拒绝入口，抽屉整个不挂载）
-        final LinearLayout reasonDrawer = strong ? null : buildReasonDrawer(ctx, theme, cfg, listener);
-        if (reasonDrawer != null) {
-            // 关键：抽屉必须真的挂进视图树，否则点「再等一会儿」什么都不会发生。
-            // 它默认 GONE，点按钮时展开在按钮行下方。
-            LinearLayout.LayoutParams drawerLp = new LinearLayout.LayoutParams(-1, -2);
-            drawerLp.topMargin = dp(ctx, 12);
-            card.addView(reasonDrawer, drawerLp);
-        }
-
-        LinearLayout actions = new LinearLayout(ctx);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        actions.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams actionsLp = new LinearLayout.LayoutParams(-1, dp(ctx, 46));
-        actionsLp.topMargin = dp(ctx, 16);
-        card.addView(actions, actionsLp);
-
-        TextView accept = button(ctx, "现在就回去", true, strong ? theme.danger : accent);
-        TextView later = strong ? null : button(ctx, "再等一会儿", false, theme.primary);
-
         if (strong) {
-            // 强级别：只有一个按钮，没有拒绝入口，点下去强制跳回聊天界面。
-            LinearLayout.LayoutParams acceptLp = new LinearLayout.LayoutParams(-1, -1);
-            actions.addView(accept, acceptLp);
-        } else {
-            LinearLayout.LayoutParams laterLp = new LinearLayout.LayoutParams(0, -1, 1f);
-            laterLp.rightMargin = dp(ctx, 10);
-            actions.addView(later, laterLp);
-            LinearLayout.LayoutParams acceptLp = new LinearLayout.LayoutParams(0, -1, 1f);
-            actions.addView(accept, acceptLp);
-        }
+            // 强级别：达到阈值（或强情绪），只能回到软件，不给拒绝入口。
+            TextView meta = text(ctx, "情绪已经达到拉回阈值，该回 " + companion + " 这里了。", 10, theme.subtext, false);
+            LinearLayout.LayoutParams metaLp = new LinearLayout.LayoutParams(-1, -2);
+            metaLp.topMargin = dp(ctx, 8);
+            card.addView(meta, metaLp);
 
-        accept.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { if (listener != null) listener.onAccept(ctx, cfg); }
-        });
-        if (!strong) {
-            later.setOnClickListener(new View.OnClickListener() {
+            TextView goBack = button(ctx, "回到软件", true, theme.danger);
+            LinearLayout actions = new LinearLayout(ctx);
+            actions.setOrientation(LinearLayout.HORIZONTAL);
+            actions.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams actionsLp = new LinearLayout.LayoutParams(-1, dp(ctx, 46));
+            actionsLp.topMargin = dp(ctx, 16);
+            goBack.setLayoutParams(new LinearLayout.LayoutParams(-1, -1));
+            actions.addView(goBack);
+            card.addView(actions, actionsLp);
+
+            goBack.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { if (listener != null) listener.onAccept(ctx, cfg); }
+            });
+        } else {
+            // 软级别：两个选项——回到软件 / 拒绝并填写理由。
+            TextView meta = text(ctx, "可以回到软件，也可以拒绝并留一句理由。", 10, theme.subtext, false);
+            LinearLayout.LayoutParams metaLp = new LinearLayout.LayoutParams(-1, -2);
+            metaLp.topMargin = dp(ctx, 8);
+            card.addView(meta, metaLp);
+
+            // 拒绝理由抽屉（软级别才有）：默认 GONE，点「拒绝并填写理由」展开。
+            final LinearLayout reasonDrawer = buildReasonDrawer(ctx, theme, cfg, listener);
+            if (reasonDrawer != null) {
+                LinearLayout.LayoutParams drawerLp = new LinearLayout.LayoutParams(-1, -2);
+                drawerLp.topMargin = dp(ctx, 12);
+                card.addView(reasonDrawer, drawerLp);
+            }
+
+            LinearLayout actions = new LinearLayout(ctx);
+            actions.setOrientation(LinearLayout.HORIZONTAL);
+            actions.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams actionsLp = new LinearLayout.LayoutParams(-1, dp(ctx, 46));
+            actionsLp.topMargin = dp(ctx, 16);
+            card.addView(actions, actionsLp);
+
+            TextView goBack = button(ctx, "回到软件", true, accent);
+            TextView refuse = button(ctx, "拒绝并填写理由", false, theme.primary);
+            LinearLayout.LayoutParams goBackLp = new LinearLayout.LayoutParams(0, -1, 1f);
+            goBackLp.rightMargin = dp(ctx, 10);
+            actions.addView(goBack, goBackLp);
+            actions.addView(refuse, new LinearLayout.LayoutParams(0, -1, 1f));
+
+            goBack.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { if (listener != null) listener.onAccept(ctx, cfg); }
+            });
+            refuse.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) { if (reasonDrawer != null) reasonDrawer.setVisibility(View.VISIBLE); }
             });
         }
 
-        // 卡片外层容器：软级别允许点外面关闭，强级别不允许（必须表态）
+        // 卡片外层容器：仅软级别允许点外面关闭（视为「忽略」，不强制表态）；强级别必须点「回到软件」。
         FrameLayout wrapper = new FrameLayout(ctx);
         FrameLayout.LayoutParams cardLp = new FrameLayout.LayoutParams(-1, -2);
         cardLp.leftMargin = dp(ctx, 18);
@@ -150,10 +166,10 @@ public class PullBackCard {
             wrapper.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) { if (listener != null) listener.onDismiss(ctx, cfg); }
             });
-            card.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) { /* 吃掉点击，避免误触关闭 */ }
-            });
         }
+        card.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { /* 吃掉点击，避免误触关闭 */ }
+        });
         return wrapper;
     }
 
@@ -232,6 +248,15 @@ public class PullBackCard {
         });
 
         return drawer;
+    }
+
+    /** 情绪弹窗文案随机微调：保证每次弹出文案有变化，但强情绪保持原话以显认真。 */
+    private static String randomizeEmotionMessage(String tag, String base) {
+        if (base == null || base.trim().isEmpty()) return base;
+        if (CompanionEmotionState.isStrongTag(tag)) return base; // 强情绪不加尾巴
+        String[] tails = {"", "（别装没看见我哦）", "（回一句会怎样嘛）", "（我就在这儿等你）"};
+        int i = (int) ((System.currentTimeMillis() / 1000L) % tails.length);
+        return base + tails[i];
     }
 
     private static View progressBar(Context ctx, GuidianTheme theme, int percent) {

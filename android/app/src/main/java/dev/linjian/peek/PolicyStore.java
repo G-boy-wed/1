@@ -66,13 +66,18 @@ public final class PolicyStore {
     public static final String KEY_DISCIPLINE_LEVEL = PREFIX + "disc_level";     // 0~4 档，默认 0
     public static final String KEY_DISCIPLINE_USER_ONLY = PREFIX + "disc_user_only"; // 仅用户本人能开，默认 true
     public static final String KEY_DISCIPLINE_BADGE = PREFIX + "disc_badge";     // 开启标志，默认 true
+    public static final String KEY_DISCIPLINE_MODE = PREFIX + "disc_mode";       // 训诫语气模式：gentle(温柔)/strict(严厉)，默认 gentle
 
     // —— 分心判定 ——
-    public static final String KEY_DISTRACTION_ENABLED = PREFIX + "dist_enabled"; // 切屏算不算分心，默认 true
+    public static final String KEY_DISTRACTION_ENABLED = PREFIX + "dist_enabled"; // 切屏算不算分心（常开），默认 true
     public static final String KEY_DISTRACTION_EVERY = PREFIX + "dist_every";    // 是否每次切屏都拉回，默认 false
     public static final String KEY_DISTRACTION_THRESHOLD = PREFIX + "dist_threshold";   // 累计分心阈值（默认 5 次）
     public static final String KEY_DISTRACTION_AUTO_PULLBACK = PREFIX + "dist_auto_pullback"; // 超阈值自动强拉回，默认 true
     public static final String KEY_DISTRACTION_COUNT = PREFIX + "dist_count";     // 当前连续分心计数（运行时累计）
+    // —— 分心查岗：切出切回「来回」检测（新增，常开）——
+    public static final String KEY_DISTRACTION_LOOP_ENABLED = PREFIX + "dist_loop_enabled"; // 切出又切回算分心，默认 true
+    public static final String KEY_DISTRACTION_LOOP_TIMES = PREFIX + "dist_loop_times";     // 几个来回算分心，默认 2
+    public static final String KEY_DISTRACTION_LOOP_WINDOW = PREFIX + "dist_loop_window_sec"; // 来回时间窗口（秒），默认 90
 
     // —— 应用使用时长自动锁 ——
     public static final String KEY_USAGE_LOCK_ENABLED = PREFIX + "usage_lock_enabled"; // 连续使用超 N 分钟自动锁，默认 false
@@ -123,10 +128,14 @@ public final class PolicyStore {
     private static final int DEF_DISC_LEVEL = 0;
     private static final boolean DEF_DISC_USER_ONLY = true;
     private static final boolean DEF_DISC_BADGE = true;
+    private static final String DEF_DISC_MODE = "gentle";
     private static final boolean DEF_DIST_ENABLED = true;
     private static final boolean DEF_DIST_EVERY = false;
     private static final int DEF_DIST_THRESHOLD = 5;
     private static final boolean DEF_DIST_AUTO_PULLBACK = true;
+    private static final boolean DEF_DIST_LOOP_ENABLED = true;
+    private static final int DEF_DIST_LOOP_TIMES = 2;
+    private static final int DEF_DIST_LOOP_WINDOW = 90;
     private static final boolean DEF_USAGE_LOCK_ENABLED = false;
     private static final int DEF_USAGE_LOCK_MIN = 45;
     private static final int DEF_USAGE_LOCK_DUR = 15;
@@ -142,6 +151,11 @@ public final class PolicyStore {
 
     public static SharedPreferences sp(Context ctx) {
         return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    /** 把之前 apply() 的改动同步落盘，供设置页「保存设置」按钮显式确认持久化。 */
+    public static void flush(Context ctx) {
+        try { sp(ctx).edit().commit(); } catch (Exception ignored) { }
     }
 
     // ============ 通用读写（带变更记录）============
@@ -267,6 +281,15 @@ public final class PolicyStore {
     public static boolean disciplineUserOnly(Context ctx) { return getBool(ctx, KEY_DISCIPLINE_USER_ONLY, DEF_DISC_USER_ONLY); }
     public static boolean disciplineBadge(Context ctx) { return getBool(ctx, KEY_DISCIPLINE_BADGE, DEF_DISC_BADGE); }
     public static void setDisciplineBadge(Context ctx, boolean v) { putBool(ctx, KEY_DISCIPLINE_BADGE, v, "训诫开启标志"); }
+    /** 训诫语气模式：gentle=温柔，strict=严厉。改变后整体人设语气与管束意味随之改变。 */
+    public static String disciplineMode(Context ctx) {
+        String v = getString(ctx, KEY_DISCIPLINE_MODE, DEF_DISC_MODE);
+        return ("strict".equalsIgnoreCase(v) || "严厉".equals(v)) ? "strict" : "gentle";
+    }
+    public static void setDisciplineMode(Context ctx, String v) {
+        String mode = ("strict".equalsIgnoreCase(v) || "严厉".equals(v)) ? "strict" : "gentle";
+        putString(ctx, KEY_DISCIPLINE_MODE, mode, "训诫语气模式");
+    }
 
     // —— 分心判定 ——
     public static boolean distractionEnabled(Context ctx) { return getBool(ctx, KEY_DISTRACTION_ENABLED, DEF_DIST_ENABLED); }
@@ -277,6 +300,16 @@ public final class PolicyStore {
     public static void setDistractionThreshold(Context ctx, int v) { putInt(ctx, KEY_DISTRACTION_THRESHOLD, clamp(v, 1, 999), "分心自动拉回阈值(次)"); }
     public static boolean distractionAutoPullback(Context ctx) { return getBool(ctx, KEY_DISTRACTION_AUTO_PULLBACK, DEF_DIST_AUTO_PULLBACK); }
     public static void setDistractionAutoPullback(Context ctx, boolean v) { putBool(ctx, KEY_DISTRACTION_AUTO_PULLBACK, v, "超阈值自动强拉回"); }
+
+    /** 切出又切回「来回」检测开关（分心查岗核心，默认常开）。 */
+    public static boolean distractionLoopEnabled(Context ctx) { return getBool(ctx, KEY_DISTRACTION_LOOP_ENABLED, DEF_DIST_LOOP_ENABLED); }
+    public static void setDistractionLoopEnabled(Context ctx, boolean v) { putBool(ctx, KEY_DISTRACTION_LOOP_ENABLED, v, "切出切回算分心"); }
+    /** 几个「切出→切回」来回算一次分心查岗。 */
+    public static int distractionLoopTimes(Context ctx) { return getInt(ctx, KEY_DISTRACTION_LOOP_TIMES, DEF_DIST_LOOP_TIMES); }
+    public static void setDistractionLoopTimes(Context ctx, int v) { putInt(ctx, KEY_DISTRACTION_LOOP_TIMES, clamp(v, 1, 99), "分心来回次数"); }
+    /** 来回时间窗口（秒）：两次切换间隔超过它就不算「立马切回」。 */
+    public static int distractionLoopWindowSec(Context ctx) { return getInt(ctx, KEY_DISTRACTION_LOOP_WINDOW, DEF_DIST_LOOP_WINDOW); }
+    public static void setDistractionLoopWindowSec(Context ctx, int v) { putInt(ctx, KEY_DISTRACTION_LOOP_WINDOW, clamp(v, 5, 600), "分心来回窗口(秒)"); }
 
     /** 连续分心计数（运行时累计，回到目标 App 清零）。 */
     public static int distractionCount(Context ctx) { return getInt(ctx, KEY_DISTRACTION_COUNT, 0); }
@@ -481,10 +514,14 @@ public final class PolicyStore {
         e.putInt(KEY_DISCIPLINE_LEVEL, DEF_DISC_LEVEL);
         e.putBoolean(KEY_DISCIPLINE_USER_ONLY, DEF_DISC_USER_ONLY);
         e.putBoolean(KEY_DISCIPLINE_BADGE, DEF_DISC_BADGE);
+        e.putString(KEY_DISCIPLINE_MODE, DEF_DISC_MODE);
         e.putBoolean(KEY_DISTRACTION_ENABLED, DEF_DIST_ENABLED);
         e.putBoolean(KEY_DISTRACTION_EVERY, DEF_DIST_EVERY);
         e.putInt(KEY_DISTRACTION_THRESHOLD, DEF_DIST_THRESHOLD);
         e.putBoolean(KEY_DISTRACTION_AUTO_PULLBACK, DEF_DIST_AUTO_PULLBACK);
+        e.putBoolean(KEY_DISTRACTION_LOOP_ENABLED, DEF_DIST_LOOP_ENABLED);
+        e.putInt(KEY_DISTRACTION_LOOP_TIMES, DEF_DIST_LOOP_TIMES);
+        e.putInt(KEY_DISTRACTION_LOOP_WINDOW, DEF_DIST_LOOP_WINDOW);
         e.putInt(KEY_DISTRACTION_COUNT, 0);
         e.putBoolean(KEY_USAGE_LOCK_ENABLED, DEF_USAGE_LOCK_ENABLED);
         e.putInt(KEY_USAGE_LOCK_MINUTES, DEF_USAGE_LOCK_MIN);

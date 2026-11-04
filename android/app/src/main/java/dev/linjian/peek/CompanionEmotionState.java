@@ -33,9 +33,21 @@ public class CompanionEmotionState {
 
     public static final String TAG_CALM = "平静";
     public static final String TAG_MISS = "想你";
+    public static final String TAG_LOVE = "爱恋";
     public static final String TAG_JEALOUS = "吃醋";
     public static final String TAG_ANGRY = "生气";
     public static final String TAG_WORRY = "担心";
+
+    /** 弹窗展示用的情绪标签：尊重真实情绪（尤其强情绪），平静时按轻微情绪随机点缀，带「随机触发」感。 */
+    public static String popupEmotionTag(Context ctx) {
+        String tag = emotionTag(ctx);
+        if (tag != null && !tag.trim().isEmpty() && !TAG_CALM.equals(tag)) return tag;
+        // 只挑轻微情绪：避免「担心 / 生气」这类强情绪标签出现在可拒绝的软级弹窗里，
+        // 保证「显示的情绪」与「弹窗样式」一致；想念 / 想你 / 爱恋 随机触发。
+        String[] mild = {TAG_MISS, TAG_LOVE, "想念"};
+        int idx = (int) ((System.currentTimeMillis() / 1000L) % mild.length);
+        return mild[idx];
+    }
 
     /** 强情绪：这些情绪下拉回弹窗不给拒绝入口。 */
     private static final String[] STRONG_TAGS = {"生气", "吃醋", "担心", "委屈", "急", "凶"};
@@ -123,6 +135,13 @@ public class CompanionEmotionState {
         return false;
     }
 
+    /** 给定情绪标签本身是否为强情绪（不依赖 Context）。 */
+    public static boolean isStrongTag(String tag) {
+        if (tag == null) return false;
+        for (String strong : STRONG_TAGS) if (tag.contains(strong)) return true;
+        return false;
+    }
+
     /** 情绪决定的语气：强情绪或强度很高时用生气语气。 */
     public static String tone(Context ctx) {
         if (isStrong(ctx)) return "angry";
@@ -150,6 +169,7 @@ public class CompanionEmotionState {
         if (TAG_ANGRY.equals(tag) || tag.contains("生气")) return "别躲了，" + companion + "在等你。";
         if (TAG_JEALOUS.equals(tag) || tag.contains("吃醋")) return "你去看谁了？" + companion + "想问你一句。";
         if (TAG_WORRY.equals(tag) || tag.contains("担心")) return "外面太晚了，" + companion + "有点担心你。";
+        if (TAG_LOVE.equals(tag) || tag.contains("爱恋")) return "想你了，" + companion + "想抱着你。";
         if (miss >= 70) return "已经很想你了，" + companion + "不想再等。";
         if (miss >= 40) return "有点想你了，" + companion + "问一句在不在。";
         return "有空的话，回来陪" + companion + "说句话。";

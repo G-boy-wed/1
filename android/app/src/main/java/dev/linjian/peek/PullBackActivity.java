@@ -80,7 +80,8 @@ public class PullBackActivity extends Activity {
     }
 
     @Override public void onBackPressed() {
-        // 强级别没有拒绝入口：返回键不表态，直接关掉但留下日志。
+        // 强级别（达到阈值 / 强情绪）：只能「回到软件」，返回键不表态、不关闭，避免绕开。
+        if (PullBackCard.isStrongLevel(cfg)) return;
         if (!handled) {
             PullBackAction.dismiss(this, cfg);
             handled = true;

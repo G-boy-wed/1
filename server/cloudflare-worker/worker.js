@@ -62,6 +62,9 @@ async function handle(request, env) {
     if (path === "/api/focus_state") return getNestedState(env, url, "focus_mode");
     if (path === "/api/stickers/list") return listStickersApi(env, url);
     if (path === "/api/stickers/search") return searchStickersApi(env, url);
+    if (path === "/api/shared_memory") return getSharedMemoryApi(env, url);
+    if (path === "/api/discipline") return getDisciplineApi(env);
+    if (path === "/api/ocr") return json({ ok: true, text: "", note: "cloudflare_lite_no_ocr" });
     if (path === "/api/jingming/latest") return json({ ok: true, jingming: {}, note: "cloudflare_lite_no_audio_generation" });
     if (path === "/api/lingyin/latest") return json({ ok: true, lingyin: {}, note: "cloudflare_lite_no_audio_generation" });
   }
@@ -79,6 +82,9 @@ async function handle(request, env) {
     if (path === "/api/stickers/update") return updateStickerApi(env, await readJson(request));
     if (path === "/api/stickers/delete") return deleteStickerApi(env, await readJson(request));
     if (path === "/api/screenshot") return saveScreenshot(env, request);
+    if (path === "/api/shared_memory") return postSharedMemoryApi(env, await readJson(request));
+    if (path === "/api/discipline") return postDisciplineApi(env, await readJson(request));
+    if (path === "/api/ocr") return json({ ok: true, text: "", note: "cloudflare_lite_no_ocr" });
     if (path === "/api/lingyin/create" || path === "/api/jingming/create") return json({ ok: false, error: "cloudflare_lite_no_audio_generation", detail: "聆音/鲸鸣生成请切回 Render；已有 audio_url 的 play_audio/play_lingyin 命令仍可通过 /api/command 下发。" }, 501);
   }
 
@@ -203,14 +209,22 @@ const MCP_TOOLS = [
   { name: "send_phone_command", description: "通用手机命令队列入口，支持 open_app/home/back/recents/screen_off/tap/swipe/set_alarm/send_notification/run_sequence、屏幕休息、归电、读屏、输入等旧版 action。", inputSchema: obj({ action: str("noop"), app: str(""), package: str(""), payload: anyObj(), device_id: str(DEFAULT_DEVICE), wait_seconds: int(0) }, ["action"]) },
 
   { name: "show_center_alert", description: "在用户手机屏幕正中央弹出一张对话框，支持标题、正文与按钮；语气 tone 可选「温柔 gentle」或「生气 angry」。", inputSchema: obj({ title: str("掌心窗"), message: str(""), tone: str("gentle"), button_text: str("知道啦"), device_id: str(DEFAULT_DEVICE), wait_seconds: int(8) }) },
-  { name: "force_back_to_chat", description: "把用户拉回掌心窗陪伴页，默认先弹分级弹窗：想她百分比低于阈值 → 软级别（两个按钮，可拒绝并留下理由）；达到阈值或强情绪 → 强级别（只有一个按钮，点击后强制跳回聊天界面）。", inputSchema: obj({ tone: str("gentle"), level: str("auto"), title: str(""), message: str(""), device_id: str(DEFAULT_DEVICE), wait_seconds: int(8) }) },
+  { name: "force_back_to_chat", description: "把用户拉回掌心窗陪伴页，先弹分级拉回弹窗（不直接强制跳转）：想她百分比低于阈值且非强情绪 → 软级别，给「回到软件」与「拒绝并填写理由」两个选项；达到阈值或强情绪 → 强级别，只给「回到软件」一个按钮，不能拒绝。", inputSchema: obj({ tone: str("gentle"), level: str("auto"), title: str(""), message: str(""), device_id: str(DEFAULT_DEVICE), wait_seconds: int(8) }) },
   { name: "get_usage_snapshot", description: "读取用户今天的用量快照：当前 App、单 App 停留时长、今日屏幕总时长、解锁次数、电量、充电、网络，以及 top Apps。直接读缓存，不等待手机实时刷新。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
   { name: "get_emotion_snapshot", description: "读取「用户手机状态」的情绪感知输入快照：汇总当前 App、停留时长、解锁频率、是否深夜、电量、情绪标签，给出建议（该提醒 remind / 该拉回 pullback / 该安静 quiet）与推荐语气。想读陪伴对象自己的心情请用 get_companion_emotion。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
   { name: "write_emotion_tag", description: "回写一条情绪标签到掌心窗（如 撒娇、低落、嘴硬），并刷新“上次聊天时间”。", inputSchema: obj({ tag: str(""), note: str(""), device_id: str(DEFAULT_DEVICE) }) },
   { name: "write_companion_emotion", description: "写入陪伴对象（TA）自己的情绪：emotion_tag（平静/想你/吃醋/生气/担心等）、intensity 0-100、miss_percent 0-100（想她百分比）、note。与用户手机状态的情绪快照分开存，互不覆盖；情绪会随时间自然衰减，也会随用户未回来的时间累积。", inputSchema: obj({ emotion_tag: str("平静"), intensity: int(undefined), miss_percent: int(undefined), note: str(""), device_id: str(DEFAULT_DEVICE) }) },
   { name: "get_companion_emotion", description: "读取陪伴对象（TA）自己此刻的情绪：情绪标签、强度、想她百分比、备注、更新时间、是否强情绪。用于决定语气、文案与要不要拉回。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
   { name: "set_tour_schedule", description: "配置掌心窗的巡回查岗策略：查岗周期、强制拉回周期、冷却时间、安静时段、单 App 锁阈值与时长、豁免应用列表、弹窗语气、拉回分级阈值。所有时间参数均可自由设定，无强制默认值。", inputSchema: obj({ enabled: bool(undefined), check_in_interval_minutes: int(undefined), force_back_interval_minutes: int(undefined), cooldown_minutes: int(undefined), quiet_hours: anyObj(), night_hours: anyObj(), single_app_lock_minutes: int(undefined), single_app_lock_duration_minutes: int(undefined), alert_tone: str(""), force_back_miss_threshold: int(undefined), exempt_packages: arr({ type: "string" }), device_id: str(DEFAULT_DEVICE) }) },
-  { name: "get_tour_schedule", description: "读取当前巡回查岗与管束策略，与手机端「查岗与管束」页面显示的是同一份配置。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) }
+  { name: "get_tour_schedule", description: "读取当前巡回查岗与管束策略，与手机端「查岗与管束」页面显示的是同一份配置。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
+
+  { name: "write_shared_memory", description: "把一条值得长期记住的内容写入共同记忆（双方可见可改）。当用户说「记住…」「别忘了…」「我们约定…」或任何值得长期保存的内容时，主动调用本工具自动写入。", inputSchema: obj({ text: str(""), author: str("用户") }, ["text"]) },
+  { name: "search_shared_memory", description: "在共同记忆里检索相关内容。当用户问「你还记得…」「我们之前是不是约定…」等需要回忆的场景时，先检索再回答，不要凭空编造。", inputSchema: obj({ query: str(""), limit: int(20) }, ["query"]) },
+  { name: "list_shared_memory", description: "列出全部共同记忆条目（最新在前）。", inputSchema: obj({ limit: int(50) }) },
+  { name: "set_discipline_mode", description: "设置训诫模块（小圈管束）的开启状态与语气模式。开启后陪伴对象人设语气增加管束意味；mode 决定语气：gentle=温柔，strict=严厉。", inputSchema: obj({ enabled: bool(undefined), mode: str("gentle"), level: int(undefined) }) },
+  { name: "get_discipline_mode", description: "读取训诫模块（小圈管束）当前状态：是否开启、语气模式（温柔/严厉）、档位。", inputSchema: obj({}) },
+  { name: "get_current_time", description: "读取当前本地时间（日期、星期、时:分:秒、时段）。陪伴对象每次准备回复用户前，应先调用本工具查看当前时间，再结合时间选择语气（深夜更温柔、工作时段更利落）。", inputSchema: obj({}) },
+  { name: "analyze_image", description: "识图感知：用户在聊天里发来的图片，陪伴对象要先看明白再回复。传入图片（base64 或 URL），服务端保存并尝试 OCR 提取可见文字/内容描述，返回文本供回复；即使模型本身看不到图片，也能基于提取到的内容回复。", inputSchema: obj({ image_base64: str(""), image_url: str(""), device_id: str(DEFAULT_DEVICE) }) }
 ];
 
 function obj(properties = {}, required = []) { return { type: "object", properties, required, additionalProperties: false }; }
@@ -423,6 +437,58 @@ async function putEmotionState(env, s) { return putJsonState(env, "emotion_state
 async function getCompanionEmotion(env) { return getJsonState(env, "companion_emotion", { emotion_tag: "平静", intensity: 0, miss_percent: 0, note: "", updated_at: "", updated_at_ms: 0 }); }
 async function putCompanionEmotion(env, s) { return putJsonState(env, "companion_emotion", s); }
 const COMPANION_STRONG_TAGS = ["生气", "吃醋", "担心", "委屈"];
+
+// 共同记忆：列表形式存储为 { items: [...] }。
+async function getSharedMemory(env) { return getJsonState(env, "shared_memory", { items: [] }); }
+async function putSharedMemory(env, s) { return putJsonState(env, "shared_memory", s); }
+async function getDiscipline(env) { return getJsonState(env, "discipline", { enabled: false, mode: "gentle", level: 0, updated_at: "" }); }
+async function putDiscipline(env, s) { return putJsonState(env, "discipline", s); }
+
+async function getSharedMemoryApi(env, url) {
+  const s = await getSharedMemory(env);
+  let items = Array.isArray(s.items) ? s.items : [];
+  const q = (url.searchParams.get("search") || "").trim().toLowerCase();
+  if (q) items = items.filter(it => (it.text || "").toLowerCase().includes(q) || (it.author || "").toLowerCase().includes(q));
+  return json({ ok: true, count: items.length, items });
+}
+async function postSharedMemoryApi(env, data) {
+  const s = await getSharedMemory(env);
+  const items = Array.isArray(s.items) ? s.items : [];
+  const action = (data.action || "add");
+  if (action === "add" || action === "write") {
+    const text = (data.text || data.content || "").trim();
+    if (!text) return json({ ok: false, error: "empty_text" }, 400);
+    const item = { id: (Date.now().toString(36) + Math.random().toString(36).slice(2, 8)), text, author: (data.author || "用户"), created_at: nowIso() };
+    items.push(item);
+    await putSharedMemory(env, { items: items.slice(-200) });
+    return json({ ok: true, result: "memory_added", item, count: items.length });
+  }
+  if (action === "remove" || action === "delete") {
+    const before = items.length;
+    const next = items.filter(it => it.id !== (data.id || ""));
+    await putSharedMemory(env, { items: next });
+    return json({ ok: true, result: "memory_removed", removed: before - next.length });
+  }
+  if (action === "search") {
+    const q = (data.query || data.search || "").trim().toLowerCase();
+    const found = q ? items.filter(it => (it.text || "").toLowerCase().includes(q) || (it.author || "").toLowerCase().includes(q)) : items;
+    return json({ ok: true, result: "memory_searched", count: found.length, items: found });
+  }
+  return json({ ok: true, result: "memory_list", count: items.length, items });
+}
+async function getDisciplineApi(env) {
+  const d = await getDiscipline(env);
+  return json({ ok: true, discipline: d });
+}
+async function postDisciplineApi(env, data) {
+  const d = await getDiscipline(env);
+  if ("enabled" in (data || {})) d.enabled = Boolean(data.enabled);
+  if ("mode" in (data || {})) d.mode = (String(data.mode).toLowerCase() === "strict" || data.mode === "严厉") ? "strict" : "gentle";
+  if ("level" in (data || {})) d.level = Number(data.level) || 0;
+  d.updated_at = nowIso();
+  await putDiscipline(env, d);
+  return json({ ok: true, discipline: d, note: "开启后陪伴对象语气增加管束意味；strict=严厉，gentle=温柔。" });
+}
 const COMPANION_MISS_DECAY_PER_HOUR = 6;
 const COMPANION_INTENSITY_DECAY_PER_HOUR = 8;
 const COMPANION_MISS_GAIN_PER_30MIN = 4;
@@ -673,6 +739,58 @@ async function callMcpTool(name, args = {}, env) {
     case "get_companion_emotion": {
       const raw = await getCompanionEmotion(env);
       return mcpText({ ...effectiveCompanionEmotion(raw), device_id, storage: "companion_emotion", separate_from_user_snapshot: true });
+    }
+    case "write_shared_memory": {
+      const s = await getSharedMemory(env);
+      const items = Array.isArray(s.items) ? s.items : [];
+      const text = (args.text || args.content || "").trim();
+      if (!text) return mcpText({ ok: false, error: "empty_text" });
+      const item = { id: (Date.now().toString(36) + Math.random().toString(36).slice(2, 8)), text, author: (args.author || "用户"), created_at: nowIso() };
+      items.push(item);
+      await putSharedMemory(env, { items: items.slice(-200) });
+      return mcpText({ ok: true, result: "memory_added", item, count: items.length, note: "已写入共同记忆；回忆时先用 search_shared_memory 检索再回答。" });
+    }
+    case "search_shared_memory": {
+      const s = await getSharedMemory(env);
+      const items = Array.isArray(s.items) ? s.items : [];
+      const q = (args.query || "").trim().toLowerCase();
+      const found = q ? items.filter(it => (it.text || "").toLowerCase().includes(q) || (it.author || "").toLowerCase().includes(q)) : items;
+      return mcpText({ ok: true, result: "memory_searched", count: found.length, items: found });
+    }
+    case "list_shared_memory": {
+      const s = await getSharedMemory(env);
+      const items = Array.isArray(s.items) ? s.items : [];
+      return mcpText({ ok: true, result: "memory_list", count: items.length, items });
+    }
+    case "set_discipline_mode": {
+      const d = await getDiscipline(env);
+      if (args.enabled !== undefined) d.enabled = Boolean(args.enabled);
+      if (args.mode !== undefined) d.mode = (String(args.mode).toLowerCase() === "strict" || args.mode === "严厉") ? "strict" : "gentle";
+      if (args.level !== undefined) d.level = Number(args.level) || 0;
+      d.updated_at = nowIso();
+      await putDiscipline(env, d);
+      return mcpText({ ok: true, discipline: d, note: "开启后陪伴对象语气增加管束意味；strict=严厉，gentle=温柔。" });
+    }
+    case "get_discipline_mode": {
+      const d = await getDiscipline(env);
+      return mcpText({ ok: true, discipline: d });
+    }
+    case "get_current_time": {
+      const now = new Date();
+      const wd = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+      const h = now.getHours();
+      let period = "凌晨";
+      if (h >= 5 && h < 8) period = "清晨";
+      else if (h >= 8 && h < 11) period = "上午";
+      else if (h >= 11 && h < 13) period = "中午";
+      else if (h >= 13 && h < 18) period = "下午";
+      else if (h >= 18 && h < 23) period = "晚上";
+      else if (h >= 23 || h < 5) period = "深夜";
+      const pad = (n) => String(n).padStart(2, "0");
+      return mcpText({ ok: true, local: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(h)}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`, weekday: wd[now.getDay()], hour: h, minute: now.getMinutes(), period, suggestion: period === "深夜" ? "深夜了，语气放软、多关心少管束" : ((period === "上午" || period === "下午") ? "白天，语气可以利落一点" : "语气自然就好") });
+    }
+    case "analyze_image": {
+      return mcpText({ ok: true, note: "Cloudflare 版暂未内置 OCR；请让手机端在设备侧完成识图，或切到 Render 版 MCP。图片已通过 analyze_image 意图接收。" });
     }
     case "set_tour_schedule": {
       const sched = await getTourSchedule(env);
