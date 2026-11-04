@@ -84,7 +84,12 @@ public class LifeState {
             state.put("accessibility_ready", ScreenshotService.ready());
             state.put("usage_permission_ready", usageReady);
             state.put("screen_time_today_minutes", usage.screenTimeMinutes);
-            state.put("unlock_count_today", usage.unlockCount);
+            // R3/#49/#6a：亮屏>0 却 0 次解锁说明采集端没拿到解锁事件，
+            // 显式标注 unreliable，避免下游把 0 当真实值参与统计/情绪计算
+            int unlockCount = usage.unlockCount;
+            boolean unlockReliable = unlockCount > 0 || usage.screenTimeMinutes <= 0 || usage.lastUnlockAt > 0;
+            state.put("unlock_count_today", unlockCount);
+            state.put("unlock_count_reliable", unlockReliable);
             state.put("last_unlock_at", usage.lastUnlockAt <= 0 ? "" : formatIsoLocal(usage.lastUnlockAt));
             state.put("top_apps_today", usage.topApps);
             state.put("city", prefs.city());

@@ -585,10 +585,28 @@ public class AppGate {
 
     public static void submitUnlockRequest(final Context ctx, final String pkg, final String reason) {
         try {
-            JSONObject s = state(ctx); JSONObject req = new JSONObject();
-            req.put("id", String.valueOf(System.currentTimeMillis())); req.put("device_id", AppPrefs.device(ctx)); req.put("package", pkg);
-            req.put("app_name", labelOf(ctx, pkg)); req.put("reason", reason == null ? "" : reason.trim()); req.put("created_at_ms", System.currentTimeMillis()); req.put("created_at_local", formatLocal(System.currentTimeMillis()));
-            JSONArray arr = s.optJSONArray("requests"); if (arr == null) arr = new JSONArray(); arr.put(req); while (arr.length() > 20) arr.remove(0); s.put("requests", arr); save(ctx, s);
+            long now = System.currentTimeMillis();
+            String text = reason == null ? "" : reason.trim();
+            JSONObject s = state(ctx);
+            JSONArray arr = s.optJSONArray("requests"); if (arr == null) arr = new JSONArray();
+            // R4/#7：同 App + 同理由在 10 秒窗口内合并计数，不再灌入十几条重复申请
+            JSONObject last = arr.length() > 0 ? arr.optJSONObject(arr.length() - 1) : null;
+            if (last != null && pkg.equals(last.optString("package", ""))
+                    && text.equals(last.optString("reason", ""))
+                    && (now - last.optLong("created_at_ms", 0L)) < 10000L
+                    && "pending".equals(last.optString("status", "pending"))) {
+                last.put("repeat_count", last.optInt("repeat_count", 1) + 1);
+                last.put("updated_at_ms", now);
+                s.put("requests", arr); save(ctx, s);
+                return;
+            }
+            JSONObject req = new JSONObject();
+            req.put("id", String.valueOf(now)); req.put("device_id", AppPrefs.device(ctx)); req.put("package", pkg);
+            req.put("app_name", labelOf(ctx, pkg)); req.put("reason", text);
+            req.put("created_at_ms", now); req.put("created_at_local", formatLocal(now));
+            req.put("status", "pending"); req.put("repeat_count", 1);
+            req.put("timeout_at_ms", now + 5 * 60000L);
+            arr.put(req); while (arr.length() > 20) arr.remove(0); s.put("requests", arr); save(ctx, s);
             log(ctx, "提交解锁申请：" + pkg + "；理由：" + reason);
             final String url = ScreenshotService.normalizeUrl(AppPrefs.server(ctx)); final String token = AppPrefs.token(ctx); final String body = req.toString();
             if (url.length() > 0 && token.length() > 0) new Thread(() -> postUnlockRequest(url, token, body)).start();
@@ -608,9 +626,52 @@ public class AppGate {
     public static JSONObject config(Context ctx) {
         JSONObject out = new JSONObject();
         try {
-            out.put("enabled", enabled(ctx)); out.put("gate_apps", gateAppsJson(ctx)); out.put("state", state(ctx)); out.put("protected_packages", protectedJson(ctx));
+            JSONObject s = pruneState(ctx);
+            out.put("enabled", enabled(ctx)); out.put("gate_apps", gateAppsJson(ctx)); out.put("state", s); out.put("protected_packages", protectedJson(ctx));
         } catch (Exception ignored) { }
         return out;
+    }
+
+    /** R4/#8/#40：清理失活过期锁、剔除闲置 temporary_* 恒零字段、给旧申请补 status/超时。 */
+    private static JSONObject pruneState(Context ctx) {
+        JSONObject s = state(ctx);
+        long now = System.currentTimeMillis();
+        boolean changed = false;
+        try {
+            JSONObject ls = s.optJSONObject("locks");
+            if (ls != null) {
+                Iterator<String> it = ls.keys();
+                ArrayList<String> drop = new ArrayList<>();
+                while (it.hasNext()) {
+                    String key = it.next();
+                    JSONObject l = ls.optJSONObject(key);
+                    if (l == null) { drop.add(key); continue; }
+                    boolean active = l.optBoolean("active", false);
+                    long until = l.optLong("locked_until_ms", 0L);
+                    if ((!active && until > 0 && (now - until) > 24L * 3600 * 1000) || (!active && until <= 0)) {
+                        drop.add(key); continue;
+                    }
+                    if (!l.optBoolean("temporary_active", false)) {
+                        Iterator<String> fk = l.keys();
+                        ArrayList<String> rm = new ArrayList<>();
+                        while (fk.hasNext()) { String f = fk.next(); if (f.startsWith("temporary_")) rm.add(f); }
+                        for (String f : rm) { l.remove(f); changed = true; }
+                    }
+                }
+                for (String k : drop) { ls.remove(k); changed = true; }
+            }
+            JSONArray reqs = s.optJSONArray("requests");
+            if (reqs != null) {
+                for (int i = 0; i < reqs.length(); i++) {
+                    JSONObject r = reqs.optJSONObject(i); if (r == null) continue;
+                    if (!r.has("status")) { r.put("status", "pending"); changed = true; }
+                    long to = r.optLong("timeout_at_ms", 0L);
+                    if ("pending".equals(r.optString("status")) && to > 0 && now > to) { r.put("status", "timed_out"); changed = true; }
+                }
+            }
+        } catch (Exception ignored) { }
+        if (changed) save(ctx, s);
+        return s;
     }
 
     public static String summaryLine(Context ctx) {
@@ -675,6 +736,13 @@ public class AppGate {
         packages.add(SELF_PACKAGE);
         String companionTarget = AppPrefs.homeTargetPackage(ctx);
         if (!companionTarget.isEmpty()) packages.add(companionTarget);
+        // #57：归电/拉回目标 App（陪伴入口）自动进保护名单，防止自锁形成死锁
+        try {
+            String guidianTarget = GuidianState.targetPackage(ctx);
+            if (guidianTarget != null && !guidianTarget.trim().isEmpty()) packages.add(guidianTarget.trim());
+            String pullTarget = PolicyStore.targetPackage(ctx);
+            if (pullTarget != null && !pullTarget.trim().isEmpty()) packages.add(pullTarget.trim());
+        } catch (Exception ignored) { }
         packages.add("com.android.settings");
         packages.add("com.android.phone");
         packages.add("com.google.android.dialer");

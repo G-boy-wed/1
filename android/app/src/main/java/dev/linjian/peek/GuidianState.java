@@ -312,7 +312,29 @@ public class GuidianState {
     private static long nextPromptAfterMs(Context ctx, SharedPreferences p, long now) {
         long lastReturn = p.getLong(KEY_LAST_RETURN_AT, now);
         long lastPrompt = p.getLong(KEY_LAST_PROMPT_AT, 0);
-        return Math.max(lastReturn + intervalMin(ctx) * 60000L, lastPrompt + cooldownMin(ctx) * 60000L);
+        long next = Math.max(lastReturn + intervalMin(ctx) * 60000L, lastPrompt + cooldownMin(ctx) * 60000L);
+        // #43/#19：interval 真正生效，且下次归电不排进安静时段被 quiet_time 拦掉空转
+        long guard = now + 30L * 24 * 3600 * 1000;
+        while (p.getBoolean(KEY_QUIET_ENABLED, true) && inQuietTime(ctx, next) && next < guard) {
+            long shifted = quietEndMs(ctx, p, next);
+            if (shifted <= next) break;
+            next = shifted;
+        }
+        return next;
+    }
+
+    /** 返回 at 所在安静窗口的结束时刻（毫秒），用于把归电顺延出安静时段。 */
+    private static long quietEndMs(Context ctx, SharedPreferences p, long at) {
+        int start = parseMinute(p.getString(KEY_QUIET_START, "23:30"), 23 * 60 + 30);
+        int end = parseMinute(p.getString(KEY_QUIET_END, "08:00"), 8 * 60);
+        if (start == end) return at + 60000L;
+        Calendar c = Calendar.getInstance(); c.setTimeInMillis(at);
+        int nowMin = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE);
+        int delta = (start < end) ? (end - nowMin)
+                : (nowMin >= start ? (24 * 60 - nowMin) + end : (end - nowMin));
+        if (delta <= 0) delta = 1;
+        c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0);
+        return c.getTimeInMillis() + delta * 60000L;
     }
 
     private static void recordAutoCheck(Context ctx, long checkedAt, long dueAt, boolean dueButNotShown, String reason, String result) {

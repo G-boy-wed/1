@@ -528,6 +528,12 @@ function buildVisitStats({ source = "", since_hours = 24, away_threshold_hours =
     count_in_window: visits.length,
     window_hours: Number(since_hours || 24),
     today_count: todayCount,
+    // P1-13：把「今天」用的本地日界与所用时区一并返回，today_count 与 recent_24h_count
+    // 口径不同（自然日 vs 滚动 24h）不再被误读为 bug；调用方可据此核对。
+    today_key: todayKey,
+    today_timezone_offset: timezone_offset || visitState?.policy?.timezone_offset || DEFAULT_VISIT_POLICY.timezone_offset,
+    today_is_local_calendar_day: true,
+    recent_24h_is_rolling_window: true,
     recent_24h_count: filteredVisits({ source, since_hours: 24, timezone_offset }).length,
     recent_7d_count: last7dCount,
     average_interval_minutes_in_window: avg,
@@ -874,10 +880,17 @@ function buildWeatherAdvice(weather, name="当前地区") {
   const temp = Math.round(Number(now.temperature_2m ?? now.temperature ?? 0));
   const codeText = weatherCodeText(now.weather_code ?? now.weathercode);
   const rain = Number(daily.precipitation_probability_max?.[0] ?? 0);
+  // #51/P2-18：min/max 一律 Math.round 到整数，文案与返回体用的是同一组数字，
+  // 不再出现 17/13、17.5/13.1、「13~18℃」三套口径。
   const max = Math.round(Number(daily.temperature_2m_max?.[0] ?? temp));
   const min = Math.round(Number(daily.temperature_2m_min?.[0] ?? temp));
   const parts = [`${name}现在${codeText}，约 ${temp}℃，今天 ${min}~${max}℃。`];
-  if (rain >= 50 || codeText.includes("雨") || codeText.includes("雪")) parts.push("出门把伞带上，别淋到。");
+  const wetCode = codeText.includes("雨") || codeText.includes("雪");
+  if (rain >= 50 || wetCode) {
+    // #51：降水概率与天气码矛盾时如实说明，而不是含糊一句「把伞带上」。
+    if (rain >= 90 && !wetCode) parts.push(`今天降水概率 ${Math.round(rain)}%，但当前天气码是「${codeText}」，数据可能不一致，伞还是带上稳妥。`);
+    else parts.push(`今晚/今天降水概率约 ${Math.round(rain)}%，出门把伞带上，别淋到。`);
+  }
   else if (max >= 32) parts.push("今天偏热，水杯带着，不许又忘喝水。");
   else if (min <= 8 || max - min >= 10) parts.push("温差有点明显，外套带着，别嘴硬。");
   else parts.push("天气暂时还行，正常出门就好。");

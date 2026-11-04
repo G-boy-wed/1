@@ -2,6 +2,34 @@
 
 ---
 
+## 第四轮：交付格式重排 + R3 状态一致性专项（本轮）
+
+> 按交付要求拆成**两版可独立推送/回滚的提交**：
+> - **Commit A（R1/R2/R4 根因版）**：见上一节「Bug 清单全量版本轮已处理项」+ 33–72 补充项。
+> - **Commit B（R3 状态一致性专项，本节）**：状态由多份快照各算各的 → 收敛为单一来源。
+> 每一条的「已改/未改 + 文件 + commit」逐条回执见 `BUG_RECEIPT.md`；
+> 逐条复测步骤见 `RETEST_CHECKLIST.md`。
+
+### Commit B（R3）已改
+- **#35 训诫单开关 / 0 档不得输出事件**：`PolicyScheduler.discipline()` 增加 `level<=0` 守卫（关闭不再产生「训诫(0档)」事件）；`linjian_server.py /api/discipline` 归一 `enabled` 与 `level` 为单一状态源（level=0→enabled=false；enabled=false→level=0）。运行时冒烟已验证。
+- **#39 / P1-6b / R3 专注三时间字段互不同步**：`FocusMode` 新增 `normalizeState()` 作为状态唯一收敛点，统一推导 active/remaining/temporary/emergency/pending；`start()` 清旧 ended；`isActiveRaw()` 到点补 `ended_at`；纠正「结束早于开始」的历史脏数据。
+- **P0-4 / #36 专注求助全部 pending 无提示**：`normalizeState()` 计算 `pending_request_count` / `oldest_pending_age_minutes` / `pending_timeout` / `pending_hint`，超 5 分钟未处理给明确提示（推送到陪伴对象会话需手机端通知通道联调，见回执）。
+- **P0-5 / #37 离线应急计数不重置**：新增 `emergency_session_started_at_ms` 会话锚点，应急额度按专注会话归零，`offlineEmergencyUnlock()` 先收敛再判额度。
+- **P1-7 / #7 门禁申请无去重**：`AppGate.submitUnlockRequest()` 同 App+同理由 10 秒窗口合并 `repeat_count`，不再灌入十几条重复申请。
+- **P1-8 / #40 失活锁不清理 + temporary_* 污染**：`AppGate.pruneState()` 归档失活超 24h 的锁、剔除闲置 `temporary_*` 恒零字段、给旧申请补 `status`/超时。
+- **#57 陪伴 App 自锁风险**：`AppGate.protectedPackages()` 自动把 `GuidianState.targetPackage()` 与 `PolicyStore.targetPackage()`（陪伴入口）纳入保护名单。
+- **#43 / P2-19 归电 interval 不生效 + next 排进安静段**：`GuidianState.nextPromptAfterMs()` 把落在安静时段的 `next_prompt_after` 顺延到安静结束（`quietEndMs`），避免到点被 `quiet_time` 拦掉空转。
+- **P1-6a / #49 unlock_count_today 恒 0**：`LifeState` 增加 `unlock_count_reliable` 标注（亮屏>0 却 0 次解锁时标 false），避免下游把 0 当真实值参与情绪计算；真实解锁事件采集需 UsageStats 权限联调。
+- **P2-18 / #51 天气数字三处不一致 + 降水矛盾**：`buildWeatherAdvice()` min/max/temp 统一 `Math.round`，降水概率≥90% 但天气码无雨雪时如实提示「数据可能不一致」。
+- **P1-13 到访统计日界**：`buildVisitStats()` 返回 `today_key` / `today_timezone_offset` 及口径标记（`today_is_local_calendar_day` vs `recent_24h_is_rolling_window`），消除「自然日 0 次 vs 滚动 24h 3 次」被误读为 bug。
+
+### 查证结果
+- `javac` 全量编译 45 个 Java 文件：**0 error**；`build.sh` 产出 APK 并通过 v1/v2/v3 签名验证。
+- `node --check mcp/server.js`、`node --check worker.js`、`python3.11 -m py_compile linjian_server.py`：全通过。
+- Python 后端运行时冒烟：`/api/discipline` 单开关三组归一、`metadata_json` 5000→1006 字截断、`/api/emotion/snapshot` 方向/来源/quiet 一致：全通过。
+
+---
+
 ## Bug 清单全量版（R1–R4 根因 + P0–P2）本轮已处理项
 
 > 版本基线：`0.3.9.0-public-diary-annotations`（GitHub `main` @ `ecdc938`）。

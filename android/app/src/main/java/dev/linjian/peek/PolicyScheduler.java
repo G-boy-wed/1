@@ -588,8 +588,11 @@ public final class PolicyScheduler {
     public static boolean inClassNow(Context ctx) { return ClassScheduleState.isInClassNow(ctx); }
 
     private void discipline(String cause, String detail) {
+        // #35：单一开关语义——总开关关闭或档位为 0 都视为「关闭」，不得产生任何训诫事件。
+        // 避免 enabled=false / level=0 时仍输出「训诫(0档)」污染事件流。
         if (!PolicyStore.disciplineEnabled(appCtx)) return;
         int level = PolicyStore.disciplineLevel(appCtx);
+        if (level <= 0) return;
         ActivityEventStore.recordForced(appCtx, "discipline", "训诫(" + level + "档)", cause + "：" + detail);
         DebugState.append(appCtx, "训诫插件触发 " + level + " 档，原因=" + cause);
     }

@@ -853,8 +853,15 @@ class Handler(BaseHTTPRequestHandler):
                     mode = str(data.get("mode") or "gentle").strip().lower()
                     self.state.discipline["mode"] = "strict" if (mode == "strict" or mode == "严厉") else "gentle"
                 if "level" in data:
-                    try: self.state.discipline["level"] = int(data.get("level"))
+                    try: self.state.discipline["level"] = max(0, min(4, int(data.get("level"))))
                     except Exception: pass
+                # #35：enabled 与 level 是同一开关的两种表达，状态源必须唯一。
+                # level=0 等价于关闭；关闭时强制 level=0，开启但 0 档则归一为关闭。
+                if self.state.discipline.get("level", 0) <= 0:
+                    self.state.discipline["enabled"] = False
+                    self.state.discipline["level"] = 0
+                if not self.state.discipline.get("enabled", False):
+                    self.state.discipline["level"] = 0
                 self.state.discipline["updated_at"] = now_iso()
                 self.state.save_discipline()
                 disc = dict(self.state.discipline)

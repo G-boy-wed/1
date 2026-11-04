@@ -121,6 +121,10 @@ public class FocusMode {
         s.put("emergency_total", Math.max(0, cmd.optInt("emergency_total", cmd.optInt("emergency_times", s.optInt("emergency_total", 1)))));
         s.put("emergency_minutes", Math.max(1, cmd.optInt("emergency_minutes", s.optInt("emergency_minutes", 1))));
         s.put("emergency_used", 0);
+        s.put("emergency_session_started_at_ms", now);
+        // R3/#39：开新会话清掉上次结束时间，避免 ended_at 早于 started_at 数天
+        s.put("ended_at_ms", 0L);
+        s.put("ended_at_local", "");
         log(s, "开启专注模式到 " + formatLocal(until));
         appendMessage(s, "ai", s.optString("message"), false);
         save(ctx, s);
@@ -212,7 +216,9 @@ public class FocusMode {
     public static boolean offlineEmergencyUnlock(Context ctx, String reason) {
         try {
             JSONObject s = state(ctx);
-            if (!isActiveRaw(s, System.currentTimeMillis())) return true;
+            long now = System.currentTimeMillis();
+            normalizeState(s, now);
+            if (!isActiveRaw(s, now)) return true;
             int total = Math.max(0, s.optInt("emergency_total", 1));
             int used = Math.max(0, s.optInt("emergency_used", 0));
             if (used >= total) return false;
@@ -241,7 +247,13 @@ public class FocusMode {
     private static boolean isActiveRaw(JSONObject s, long now) throws Exception {
         if (s == null || !s.optBoolean("active", false)) return false;
         long until = s.optLong("until_ms", 0L);
-        if (until > 0 && now >= until) { s.put("active", false); return false; }
+        if (until > 0 && now >= until) {
+            s.put("active", false);
+            s.put("ended_at_ms", until);
+            s.put("ended_at_local", formatLocal(until));
+            s.put("temporary_until_ms", 0L);
+            return false;
+        }
         return true;
     }
 
@@ -315,16 +327,66 @@ public class FocusMode {
     public static JSONObject config(Context ctx) {
         JSONObject s = state(ctx);
         try {
-            long now = System.currentTimeMillis();
-            if (s.optBoolean("active", false) && s.optLong("until_ms", 0L) > 0 && now >= s.optLong("until_ms", 0L)) {
-                s.put("active", false); save(ctx, s);
-            }
-            s.put("remaining_ms", Math.max(0L, s.optLong("until_ms", 0L) - now));
-            s.put("temporary_active", now < s.optLong("temporary_until_ms", 0L));
-            s.put("temporary_remaining_ms", Math.max(0L, s.optLong("temporary_until_ms", 0L) - now));
-            s.put("emergency_remaining", Math.max(0, s.optInt("emergency_total", 1) - s.optInt("emergency_used", 0)));
+            normalizeState(s, System.currentTimeMillis());
+            save(ctx, s);
         } catch (Exception ignored) { }
         return s;
+    }
+
+    /**
+     * R3：专注状态的唯一收敛点。active / started / until / ended / remaining /
+     * temporary_* / emergency_* / 求助超时 全部按同一份 state 推导，
+     * 避免多份快照各算各的造成「同一秒两个答案」。每次读取前先跑一遍。
+     */
+    private static void normalizeState(JSONObject s, long now) {
+        if (s == null) return;
+        try {
+            boolean active = s.optBoolean("active", false);
+            long until = s.optLong("until_ms", 0L);
+            long started = s.optLong("started_at_ms", 0L);
+            if (active && until > 0 && now >= until) {
+                active = false;
+                s.put("active", false);
+                s.put("ended_at_ms", until);
+                s.put("ended_at_local", formatLocal(until));
+                s.put("temporary_until_ms", 0L);
+            }
+            // #39/#6b：结束不得早于开始，纠正历史脏数据
+            long ended = s.optLong("ended_at_ms", 0L);
+            if (!active && started > 0 && (ended <= 0 || ended < started)) {
+                long fixed = until > started ? until : now;
+                s.put("ended_at_ms", fixed);
+                s.put("ended_at_local", formatLocal(fixed));
+            }
+            s.put("remaining_ms", active ? Math.max(0L, until - now) : 0L);
+            long tempUntil = s.optLong("temporary_until_ms", 0L);
+            s.put("temporary_active", active && tempUntil > 0 && now < tempUntil);
+            s.put("temporary_remaining_ms", Math.max(0L, tempUntil - now));
+            // P0-5/#37：应急额度按「专注会话」归零，离线放行不走 start 也正确
+            long sessionAt = s.optLong("emergency_session_started_at_ms", started);
+            if (sessionAt > 0 && sessionAt != s.optLong("emergency_count_session_at_ms", 0L)) {
+                s.put("emergency_count_session_at_ms", sessionAt);
+                s.put("emergency_used", 0);
+            }
+            s.put("emergency_remaining", Math.max(0, s.optInt("emergency_total", 1) - s.optInt("emergency_used", 0)));
+            // P0-4/#36：pending 求助超 5 分钟给明确提示，不再无限 pending
+            JSONArray reqs = s.optJSONArray("requests");
+            int pending = 0; long oldest = 0;
+            if (reqs != null) {
+                for (int i = 0; i < reqs.length(); i++) {
+                    JSONObject r = reqs.optJSONObject(i);
+                    if (r == null || !"pending".equals(r.optString("status", "pending"))) continue;
+                    pending++;
+                    long c = r.optLong("created_at_ms", 0L);
+                    if (c > 0 && (oldest == 0 || c < oldest)) oldest = c;
+                }
+            }
+            boolean timeout = pending > 0 && oldest > 0 && (now - oldest) > 5 * 60000L;
+            s.put("pending_request_count", pending);
+            s.put("oldest_pending_age_minutes", oldest > 0 ? Math.max(0, (now - oldest) / 60000L) : 0);
+            s.put("pending_timeout", timeout);
+            s.put("pending_hint", timeout ? ("有求助超过 5 分钟未处理：" + pending + " 条，请尽快回复或放行。") : "");
+        } catch (Exception ignored) { }
     }
 
     public static String summaryLine(Context ctx) {
