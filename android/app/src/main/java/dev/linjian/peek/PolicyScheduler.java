@@ -59,6 +59,7 @@ public final class PolicyScheduler {
     private String usagePkg = "";          // 正在统计连续使用时长的包名
     private long usageStartAt = 0;         // 该包连续使用起始时间
     private long lastUsageLockAt = 0;      // 上次自动锁定的时间（限频）
+    private long lastEmotionPopupAt = 0;   // 上次情绪自动弹窗的时间（按最小间隔限频）
 
     private PolicyScheduler(Context ctx) {
         this.appCtx = ctx.getApplicationContext();
@@ -77,6 +78,8 @@ public final class PolicyScheduler {
         }
         long now = System.currentTimeMillis();
         if (instance.lastUserActivityAt == 0) instance.lastUserActivityAt = now;
+        // 让情绪「想你程度」从首次使用就能随时间累积（否则情绪达标自动弹窗永远不触发）
+        CompanionEmotionState.ensureFirstSeen(ctx);
         instance.handler.removeCallbacks(instance.tick);
         instance.handler.post(instance.tick);
         DebugState.append(ctx, "查岗与管束本地调度器已启动（离线可跑）");
@@ -115,6 +118,7 @@ public final class PolicyScheduler {
         }
 
         evaluateCheckIn(now, current);
+        evaluateEmotionPopup(now);
         evaluateInitiative(now, current);
         evaluateDistraction(now, current);
         evaluateUsageLock(now, current);
@@ -184,6 +188,50 @@ public final class PolicyScheduler {
         long base = PolicyStore.nextCheckInDelayMs(appCtx);
         double scale = CompanionEmotionState.pullBackIntervalScale(appCtx);
         return (long) (base * scale);
+    }
+
+    // ============ 情绪感知自动弹窗（独立于查岗，想你达阈值弹「同意/拒绝」）============
+
+    /**
+     * 她对用户的情绪（想你程度）达到设定阈值时，独立触发一个全局悬浮弹窗，
+     * 用户可选择「同意，回去陪她」或「拒绝，再等会儿」（拒绝留理由）。
+     * 与随机查岗彻底分开：尊重总开关、安静时段、上课免打扰、冷却与最小间隔，
+     * 触发后写冷却，避免和查岗弹窗在同一时刻叠加。
+     */
+    private void evaluateEmotionPopup(long now) {
+        if (!PolicyStore.emotionPopupEnabled(appCtx)) return;
+        if (ClassScheduleState.isInClassNow(appCtx) || PolicyStore.isQuietNow(appCtx)) return;
+        int miss = CompanionEmotionState.effectiveMissPercent(appCtx);
+        int threshold = PolicyStore.emotionPopupThreshold(appCtx);
+        if (miss < threshold) return;
+        long interval = PolicyStore.emotionPopupIntervalMin(appCtx) * 60_000L;
+        if (now - lastEmotionPopupAt < interval) return;
+        if (PolicyStore.isInCooldown(appCtx)) return;
+
+        JSONObject cfg = new JSONObject();
+        try {
+            String companion = AppPrefs.companionName(appCtx);
+            cfg.put("level", "soft");            // 软级别 = 双按钮，可同意 / 可拒绝
+            cfg.put("strong", false);
+            cfg.put("allow_decline", true);
+            cfg.put("emotion_tag", CompanionEmotionState.emotionTag(appCtx));
+            cfg.put("miss_percent", miss);
+            cfg.put("intensity", CompanionEmotionState.effectiveIntensity(appCtx));
+            cfg.put("threshold", threshold);
+            cfg.put("title", companion + "想你了");
+            cfg.put("message", CompanionEmotionState.message(appCtx)); // 随机文案，每次不同
+            cfg.put("tone", CompanionEmotionState.tone(appCtx));
+            cfg.put("accept_label", "同意，回去陪" + companion);
+            cfg.put("decline_label", "拒绝，再等会儿");
+            cfg.put("from", "emotion_popup");
+        } catch (Exception ignored) { }
+
+        lastEmotionPopupAt = now;
+        PullBackActivity.show(appCtx, cfg);   // 悬浮窗优先，盖在其它 App 之上
+        PolicyStore.markAction(appCtx);        // 写冷却，避免查岗弹窗紧接着叠加
+        ActivityEventStore.recordForced(appCtx, "emotion_popup",
+                "情绪自动弹窗(想你 " + miss + "%≥" + threshold + "%)", "可同意 / 可拒绝");
+        DebugState.append(appCtx, "情绪感知自动弹窗：想你 " + miss + "% 达阈值 " + threshold + "%（同意/拒绝）");
     }
 
     // ============ 主动找她 ============

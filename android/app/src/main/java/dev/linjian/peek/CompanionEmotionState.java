@@ -81,10 +81,12 @@ public class CompanionEmotionState {
         double base = (raw == 0 && updated <= 0) ? PolicyStore.emotionStartMiss(ctx) : raw;
         double value = base - decay * hours;
         long lastReturn = prefs(ctx).getLong(KEY_LAST_RETURN_AT, 0);
-        if (lastReturn > 0) {
-            double awayHours = Math.max(0, (now - lastReturn) / 3600000.0);
-            value += gain * (awayHours / 0.5);
-        }
+        // 修复：从未「回来过」(lastReturn=0，例如全新安装) 时也要累积，
+        // 否则想你值永远停在起始值、情绪达标自动弹窗根本不会触发。
+        // 基准优先用上次回来时间，其次上次情绪写入时间，都没有则用当前时间（不倒扣）。
+        long awayBase = lastReturn > 0 ? lastReturn : (updated > 0 ? updated : now);
+        double awayHours = Math.max(0, (now - awayBase) / 3600000.0);
+        value += gain * (awayHours / 0.5);
         return clamp((int) Math.round(value), 0, 100);
     }
 
@@ -97,6 +99,14 @@ public class CompanionEmotionState {
                 .putLong(KEY_UPDATED_AT, now)
                 .putLong(KEY_UPDATED_MS, now)
                 .apply();
+    }
+
+    /** 首次启动时记一个「离开基准」，让想你程度从第一次使用就能随时间累积（只写一次）。 */
+    public static void ensureFirstSeen(Context ctx) {
+        SharedPreferences p = prefs(ctx);
+        if (p.getLong(KEY_LAST_RETURN_AT, 0) <= 0) {
+            p.edit().putLong(KEY_LAST_RETURN_AT, System.currentTimeMillis()).apply();
+        }
     }
 
     /** 确定性伪随机：同一 seed 永远得到同一结果，但不同 seed 之间看起来随机（用于每段增长浮动）。 */
@@ -165,7 +175,24 @@ public class CompanionEmotionState {
         return pick(new String[]{"有空的话，回来陪" + companion + "说句话。", "空了就回来，陪" + companion + "待一会儿。", companion + "在等你回来呢。"});
     }
 
-    /** 从候选文案里随机挑一句（每次调用结果可能不同）。 */
+    /**
+     * 界面展示用的稳定文案：只随「情绪状态」变化，同一状态下永远一致，
+     * 避免守护页每 1.5 秒刷新时文案乱跳。真正发送/弹窗的文案仍用随机版 message()。
+     */
+    public static String messageForDisplay(Context ctx) {
+        String companion = AppPrefs.companionName(ctx);
+        if (!PolicyStore.emotionDriveText(ctx)) return "有空的话，回来陪" + companion + "说句话。";
+        String tag = emotionTag(ctx);
+        int miss = effectiveMissPercent(ctx);
+        if (TAG_ANGRY.equals(tag) || tag.contains("生气")) return "别躲了，" + companion + "在等你。";
+        if (TAG_JEALOUS.equals(tag) || tag.contains("吃醋")) return "你去看谁了？" + companion + "想问你一句。";
+        if (TAG_WORRY.equals(tag) || tag.contains("担心")) return "外面太晚了，" + companion + "有点担心你。";
+        if (miss >= 70) return "已经很想你了，" + companion + "不想再等。";
+        if (miss >= 40) return "有点想你了，" + companion + "问一句在不在。";
+        return "有空的话，回来陪" + companion + "说句话。";
+    }
+
+    /** 从候选文案里随机挑一句（每次调用结果可能不同，仅用于实际发送的弹窗/通知）。 */
     private static String pick(String[] arr) {
         if (arr == null || arr.length == 0) return "";
         return arr[new java.util.Random().nextInt(arr.length)];
@@ -246,7 +273,7 @@ public class CompanionEmotionState {
             o.put("strong", isStrong(ctx));
             o.put("tone", tone(ctx));
             o.put("pull_back_interval_scale", Math.round(pullBackIntervalScale(ctx) * 100) / 100.0);
-            o.put("message", message(ctx));
+            o.put("message", messageForDisplay(ctx));
             o.put("last_return_at", iso(prefs(ctx).getLong(KEY_LAST_RETURN_AT, 0)));
             JSONArray history = new JSONArray(prefs(ctx).getString(KEY_HISTORY, "[]"));
             JSONArray tail = new JSONArray();

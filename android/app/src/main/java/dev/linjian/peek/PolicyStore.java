@@ -83,6 +83,11 @@ public final class PolicyStore {
     // —— 识图感知（可开关；默认开启，用户可在「查岗与管束」里关闭）——
     public static final String KEY_OCR_ENABLED = PREFIX + "ocr_enabled";          // 识图感知总开关，默认 true
 
+    // —— 情绪感知自动弹窗（想你程度达阈值时，独立触发「同意/拒绝」全局弹窗）——
+    public static final String KEY_EMOTION_POPUP_ENABLED = PREFIX + "emo_popup_enabled";   // 自动弹窗总开关，默认 true
+    public static final String KEY_EMOTION_POPUP_THRESHOLD = PREFIX + "emo_popup_threshold"; // 想你达到该 % 触发，默认 70
+    public static final String KEY_EMOTION_POPUP_INTERVAL = PREFIX + "emo_popup_interval";  // 两次最小间隔（分钟），默认 30
+
     // —— 安静时段 / 深夜时段（支持跨零点）——
     public static final String KEY_QUIET_START = PREFIX + "quiet_start";         // "23:30"
     public static final String KEY_QUIET_END = PREFIX + "quiet_end";             // "08:00"
@@ -134,6 +139,9 @@ public final class PolicyStore {
     private static final int DEF_USAGE_LOCK_MIN = 45;
     private static final int DEF_USAGE_LOCK_DUR = 15;
     private static final boolean DEF_OCR_ENABLED = true;
+    private static final boolean DEF_EMO_POPUP_ENABLED = true;
+    private static final int DEF_EMO_POPUP_THRESHOLD = 70;
+    private static final int DEF_EMO_POPUP_INTERVAL = 30;
     private static final String DEF_QUIET_START = "23:30";
     private static final String DEF_QUIET_END = "08:00";
     private static final String DEF_NIGHT_START = "23:00";
@@ -301,6 +309,14 @@ public final class PolicyStore {
     // —— 识图感知（可开关）——
     public static boolean ocrEnabled(Context ctx) { return getBool(ctx, KEY_OCR_ENABLED, DEF_OCR_ENABLED); }
     public static void setOcrEnabled(Context ctx, boolean v) { putBool(ctx, KEY_OCR_ENABLED, v, "识图感知开关"); }
+
+    // —— 情绪感知自动弹窗（独立于查岗，想你达阈值即弹「同意/拒绝」）——
+    public static boolean emotionPopupEnabled(Context ctx) { return getBool(ctx, KEY_EMOTION_POPUP_ENABLED, DEF_EMO_POPUP_ENABLED); }
+    public static void setEmotionPopupEnabled(Context ctx, boolean v) { putBool(ctx, KEY_EMOTION_POPUP_ENABLED, v, "情绪自动弹窗开关"); }
+    public static int emotionPopupThreshold(Context ctx) { return getInt(ctx, KEY_EMOTION_POPUP_THRESHOLD, DEF_EMO_POPUP_THRESHOLD); }
+    public static void setEmotionPopupThreshold(Context ctx, int v) { putInt(ctx, KEY_EMOTION_POPUP_THRESHOLD, clamp(v, 1, 100), "情绪弹窗触发阈值(%)"); }
+    public static int emotionPopupIntervalMin(Context ctx) { return getInt(ctx, KEY_EMOTION_POPUP_INTERVAL, DEF_EMO_POPUP_INTERVAL); }
+    public static void setEmotionPopupIntervalMin(Context ctx, int v) { putInt(ctx, KEY_EMOTION_POPUP_INTERVAL, clamp(v, 1, 1440), "情绪弹窗最小间隔(分钟)"); }
 
     // —— 安静 / 深夜时段 ——
     public static String quietStart(Context ctx) { return getString(ctx, KEY_QUIET_START, DEF_QUIET_START); }
@@ -499,6 +515,9 @@ public final class PolicyStore {
         e.putInt(KEY_USAGE_LOCK_DURATION, DEF_USAGE_LOCK_DUR);
         e.putString(KEY_USAGE_LOCK_PACKAGES, "");
         e.putBoolean(KEY_OCR_ENABLED, DEF_OCR_ENABLED);
+        e.putBoolean(KEY_EMOTION_POPUP_ENABLED, DEF_EMO_POPUP_ENABLED);
+        e.putInt(KEY_EMOTION_POPUP_THRESHOLD, DEF_EMO_POPUP_THRESHOLD);
+        e.putInt(KEY_EMOTION_POPUP_INTERVAL, DEF_EMO_POPUP_INTERVAL);
         e.putString(KEY_QUIET_START, DEF_QUIET_START);
         e.putString(KEY_QUIET_END, DEF_QUIET_END);
         e.putString(KEY_NIGHT_START, DEF_NIGHT_START);
@@ -529,6 +548,7 @@ public final class PolicyStore {
           .append(" 想她锁定=").append(emotionLock(ctx))
           .append(" 分心计数=").append(distractionCount(ctx)).append("/").append(distractionThreshold(ctx))
           .append(" 时长自动锁=").append(usageLockEnabled(ctx) ? usageLockMinutes(ctx)+"分→锁"+usageLockDuration(ctx)+"分" : "关")
+          .append(" 情绪自动弹窗=").append(emotionPopupEnabled(ctx) ? emotionPopupThreshold(ctx)+"%" : "关")
           .append(" 变更记录=").append(changeLogCount(ctx)).append("条");
         return sb.toString();
     }

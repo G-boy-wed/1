@@ -76,6 +76,12 @@ public final class PolicyCommand {
         a.put(meta("usage_lock_duration", "int", 1, 1440, 15, "自动锁定持续多少分钟"));
         a.put(meta("usage_lock_packages", "string", 0, 0, "", "监控包名（逗号分隔，空=仅目标 App）"));
 
+        // —— 识图 / 情绪自动弹窗 ——
+        a.put(meta("ocr_enabled", "bool", 0, 0, true, "识图感知总开关（关闭后本地与 MCP 都不可读屏）"));
+        a.put(meta("emotion_popup_enabled", "bool", 0, 0, true, "情绪达标自动弹窗开关（独立于查岗）"));
+        a.put(meta("emotion_popup_threshold", "int", 1, 100, 70, "想你达到此百分比自动弹「同意/拒绝」弹窗"));
+        a.put(meta("emotion_popup_interval_min", "int", 1, 1440, 30, "两次情绪弹窗最小间隔（分钟）"));
+
         // —— 安静 / 深夜时段（跨零点）——
         a.put(meta("quiet_start", "string", 0, 0, "23:30", "安静时段开始 HH:mm"));
         a.put(meta("quiet_end", "string", 0, 0, "08:00", "安静时段结束 HH:mm"));
@@ -221,6 +227,11 @@ public final class PolicyCommand {
             case "usage_lock_minutes": return PolicyStore.usageLockMinutes(ctx);
             case "usage_lock_duration": return PolicyStore.usageLockDuration(ctx);
             case "usage_lock_packages": return PolicyStore.usageLockPackages(ctx);
+            // 识图 / 情绪自动弹窗
+            case "ocr_enabled": return PolicyStore.ocrEnabled(ctx);
+            case "emotion_popup_enabled": return PolicyStore.emotionPopupEnabled(ctx);
+            case "emotion_popup_threshold": return PolicyStore.emotionPopupThreshold(ctx);
+            case "emotion_popup_interval_min": return PolicyStore.emotionPopupIntervalMin(ctx);
             // 安静/深夜
             case "quiet_start": return PolicyStore.quietStart(ctx);
             case "quiet_end": return PolicyStore.quietEnd(ctx);
@@ -310,6 +321,11 @@ public final class PolicyCommand {
             case "usage_lock_minutes": PolicyStore.setUsageLockMinutes(ctx, asInt(raw)); return 0;
             case "usage_lock_duration": PolicyStore.setUsageLockDuration(ctx, asInt(raw)); return 0;
             case "usage_lock_packages": PolicyStore.setUsageLockPackages(ctx, asString(raw)); return 0;
+            // 识图 / 情绪自动弹窗
+            case "ocr_enabled": PolicyStore.setOcrEnabled(ctx, asBool(raw)); return 0;
+            case "emotion_popup_enabled": PolicyStore.setEmotionPopupEnabled(ctx, asBool(raw)); return 0;
+            case "emotion_popup_threshold": PolicyStore.setEmotionPopupThreshold(ctx, asInt(raw)); return 0;
+            case "emotion_popup_interval_min": PolicyStore.setEmotionPopupIntervalMin(ctx, asInt(raw)); return 0;
             // 安静/深夜
             case "quiet_start": PolicyStore.setQuietStart(ctx, asString(raw)); return 0;
             case "quiet_end": PolicyStore.setQuietEnd(ctx, asString(raw)); return 0;

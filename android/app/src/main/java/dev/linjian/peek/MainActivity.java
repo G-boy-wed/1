@@ -1121,7 +1121,7 @@ public class MainActivity extends Activity {
         root.addView(actionSettingBlock("训诫", "SM 小圈管束，仅本人可开", R.drawable.ic_shield, () -> openPolicySettings("discipline")), marginBottom(11));
 
         root.addView(label("情绪与陪伴", 9), marginBottom(6));
-        root.addView(actionSettingBlock("情绪感知", "想她百分比、情绪标签与强度", R.drawable.ic_heart_wave, () -> openPolicySettings("emotion")), marginBottom(7));
+        root.addView(actionSettingBlock("情绪感知", "想你达标自动弹窗、情绪标签与强度", R.drawable.ic_heart_wave, () -> openPolicySettings("emotion")), marginBottom(7));
         root.addView(actionSettingBlock("主动找她", "太久没发消息就主动找你", R.drawable.ic_heart_wave, () -> openPolicySettings("initiative")), marginBottom(11));
 
         root.addView(label("管束与提醒", 9), marginBottom(6));
@@ -1174,9 +1174,9 @@ public class MainActivity extends Activity {
         emotionSummaryText = body("情绪加载中…", 11);
         emotionSummaryText.setTextColor(UITheme.current(this).subtext);
         card.addView(emotionSummaryText, marginBottom(8));
-        Button detail = iconButton("去设置情绪", "打开查岗与管束");
+        Button detail = iconButton("更改情绪感知", "打开情绪感知单分区设置");
         detail.setTextSize(13);
-        detail.setOnClickListener(v -> openPolicySettings());
+        detail.setOnClickListener(v -> openPolicySettings("emotion"));
         card.addView(detail);
         return card;
     }

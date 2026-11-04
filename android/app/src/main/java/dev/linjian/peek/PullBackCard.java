@@ -116,8 +116,13 @@ public class PullBackCard {
         actionsLp.topMargin = dp(ctx, 16);
         card.addView(actions, actionsLp);
 
-        TextView accept = button(ctx, "现在就回去", true, strong ? theme.danger : accent);
-        TextView later = strong ? null : button(ctx, "再等一会儿", false, theme.primary);
+        // 按钮文案可由调用方定制（例如情绪自动弹窗用「同意，回去陪她 / 拒绝，再等会儿」）。
+        String acceptLabel = cfg.optString("accept_label", "");
+        if (acceptLabel.trim().isEmpty()) acceptLabel = "现在就回去";
+        String declineLabel = cfg.optString("decline_label", "");
+        if (declineLabel.trim().isEmpty()) declineLabel = "再等一会儿";
+        TextView accept = button(ctx, acceptLabel, true, strong ? theme.danger : accent);
+        TextView later = strong ? null : button(ctx, declineLabel, false, theme.primary);
 
         if (strong) {
             // 强级别：只有一个按钮，没有拒绝入口，点下去强制跳回聊天界面。

@@ -63,6 +63,8 @@ public class PolicySettingsActivity extends Activity {
     // 守护界面卡片深链：sectionKey -> 对应分组视图
     private final java.util.Map<String, View> sectionGroups = new java.util.HashMap<>();
     private String weatherNameDraft = "", weatherCityDraft = "", weatherNoteDraft = "";
+    // 单分区模式：从守护页某个标签点进来时，只渲染/修改这个分区；null=全部设置（总页）
+    private String activeSection = null;
 
     public static final String EXTRA_SECTION = "section";
 
@@ -78,8 +80,9 @@ public class PolicySettingsActivity extends Activity {
         changeLogText = findViewById(R.id.policyChangeLog);
 
         String section = getIntent() != null ? getIntent().getStringExtra(EXTRA_SECTION) : null;
+        activeSection = (section == null || section.isEmpty()) ? null : section;
         buildUI();
-        if (section != null && !section.isEmpty()) focusSection(section);
+        // 单分区模式下页面只含目标分组，从顶部即可看到，无需滚动定位
 
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
@@ -94,6 +97,7 @@ public class PolicySettingsActivity extends Activity {
         container.removeAllViews();
         allRows.clear();
         sectionGroups.clear();
+        if (activeSection != null && !activeSection.isEmpty()) buildSectionBanner(activeSection);
 
         LinearLayout top = card(container, "全局", "总开关与配置管理", "global");
         top.addView(rowSwitch("一键全部关闭（拿回手机）", "关掉后所有查岗、拉回、主动找她、训诫全部暂停。",
@@ -129,6 +133,10 @@ public class PolicySettingsActivity extends Activity {
         g2.addView(rowSwitch("情绪驱动文案（随机）", "打开后弹窗文案随情绪随机生成，每次都不一样；关闭则用中性文案。", PolicyStore.emotionDriveText(this), (v, c) -> PolicyStore.setEmotionDriveText(this, c)));
         g2.addView(rowButton("保存情绪（标签/强度）", "把上面填的情绪标签与强度写进她对用户的情绪。", "保存情绪",
                 v -> { CompanionEmotionState.write(this, emotionTagDraft, emotionIntensityDraft, PolicyStore.emotionCurrentMiss(this), ""); Toast.makeText(this, "情绪已保存", Toast.LENGTH_SHORT).show(); refreshStatus(); }));
+        g2.addView(rowSwitch("情绪达标自动弹窗", "她想你达到阈值时自动弹出全局弹窗，可选「同意回去 / 拒绝」。独立于查岗。",
+                PolicyStore.emotionPopupEnabled(this), (v, c) -> PolicyStore.setEmotionPopupEnabled(this, c)));
+        g2.addView(rowNumber("触发阈值（想你 %）", "想你程度达到该百分比就自动弹窗。默认 70。", PolicyStore.emotionPopupThreshold(this), 1, 100, v -> PolicyStore.setEmotionPopupThreshold(this, v)));
+        g2.addView(rowNumber("两次最小间隔（分钟）", "相邻两次情绪弹窗的最短间隔，避免反复打扰。默认 30。", PolicyStore.emotionPopupIntervalMin(this), 1, 1440, v -> PolicyStore.setEmotionPopupIntervalMin(this, v)));
 
         LinearLayout g3 = card(container, "主动找她", "你太久没发消息，她会主动找你发一条。", "initiative");
         g3.addView(rowSwitch("开启主动找她", "关闭后她不再主动发起消息。", PolicyStore.initiativeEnabled(this), (v, c) -> PolicyStore.setInitiativeEnabled(this, c)));
@@ -282,9 +290,73 @@ public class PolicySettingsActivity extends Activity {
         group.addView(header);
         group.addView(content);
         group.setTag("group::" + title);
-        if (sectionKey != null && !sectionKey.isEmpty()) sectionGroups.put(sectionKey, group);
-        container.addView(group);
+        // 单分区模式：只把目标分区挂进容器；其余分组照常构建（后续 addView 不会报错），但不显示、不注册深链
+        boolean shown = activeSection == null || activeSection.isEmpty() || activeSection.equals(sectionKey);
+        if (shown && sectionKey != null && !sectionKey.isEmpty()) sectionGroups.put(sectionKey, group);
+        if (shown) container.addView(group);
         return content;
+    }
+
+    // ============ 单分区导航条 ============
+
+    /** 分区 key -> 守护页标签上的中文名，用于单分区标题。 */
+    private static String sectionTitle(String key) {
+        if (key == null) return "全部设置";
+        switch (key) {
+            case "checkin": return "查岗拉回";
+            case "distraction": return "分心强拉回";
+            case "discipline": return "训诫插件";
+            case "emotion": return "情绪感知";
+            case "initiative": return "主动找她";
+            case "appgate": return "应用门禁";
+            case "reminder": return "主动提醒";
+            case "schedule": return "课表作息";
+            case "memory": return "共同记忆";
+            case "ocr": return "识图感知";
+            case "weather": return "天气地区";
+            case "homemode": return "回家模式";
+            case "global": return "全局";
+            case "permissions": return "其它权限开关";
+            case "debug": return "验收与调试";
+            default: return key;
+        }
+    }
+
+    /** 单分区模式顶部的导航条：标明当前分区，可一键回到全部设置或返回守护界面。 */
+    private void buildSectionBanner(String key) {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        bar.setBackgroundResource(R.drawable.card_bg);
+        bar.setPadding(dp(12), dp(10), dp(8), dp(10));
+        bar.setTag("banner::" + key);
+
+        TextView t = new TextView(this);
+        t.setText("「" + sectionTitle(key) + "」设置");
+        t.setTextSize(15);
+        t.setTextColor(0xFF2D3E39);
+        t.setTypeface(t.getTypeface(), android.graphics.Typeface.BOLD);
+        t.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1f));
+        bar.addView(t);
+
+        Button all = new Button(this);
+        all.setText("全部设置");
+        all.setTextSize(11);
+        all.setBackgroundResource(R.drawable.pill_soft);
+        all.setOnClickListener(v -> { activeSection = null; buildUI(); });
+        bar.addView(all);
+
+        Button back = new Button(this);
+        back.setText("返回守护");
+        back.setTextSize(11);
+        back.setBackgroundResource(R.drawable.pill_soft);
+        back.setOnClickListener(v -> finish());
+        bar.addView(back);
+
+        ViewGroup.MarginLayoutParams lp = new ViewGroup.MarginLayoutParams(-1, -2);
+        lp.topMargin = dp(4);
+        lp.bottomMargin = dp(6);
+        container.addView(bar, lp);
     }
 
     // ============ AppPrefs 直读写（提醒 / 回家模式等）============
@@ -483,21 +555,22 @@ public class PolicySettingsActivity extends Activity {
 
     private void filter(String q) {
         q = q.toLowerCase();
-        if (q.isEmpty()) {
-            for (View r : allRows) r.setVisibility(View.VISIBLE);
-            for (int i = 0; i < container.getChildCount(); i++) container.getChildAt(i).setVisibility(View.VISIBLE);
-            return;
+        // 顶部导航条始终保留；其余容器子项按搜索词决定显隐
+        for (int i = 0; i < container.getChildCount(); i++) {
+            View child = container.getChildAt(i);
+            if (String.valueOf(child.getTag()).startsWith("banner::")) continue;
+            child.setVisibility(q.isEmpty() ? View.VISIBLE : View.GONE);
         }
-        // 先全隐藏
-        for (View r : allRows) r.setVisibility(View.GONE);
-        for (int i = 0; i < container.getChildCount(); i++) container.getChildAt(i).setVisibility(View.GONE);
-        // 标题匹配 -> 显示整组
+        for (View r : allRows) r.setVisibility(q.isEmpty() ? View.VISIBLE : View.GONE);
+        if (q.isEmpty()) return;
+        // 标题匹配 -> 显示整组，并把该组的所有行一并显示（修复：原逻辑只显示组头，行仍是 GONE）
         for (int i = 0; i < container.getChildCount(); i++) {
             View g = container.getChildAt(i);
             String tag = String.valueOf(g.getTag());
             if (tag.startsWith("group::") && tag.substring("group::".length()).toLowerCase().contains(q)) {
                 g.setVisibility(View.VISIBLE);
                 setChildrenVisible(g, View.VISIBLE);
+                for (View r : allRows) if (findGroup(r) == g) r.setVisibility(View.VISIBLE);
             }
         }
         // 行关键词匹配 -> 显示该行及其所在分组
@@ -505,7 +578,7 @@ public class PolicySettingsActivity extends Activity {
             if (String.valueOf(r.getTag()).toLowerCase().contains(q)) {
                 r.setVisibility(View.VISIBLE);
                 View g = findGroup(r);
-                if (g != null) g.setVisibility(View.VISIBLE);
+                if (g != null) { g.setVisibility(View.VISIBLE); setChildrenVisible(g, View.VISIBLE); }
             }
         }
     }
