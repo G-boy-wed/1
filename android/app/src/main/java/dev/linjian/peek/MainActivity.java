@@ -1106,25 +1106,41 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("最后确认一次").setMessage("删除后无法在 App 内撤销。确定删除“" + book.optString("name", "这本日记") + "”吗？").setNegativeButton("取消", null).setPositiveButton("删除日记本", (d, w) -> { DiaryState.deleteBook(this, diaryBookId); diaryBookId = ""; showDiaryHomePage(); Toast.makeText(this, "日记本已删除", Toast.LENGTH_SHORT).show(); }).show();
     }
 
+    /**
+     * 守护界面 = 所有插件的可点入口墙。每张卡片整块可点，直达「查岗与管束」对应分区（或对应内页）。
+     * 这样所有在守护界面展现的条目都能点开调整，不再把重复的提醒控件堆在守护页里。
+     */
     private View buildGuardMagazine() {
         LinearLayout root = pageColumn();
 
         root.addView(sectionHeading("守护功能"), marginBottom(8));
-        root.addView(label("日子与地点", 9), marginBottom(6));
-        root.addView(actionSettingBlock("守护日历", "纪念日、节日和倒数日", R.drawable.ic_clock, this::showGuardianCalendarDetailPage), marginBottom(7));
-        root.addView(guardSettingBlock("天气地区", "家与常用地点", R.drawable.ic_cloud, drawerWeather), marginBottom(11));
 
-        root.addView(label("安心规则", 9), marginBottom(6));
-        root.addView(actionSettingBlock("查岗与管束", "巡回周期、安静时段与拉回分级", R.drawable.ic_shield, this::openPolicySettings), marginBottom(7));
-        root.addView(guardSettingBlock("应用门禁", "需要时轻轻守住", R.drawable.ic_shield, drawerAppGate), marginBottom(7));
-        root.addView(actionSettingBlock("专注模式", "全机专注、应急放行与留言", R.drawable.ic_shield, this::showFocusModePanel), marginBottom(7));
-        root.addView(guardSettingBlock("主动提醒", "电量、休息与喝水", R.drawable.ic_clock, drawerReminder), marginBottom(7));
-        root.addView(guardSettingBlock("周期提醒", AppPrefs.userName(this) + "的周期与关怀", R.drawable.ic_heart_wave, drawerCycle), marginBottom(11));
+        root.addView(label("查岗与管束", 9), marginBottom(6));
+        root.addView(actionSettingBlock("查岗拉回", "查岗周期、想她拉回分级与弹窗", R.drawable.ic_shield, () -> openPolicySettings("checkin")), marginBottom(7));
+        root.addView(actionSettingBlock("分心强拉回", "切屏累计超阈值强制拉回", R.drawable.ic_shield, () -> openPolicySettings("distraction")), marginBottom(7));
+        root.addView(actionSettingBlock("训诫", "SM 小圈管束，仅本人可开", R.drawable.ic_shield, () -> openPolicySettings("discipline")), marginBottom(11));
+
+        root.addView(label("情绪与陪伴", 9), marginBottom(6));
+        root.addView(actionSettingBlock("情绪感知", "想她百分比、情绪标签与强度", R.drawable.ic_heart_wave, () -> openPolicySettings("emotion")), marginBottom(7));
+        root.addView(actionSettingBlock("主动找她", "太久没发消息就主动找你", R.drawable.ic_heart_wave, () -> openPolicySettings("initiative")), marginBottom(11));
+
+        root.addView(label("管束与提醒", 9), marginBottom(6));
+        root.addView(actionSettingBlock("应用门禁", "锁 App 时长、自主添加受限应用", R.drawable.ic_shield, () -> openPolicySettings("appgate")), marginBottom(7));
+        root.addView(actionSettingBlock("主动提醒", "电量、屏幕、喝水、休息、周期", R.drawable.ic_clock, () -> openPolicySettings("reminder")), marginBottom(7));
+        root.addView(actionSettingBlock("专注模式", "全机专注、应急放行与留言", R.drawable.ic_shield, this::showFocusModePanel), marginBottom(11));
+
+        root.addView(label("日子与作息", 9), marginBottom(6));
+        root.addView(actionSettingBlock("守护日历", "纪念日、节日和倒数日", R.drawable.ic_clock, this::showGuardianCalendarDetailPage), marginBottom(7));
+        root.addView(actionSettingBlock("课表作息", "上课静默守护与提醒", R.drawable.ic_clock, () -> openPolicySettings("schedule")), marginBottom(7));
+        root.addView(actionSettingBlock("共同记忆", "双方可改的共享记忆", R.drawable.ic_heart_wave, () -> openPolicySettings("memory")), marginBottom(7));
+        root.addView(actionSettingBlock("识图感知", "从当前屏幕读取文字", R.drawable.ic_eye, () -> openPolicySettings("ocr")), marginBottom(7));
+        root.addView(actionSettingBlock("插件分类", "全部扩展能力归类总览", R.drawable.ic_shield, () -> openPolicySettings("plugins")), marginBottom(11));
+
+        root.addView(label("地点与设备", 9), marginBottom(6));
+        root.addView(actionSettingBlock("天气地区", "家与常用地点", R.drawable.ic_cloud, () -> openPolicySettings("weather")), marginBottom(7));
+        root.addView(actionSettingBlock("回家模式", "回来时打开熟悉的窗", R.drawable.ic_home, () -> openPolicySettings("homemode")), marginBottom(10));
 
         root.addView(buildEmotionCard(), marginBottom(11));
-
-        root.addView(label("回家与设备", 9), marginBottom(6));
-        root.addView(guardSettingBlock("回家模式", "回来时打开熟悉的窗", R.drawable.ic_home, drawerHomeMode), marginBottom(10));
 
         LinearLayout ending = editorialCard();
         ending.setOrientation(LinearLayout.HORIZONTAL);
@@ -1175,8 +1191,15 @@ public class MainActivity extends Activity {
      * XML 里的同名按钮会被 removeAllViews() 一起清掉，真机上就看不见了。
      */
     private void openPolicySettings() {
+        openPolicySettings(null);
+    }
+
+    /** 打开「查岗与管束」设置页，并直达指定分区（守护界面卡片用）。 */
+    private void openPolicySettings(String section) {
         try {
-            startActivity(new Intent(this, PolicySettingsActivity.class));
+            Intent it = new Intent(this, PolicySettingsActivity.class);
+            if (section != null && !section.isEmpty()) it.putExtra("section", section);
+            startActivity(it);
         } catch (Exception e) {
             DebugState.append(this, "打开查岗与管束失败：" + ScreenshotService.shortMsg(e));
             toast(false);
