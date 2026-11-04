@@ -114,7 +114,7 @@ $ADB -s "$DEVID" shell input tap 700 2230 >/dev/null 2>&1
 sleep 2
 shot "03_pullback_strong.png"
 dump "03_pullback_strong.xml" "03_pullback_strong.xml"
-echo "→ 强级点唯一的「回到软件」"
+echo "→ 强级点唯一的「现在就回去」"
 $ADB -s "$DEVID" shell input tap 540 1400 >/dev/null 2>&1
 sleep 2
 shot "03_pullback_accepted.png"

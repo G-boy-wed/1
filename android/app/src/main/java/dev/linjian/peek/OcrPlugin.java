@@ -25,6 +25,15 @@ public final class OcrPlugin {
      */
     public static JSONObject extractLocal(Context ctx) {
         JSONObject out = new JSONObject();
+        // 尊重用户开关：关闭时直接返回「未启用」，不强制读取
+        if (!PolicyStore.ocrEnabled(ctx)) {
+            try {
+                out.put("ok", false);
+                out.put("enabled", false);
+                out.put("text", "识图感知已关闭（可在「查岗与管束 → 识图感知」中开启）");
+            } catch (Exception ignored) { }
+            return out;
+        }
         try {
             out.put("ok", true);
             out.put("source", "local_screen_nodes");

@@ -16,12 +16,10 @@ import java.util.Calendar;
  *  - 用本机 Handler 自循环定时器，不需要网络、不需要后端、不需要 MCP；
  *    即便 CompanionService 因没配服务器而没启动，只要无障碍服务开着，本调度器照常执行；
  *  - 查岗：在 [随机下限, 随机上限] 之间随机间隔触发分级拉回弹窗；
- *  - 拉回分级：想她达到阈值 / 强情绪 → 强级别，只给「回到软件」一个按钮（强制跳回聊天界面）；
- *            低于阈值 → 软级别，给「回到软件」与「拒绝并填写理由」两个选项（拒绝要留理由）；
- *  - 主动找她：用户沉默超过阈值且达到最小间隔、未超每日上限 → 主动到目标 App 并留痕；
- *  - 分心判定（常开，不只在聊天）：用户在目标 App / 掌心窗陪伴页时切出去到其它 App，
- *            又「立马切回来」，来回达到阈值 → 弹拉回；distractionEveryTime 时每次切出都拉回，
- *            累计超阈值也会拉回；是否强制由情绪阈值决定（达到阈值只能回来，未达到可拒绝）；
+ *  - 拉回分级：想她达到阈值 / 强情绪 → 强级别单按钮（点「现在就回去」跳到 target_package）；
+ *            低于阈值 → 软级别双按钮（可拒绝并留理由，拒绝写日志 + 强制留痕上报）；
+ *  - 主动找她：用户沉默超过阈值且达到最小间隔、未超每日上限 → 主动到 Kelivo 并留痕；
+ *  - 分心判定：切到其他 App 记为分心；是否立即拉回由情绪阈值决定（distractionEveryTime 时每次都拉回）；
  *  - 权限开关逐项生效：屏幕时长 / 睡前息屏 / 深夜宵禁 / 学习白名单 / 喝水久坐 / 每周回顾 / 到家报备 / 生理期照顾；
  *  - 训诫插件：开启时界面有明确标志，违规时在日志留痕（分四档）；
  *  - 所有触发都尊重总开关、冷却、安静时段；落盘与日志只写本机。
@@ -48,10 +46,8 @@ public final class PolicyScheduler {
     private int initiativeTodayCount = 0;
     private String initiativeToday = "";
     private String lastDistractionPkg = "";
-    // —— 分心查岗：「切出→切回」来回检测（常开，不只在聊天）——
-    private String lastDistractSwitchPkg = "";   // 上一次记录的「切到其它 App」包名
-    private long lastDistractSwitchAt = 0;        // 上一次切到其它 App 的时间
-    private int distractLoopCount = 0;            // 当前窗口内的来回次数
+    private long lastDistractSwitchAt = 0;   // 最近一次「切出」时刻，用于和「切回」配对
+    private int distractLoopCount = 0;        // 切出→切回 的连续来回次数
     private long screenOnSince = 0;
     private long lastDrinkAt = 0;
     private long lastSitAt = 0;
@@ -65,6 +61,7 @@ public final class PolicyScheduler {
     private String usagePkg = "";          // 正在统计连续使用时长的包名
     private long usageStartAt = 0;         // 该包连续使用起始时间
     private long lastUsageLockAt = 0;      // 上次自动锁定的时间（限频）
+    private long lastEmotionPopupAt = 0;   // 上次情绪自动弹窗的时间（按最小间隔限频）
 
     private PolicyScheduler(Context ctx) {
         this.appCtx = ctx.getApplicationContext();
@@ -83,6 +80,8 @@ public final class PolicyScheduler {
         }
         long now = System.currentTimeMillis();
         if (instance.lastUserActivityAt == 0) instance.lastUserActivityAt = now;
+        // 让情绪「想你程度」从首次使用就能随时间累积（否则情绪达标自动弹窗永远不触发）
+        CompanionEmotionState.ensureFirstSeen(ctx);
         instance.handler.removeCallbacks(instance.tick);
         instance.handler.post(instance.tick);
         DebugState.append(ctx, "查岗与管束本地调度器已启动（离线可跑）");
@@ -116,11 +115,12 @@ public final class PolicyScheduler {
         boolean inTarget = current != null && (current.equals(PolicyStore.targetPackage(appCtx)) || current.equals(SELF_PKG));
         if (inTarget) {
             lastUserActivityAt = now;
-            lastDistractionPkg = ""; // 回到目标 App，清空分心记忆
+            // 不在清 lastDistractionPkg：留给 evaluateDistraction 判定「切出→切回」来回。
             if (PolicyStore.distractionCount(appCtx) != 0) PolicyStore.setDistractionCount(appCtx, 0); // 连续分心计数清零
         }
 
         evaluateCheckIn(now, current);
+        evaluateEmotionPopup(now);
         evaluateInitiative(now, current);
         evaluateDistraction(now, current);
         evaluateUsageLock(now, current);
@@ -156,7 +156,7 @@ public final class PolicyScheduler {
         // 组装分级拉回配置（与远程 force_back_to_chat 同一套逻辑，但用本机情绪与阈值）。
         JSONObject cfg = new JSONObject();
         try {
-            String tag = CompanionEmotionState.emotionTag(appCtx);
+            String tag = CompanionEmotionState.popupEmotionTag(appCtx);
             int miss = CompanionEmotionState.effectiveMissPercent(appCtx);
             int intensity = CompanionEmotionState.effectiveIntensity(appCtx);
             int threshold = PolicyStore.forceBackThreshold(appCtx);
@@ -164,7 +164,7 @@ public final class PolicyScheduler {
             boolean strong = miss >= threshold || strongEmotion;
             cfg.put("level", strong ? "strong" : "soft");
             cfg.put("strong", strong);
-            cfg.put("allow_decline", !strong); // 达到阈值（或强情绪）→ 不允许拒绝，只能回到软件
+            cfg.put("allow_decline", !strong);
             cfg.put("emotion_tag", tag);
             cfg.put("miss_percent", miss);
             cfg.put("intensity", intensity);
@@ -190,6 +190,51 @@ public final class PolicyScheduler {
         long base = PolicyStore.nextCheckInDelayMs(appCtx);
         double scale = CompanionEmotionState.pullBackIntervalScale(appCtx);
         return (long) (base * scale);
+    }
+
+    // ============ 情绪感知自动弹窗（独立于查岗，想你达阈值弹「同意/拒绝」）============
+
+    /**
+     * 她对用户的情绪（想你程度）达到设定阈值时，独立触发一个全局悬浮弹窗，
+     * 用户可选择「同意，回去陪她」或「拒绝，再等会儿」（拒绝留理由）。
+     * 与随机查岗彻底分开：尊重总开关、安静时段、上课免打扰、冷却与最小间隔，
+     * 触发后写冷却，避免和查岗弹窗在同一时刻叠加。
+     */
+    private void evaluateEmotionPopup(long now) {
+        if (!PolicyStore.emotionPopupEnabled(appCtx)) return;
+        if (ClassScheduleState.isInClassNow(appCtx) || PolicyStore.isQuietNow(appCtx)) return;
+        int miss = CompanionEmotionState.effectiveMissPercent(appCtx);
+        int threshold = PolicyStore.emotionPopupThreshold(appCtx);
+        if (miss < threshold) return;
+        long interval = PolicyStore.emotionPopupIntervalMin(appCtx) * 60_000L;
+        if (now - lastEmotionPopupAt < interval) return;
+        if (PolicyStore.isInCooldown(appCtx)) return;
+
+        // 情绪判定弹窗：标明情绪标签与百分比，并按百分比决定弹窗样式。
+        boolean strong = strongByThreshold();
+        JSONObject cfg = new JSONObject();
+        try {
+            String companion = AppPrefs.companionName(appCtx);
+            cfg.put("level", strong ? "strong" : "soft");
+            cfg.put("strong", strong);
+            cfg.put("allow_decline", !strong); // 未达阈值可拒绝，达到阈值只能回到软件
+            cfg.put("emotion_tag", CompanionEmotionState.popupEmotionTag(appCtx));
+            cfg.put("miss_percent", miss);
+            cfg.put("intensity", CompanionEmotionState.effectiveIntensity(appCtx));
+            cfg.put("threshold", PolicyStore.forceBackThreshold(appCtx));
+            cfg.put("title", companion + "想你了");
+            cfg.put("message", CompanionEmotionState.message(appCtx)); // 随机文案，每次不同
+            cfg.put("tone", strong ? "angry" : CompanionEmotionState.tone(appCtx));
+            cfg.put("from", "emotion_popup");
+        } catch (Exception ignored) { }
+
+        lastEmotionPopupAt = now;
+        PullBackActivity.show(appCtx, cfg);   // 悬浮窗优先，盖在当前 App 之上，不拉起掌心窗
+        PolicyStore.markAction(appCtx);        // 写冷却，避免查岗弹窗紧接着叠加
+        ActivityEventStore.recordForced(appCtx, "emotion_popup",
+                "情绪自动弹窗(想你 " + miss + "%≥" + threshold + "%)",
+                strong ? "达到拉回阈值，只能回到软件" : "可回软件 / 可拒绝");
+        DebugState.append(appCtx, "情绪感知自动弹窗：想你 " + miss + "% 达阈值 " + threshold + "%（" + (strong ? "强制" : "可拒绝") + "）");
     }
 
     // ============ 主动找她 ============
@@ -237,104 +282,101 @@ public final class PolicyScheduler {
         return pool[i];
     }
 
-    // ============ 分心判定（常开，不只在聊天）============
-    //
-    // 分心查岗定义：用户在掌心窗陪伴页 / 目标 App（聊天中）切出去到其它 App，
-    // 又「立马切回来」，来回几次，就是分心。检测始终开启；命中后弹拉回弹窗，
-    // 是否强制由情绪阈值决定（达到阈值只给「回到软件」，未达到给「回到软件 / 拒绝并填写理由」）。
+    // ============ 分心判定 ============
 
+    /**
+     * 分心查岗定义：用户在聊天（掌心窗陪伴页 / 目标 App）切出去到其它 App，
+     * 又「立马切回来」，来回几次就是分心。检测始终开启（常开，不只在聊天时才开）。
+     * 命中后弹分级拉回：未达拉回阈值给「回到软件 / 拒绝并填写理由」两选项，
+     * 达到阈值只给「回到软件」。弹窗悬浮在当前 App 之上，不拉起掌心窗、不自动跳转。
+     */
     private void evaluateDistraction(long now, String current) {
         if (!PolicyStore.distractionEnabled(appCtx)) return;
         if (current == null || current.isEmpty()) return;
 
-        boolean excluded = current.equals(SELF_PKG)
-                || current.equals(PolicyStore.targetPackage(appCtx))
-                || current.contains("systemui") || current.contains("inputmethod");
+        boolean inChat = current.equals(SELF_PKG) || current.equals(PolicyStore.targetPackage(appCtx));
+        boolean systemLayer = current.contains("systemui") || current.contains("inputmethod");
+        boolean excluded = inChat || systemLayer;
 
         if (!excluded) {
-            // 切到「其它 App」：这是一次分心切出。仅在切换到与上次不同的 App 时记一次，
-            // 避免长时间停留在同一 App 反复累加（停留不算「来回」）。
-            if (!current.equals(lastDistractSwitchPkg)) {
+            // 切到其它 App：记一次「切出」；同一个 App 不重复计。
+            if (!current.equals(lastDistractionPkg)) {
+                lastDistractionPkg = current;
                 lastDistractSwitchAt = now;
-                lastDistractSwitchPkg = current;
-
+                String app = appLabel(current);
                 int cnt = PolicyStore.distractionCount(appCtx) + 1;
                 PolicyStore.setDistractionCount(appCtx, cnt);
-                String app = appLabel(current);
-                ActivityEventStore.recordPhone(appCtx, "distraction", "切到" + app + "（累计 " + cnt + " 次）", current);
+                ActivityEventStore.recordPhone(appCtx, "distraction", "分心到" + app + "（累计 " + cnt + " 次）", current);
                 DebugState.append(appCtx, "检测到切屏分心：" + app + "（累计 " + cnt + " 次）");
                 if (PolicyStore.disciplineEnabled(appCtx)) discipline("distraction", "切到" + app);
             }
-
-            // 兼容旧逻辑：每次切屏都拉回 / 累计超阈值也弹一次分级拉回弹窗（是否强制统一由拉回阈值与强情绪决定）。
-            // 限定在「确实处于其它 App」（!excluded）时才触发，避免用户在目标 App / 掌心窗内被误拉回。
-            boolean every = PolicyStore.distractionEveryTime(appCtx);
-            boolean byAccumulated = PolicyStore.distractionAutoPullback(appCtx)
-                    && PolicyStore.distractionCount(appCtx) >= PolicyStore.distractionThreshold(appCtx);
-            if ((every || byAccumulated)
-                    && !PolicyStore.isInCooldown(appCtx) && !PolicyStore.isQuietNow(appCtx)
-                    && !ClassScheduleState.isInClassNow(appCtx)) {
-                // 与查岗 / 分心来回统一：是否强制只由「想她百分比是否达到拉回阈值」和强情绪决定，
-                // 不因触发来源（累计次数）而改变，避免没达到拉回阈值就被强制。
-                boolean strong = CompanionEmotionState.effectiveMissPercent(appCtx) >= PolicyStore.forceBackThreshold(appCtx)
-                        || CompanionEmotionState.isStrong(appCtx);
-                String msg = byAccumulated
-                        ? ("已经分心 " + PolicyStore.distractionCount(appCtx) + " 次了，先回来陪" + AppPrefs.companionName(appCtx) + "。")
-                        : CompanionEmotionState.message(appCtx);
-                showFeasiblePullBack(strong, byAccumulated ? "distraction_accumulated" : "distraction", msg);
-                PolicyStore.markAction(appCtx);
-                if (byAccumulated) PolicyStore.setDistractionCount(appCtx, 0); // 已提醒，计数归零重新累计
-                ActivityEventStore.recordForced(appCtx, "distraction_pull_back",
-                        "分心拉回(" + (strong ? "强提示" : "软提示") + ")", "切到 " + appLabel(current));
-            }
-        } else {
-            // 回到掌心窗 / 目标 App：这是一次「切回」。若距上次切出在窗口内，记一次「来回」。
-            if (lastDistractSwitchPkg != null && !lastDistractSwitchPkg.isEmpty()) {
+        } else if (inChat) {
+            // 回到聊天：一次「切回」。若距上次切出在窗口内，记一个完整来回。
+            if (lastDistractionPkg != null && !lastDistractionPkg.isEmpty() && lastDistractSwitchAt > 0) {
                 long windowMs = (long) PolicyStore.distractionLoopWindowSec(appCtx) * 1000L;
-                if (lastDistractSwitchAt > 0 && (now - lastDistractSwitchAt) <= windowMs) {
-                    distractLoopCount++;            // 切出→切回，一个完整来回
-                } else {
-                    distractLoopCount = 0;          // 间隔太久，不算来回，重新计
-                }
+                if (now - lastDistractSwitchAt <= windowMs) distractLoopCount++;
+                else distractLoopCount = 0;
+                lastDistractionPkg = "";
                 lastDistractSwitchAt = 0;
-                lastDistractSwitchPkg = "";
 
                 int loopTimes = PolicyStore.distractionLoopTimes(appCtx);
                 if (PolicyStore.distractionLoopEnabled(appCtx) && distractLoopCount >= loopTimes
                         && !PolicyStore.isInCooldown(appCtx) && !PolicyStore.isQuietNow(appCtx)
                         && !ClassScheduleState.isInClassNow(appCtx)) {
                     distractLoopCount = 0;
-                    int miss = CompanionEmotionState.effectiveMissPercent(appCtx);
-                    int threshold = PolicyStore.forceBackThreshold(appCtx);
-                    boolean strong = miss >= threshold || CompanionEmotionState.isStrong(appCtx);
+                    boolean strong = strongByThreshold();
                     String msg = CompanionEmotionState.message(appCtx)
                             + "\n（刚才切出去又切回来了 " + loopTimes + " 次，是在分心吗？）";
-                    showFeasiblePullBack(strong, "distraction_loop", msg);
+                    showPullBack(strong, "distraction_loop", msg);
                     PolicyStore.markAction(appCtx);
                     ActivityEventStore.recordForced(appCtx, "distraction_pull_back",
                             "分心查岗拉回(" + (strong ? "强制" : "可拒绝") + ")", "切出切回 " + loopTimes + " 次");
                 }
-            } else {
-                lastDistractSwitchPkg = ""; // 一直都在目标 App，无需处理
+            }
+        }
+
+        // 兼容旧逻辑：每次切屏都拉回 / 累计超阈值也弹一次。
+        // 必须限定在「确实处于其它 App」时才触发，避免用户在聊天界面内被误拉回。
+        if (!excluded) {
+            boolean every = PolicyStore.distractionEveryTime(appCtx);
+            boolean byAccumulated = PolicyStore.distractionAutoPullback(appCtx)
+                    && PolicyStore.distractionCount(appCtx) >= PolicyStore.distractionThreshold(appCtx);
+            if ((every || byAccumulated)
+                    && !PolicyStore.isInCooldown(appCtx) && !PolicyStore.isQuietNow(appCtx)
+                    && !ClassScheduleState.isInClassNow(appCtx)) {
+                boolean strong = strongByThreshold();
+                int cnt = PolicyStore.distractionCount(appCtx);
+                String msg = byAccumulated
+                        ? ("已经分心 " + cnt + " 次了，先回来陪" + AppPrefs.companionName(appCtx) + "。")
+                        : CompanionEmotionState.message(appCtx);
+                showPullBack(strong, byAccumulated ? "distraction_accumulated" : "distraction", msg);
+                PolicyStore.markAction(appCtx);
+                if (byAccumulated) PolicyStore.setDistractionCount(appCtx, 0);
+                ActivityEventStore.recordForced(appCtx, "distraction_pull_back",
+                        "分心拉回(" + (strong ? "强制" : "可拒绝") + ")", "切到 " + appLabel(current));
             }
         }
     }
 
-    /** 弹出分级拉回弹窗：未达阈值给「回到软件 / 拒绝并填写理由」两选项；达到阈值只给「回到软件」。 */
-    private void showFeasiblePullBack(boolean strong, String from, String messageOverride) {
+    /** 是否达到拉回阈值：只由想她百分比与强情绪决定，不因触发来源改变。 */
+    private boolean strongByThreshold() {
+        return CompanionEmotionState.effectiveMissPercent(appCtx) >= PolicyStore.forceBackThreshold(appCtx)
+                || CompanionEmotionState.isStrong(appCtx);
+    }
+
+    /** 统一组装分级拉回配置并显示：悬浮在当前 App 之上，不拉起掌心窗、不自动跳转。 */
+    private void showPullBack(boolean strong, String from, String message) {
         JSONObject cfg = new JSONObject();
         try {
-            int miss = CompanionEmotionState.effectiveMissPercent(appCtx);
             cfg.put("level", strong ? "strong" : "soft");
             cfg.put("strong", strong);
-            cfg.put("allow_decline", !strong); // 达到阈值（或强情绪）→ 不允许拒绝，只能回到软件
-            cfg.put("emotion_tag", CompanionEmotionState.emotionTag(appCtx));
-            cfg.put("miss_percent", miss);
+            cfg.put("allow_decline", !strong);
+            cfg.put("emotion_tag", CompanionEmotionState.popupEmotionTag(appCtx));
+            cfg.put("miss_percent", CompanionEmotionState.effectiveMissPercent(appCtx));
             cfg.put("intensity", CompanionEmotionState.effectiveIntensity(appCtx));
             cfg.put("threshold", PolicyStore.forceBackThreshold(appCtx));
             cfg.put("title", strong ? AppPrefs.companionName(appCtx) + "要你回来" : AppPrefs.companionName(appCtx) + "在等你");
-            cfg.put("message", (messageOverride != null && !messageOverride.trim().isEmpty())
-                    ? messageOverride : CompanionEmotionState.message(appCtx));
+            cfg.put("message", (message != null && !message.trim().isEmpty()) ? message : CompanionEmotionState.message(appCtx));
             cfg.put("tone", strong ? "angry" : CompanionEmotionState.tone(appCtx));
             cfg.put("from", from);
         } catch (Exception ignored) { }
@@ -540,9 +582,8 @@ public final class PolicyScheduler {
         if (parts.length < 2) return false;
         int wd;
         try { wd = Integer.parseInt(parts[0].trim()); } catch (Exception e) { return false; }
-        if (wd < 1 || wd > 7) return false;
         int calWd = Calendar.getInstance().get(Calendar.DAY_OF_WEEK); // Calendar：SUNDAY=1…SATURDAY=7
-        // 输入 1=周一…7=周日 映射到 Calendar：周一(1)->2, … 周六(6)->7, 周日(7)->1
+        // 输入 1=周一..7=周日 → Calendar：周一=2 … 周六=7，周日=1
         int mapped = (wd % 7) + 1;
         if (calWd != mapped) return false;
         return isAtTime(now, parts[1].trim());

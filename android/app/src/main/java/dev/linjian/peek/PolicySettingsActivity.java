@@ -12,9 +12,11 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.Window;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.ScrollView;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.EditText;
@@ -58,6 +60,13 @@ public class PolicySettingsActivity extends Activity {
     private int emotionIntensityDraft = 0;
     private String addGateDraft = "";
     private String memoryDraft = "";
+    // 守护界面卡片深链：sectionKey -> 对应分组视图
+    private final java.util.Map<String, View> sectionGroups = new java.util.HashMap<>();
+    private String weatherNameDraft = "", weatherCityDraft = "", weatherNoteDraft = "";
+    // 单分区模式：从守护页某个标签点进来时，只渲染/修改这个分区；null=全部设置（总页）
+    private String activeSection = null;
+
+    public static final String EXTRA_SECTION = "section";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -70,7 +79,10 @@ public class PolicySettingsActivity extends Activity {
         statusText = findViewById(R.id.policyStatusText);
         changeLogText = findViewById(R.id.policyChangeLog);
 
+        String section = getIntent() != null ? getIntent().getStringExtra(EXTRA_SECTION) : null;
+        activeSection = (section == null || section.isEmpty()) ? null : section;
         buildUI();
+        // 单分区模式下页面只含目标分组，从顶部即可看到，无需滚动定位
 
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
@@ -84,110 +96,156 @@ public class PolicySettingsActivity extends Activity {
     private void buildUI() {
         container.removeAllViews();
         allRows.clear();
+        sectionGroups.clear();
+        if (activeSection != null && !activeSection.isEmpty()) buildSectionBanner(activeSection);
 
-        LinearLayout top = card(container, "全局", "总开关与配置管理");
-        top.addView(rowButton("保存设置", "把本页所有改动确认写入本机底层存储，并让守护调度器立即按新配置运行；点保存后设置持久生效、不会丢失。", "保存设置", v -> {
-            PolicyStore.flush(this);                 // 同步落盘，确认所有改动都在底层配置里
-            PolicyScheduler.start(this);             // 幂等：已在跑则无副作用，未跑则按新配置启动
-            refreshChangeLog();
+        LinearLayout top = card(container, "全局", "总开关与配置管理", "global");
+        top.addView(rowButton("保存设置", "把本页所有改动确认写入本机底层存储，并让守护调度器立即按新配置运行；训诫开关与语气模式同步给服务端，陪伴对象读到的与本机一致。点保存后设置持久生效、不会丢失。", "保存设置", v -> {
+            PolicyStore.flush(this);        // 同步落盘，确认改动都在底层配置里
+            PolicyScheduler.start(this);    // 幂等：已在跑则无副作用，未跑则按新配置启动
+            syncDisciplineToServer();       // 让 get_discipline_mode 与 App 里的严厉 / 温柔保持一致
             Toast.makeText(this, "设置已保存并生效", Toast.LENGTH_SHORT).show();
         }));
-        top.addView(rowSwitch("一键全部关闭（拿回手机）", "关掉后所有查岗、拉回、主动找她、训诫全部暂停。",
+        top.addView(rowSwitch("一键全部关闭（拿回手机）", "关掉后所有查岗、拉回、主动找用户、训诫全部暂停。",
                 PolicyStore.isMasterOn(this), (v, c) -> PolicyStore.setMaster(this, c)));
         top.addView(rowButton("恢复默认", "把所有参数恢复成默认值（不会清空变更记录）。", "恢复默认",
                 v -> { PolicyStore.resetToDefaults(this); buildUI(); Toast.makeText(this, "已恢复默认", Toast.LENGTH_SHORT).show(); }));
         top.addView(rowButton("导出配置", "把全部配置复制成 JSON 到剪贴板，方便备份或换机。", "导出到剪贴板", v -> exportConfig()));
         top.addView(rowButton("导入配置", "从剪贴板读取之前导出的 JSON 并应用。", "从剪贴板导入", v -> importConfig()));
 
-        LinearLayout g1 = card(container, "查岗与拉回", "多久查一次、想她到什么程度强制拉回、拉回长什么样。");
+        // —— 查岗与管束：本页只聚焦「查岗」本身，其它能力都在守护界面卡片直达 ——
+        LinearLayout g1 = card(container, "查岗", "多久查一次、想她到什么程度强制拉回、拉回长什么样。", "checkin");
         g1.addView(rowSwitch("开启查岗", "关闭后不再自动查岗（其它拉回逻辑仍可手动触发）。", PolicyStore.checkinEnabled(this), (v, c) -> PolicyStore.setCheckinEnabled(this, c)));
         g1.addView(rowNumber("查岗随机上限（分钟）", "每次查岗间隔在这个上限内随机取值，避免太机械。默认 60。", PolicyStore.randomUpper(this), 5, 1440, v -> PolicyStore.setRandomUpper(this, v)));
         g1.addView(rowNumber("查岗随机下限（分钟）", "间隔不会低于这个值，避免连续两次挨着弹。默认 8。", PolicyStore.randomLower(this), 1, 120, v -> PolicyStore.setRandomLower(this, v)));
-        g1.addView(rowNumber("拉回分级阈值（%）", "想她达到该值 → 强级弹窗（达到阈值只能「回到软件」）；低于则软级（「回到软件 / 拒绝并填写理由」两选项）。默认 70。", PolicyStore.forceBackThreshold(this), 1, 100, v -> PolicyStore.setForceBackThreshold(this, v)));
+        g1.addView(rowNumber("拉回分级阈值（%）", "想她达到该值 → 强级弹窗（只能「回到软件」）；低于则软级（「回到软件 / 拒绝并填写理由」两选项）。默认 70。", PolicyStore.forceBackThreshold(this), 1, 100, v -> PolicyStore.setForceBackThreshold(this, v)));
         g1.addView(rowSwitch("拒绝理由必填", "软级弹窗拒绝拉回必须留理由才放你走；关闭则可空拒绝。", PolicyStore.declineReasonRequired(this), (v, c) -> PolicyStore.setDeclineReasonRequired(this, c)));
-        g1.addView(rowText("拉回目标 App", "点「强制拉回」要跳回的 App 包名。默认 com.psyche.kelivo。", PolicyStore.targetPackage(this), s -> PolicyStore.setTargetPackage(this, s)));
+        g1.addView(rowText("拉回目标 App", "点「回到软件」要跳回的 App 包名。默认 com.psyche.kelivo。", PolicyStore.targetPackage(this), s -> PolicyStore.setTargetPackage(this, s)));
         g1.addView(rowSpinner("弹窗主题", "跟随归电，或单独覆盖一套主题。", themeOptions(), themeOverrideIndex(), s -> PolicyStore.setThemeOverride(this, normalizeTheme(s))));
         g1.addView(rowSpinner("弹窗位置", "跟随归电，或单独覆盖（顶部/居中/底部）。", positionOptions(), positionOverrideIndex(), s -> PolicyStore.setPositionOverride(this, normalizePosition(s))));
         g1.addView(rowNumber("冷却时间（分钟）", "同类提醒最短间隔；改任意参数后冷却立即重算。默认 5。", PolicyStore.cooldownMinutes(this), 0, 240, v -> PolicyStore.setCooldown(this, v)));
         g1.addView(rowTimePair("安静时段", "这段时间里不主动打扰（支持跨零点，如 23:30→08:00）。", PolicyStore.quietStart(this), PolicyStore.quietEnd(this), s -> PolicyStore.setQuietStart(this, s), s -> PolicyStore.setQuietEnd(this, s)));
         g1.addView(rowTimePair("深夜时段", "用于情绪感知判断的深夜范围（支持跨零点）。", PolicyStore.nightStart(this), PolicyStore.nightEnd(this), s -> PolicyStore.setNightStart(this, s), s -> PolicyStore.setNightEnd(this, s)));
 
-        LinearLayout g2 = card(container, "陪伴情绪", "她自己的情绪，独立于你的手机状态、不覆盖你的快照。");
-        g2.addView(rowNumber("想她百分比（当前值）", "手动写当前的想她程度；锁定后不被自动衰减盖回。", PolicyStore.emotionCurrentMiss(this), 0, 100, v -> PolicyStore.setEmotionCurrentMiss(this, v)));
-        g2.addView(rowSwitch("想她锁定", "打开后当前想她值固定不变，衰减与累积都不再动它。", PolicyStore.emotionLock(this), (v, c) -> PolicyStore.setEmotionLock(this, c)));
-        g2.addView(rowNumber("起始值", "很久没互动时的初始想她值，低一点更自然。默认 8。", PolicyStore.emotionStartMiss(this), 0, 100, v -> PolicyStore.setEmotionStartMiss(this, v)));
-        g2.addView(rowNumber("每30分钟增长下限", "你越久不回来想她累积越快；这是增长的下限。默认 2。", PolicyStore.emotionGainMin(this), 0, 20, v -> PolicyStore.setEmotionGainMin(this, v)));
+        LinearLayout g2 = card(container, "情绪感知", "机（她）对你情绪状态的感知与反应，独立于你的手机状态、不覆盖你的快照。", "emotion");
+        g2.addView(rowNumber("想你程度（当前值）", "她（机）当前想你的程度；锁定后不被自动衰减盖回。", PolicyStore.emotionCurrentMiss(this), 0, 100, v -> PolicyStore.setEmotionCurrentMiss(this, v)));
+        g2.addView(rowSwitch("想你锁定", "打开后她想你的当前值固定不变，衰减与累积都不再动它。", PolicyStore.emotionLock(this), (v, c) -> PolicyStore.setEmotionLock(this, c)));
+        g2.addView(rowNumber("平静起始值", "很久没互动时她对你的初始想念值，低一点更自然。默认 8。", PolicyStore.emotionStartMiss(this), 0, 100, v -> PolicyStore.setEmotionStartMiss(this, v)));
+        g2.addView(rowNumber("每30分钟增长下限", "你越久不回来，她想你累积越快；这是增长的下限。默认 2。", PolicyStore.emotionGainMin(this), 0, 20, v -> PolicyStore.setEmotionGainMin(this, v)));
         g2.addView(rowNumber("每30分钟增长上限", "增长上限，配合下限形成随机浮动，不会一直匀速。默认 5。", PolicyStore.emotionGainMax(this), 0, 20, v -> PolicyStore.setEmotionGainMax(this, v)));
-        g2.addView(rowNumber("回落速度（每小时）", "被安抚后想她每小时回落的点数。默认 4。", PolicyStore.emotionDecayPerHour(this), 0, 50, v -> PolicyStore.setEmotionDecayPerHour(this, v)));
-        g2.addView(rowText("情绪标签", "如 平静/想你/吃醋/生气/担心。点下方「保存情绪」生效。", CompanionEmotionState.emotionTag(this), s -> emotionTagDraft = s));
-        g2.addView(rowNumber("情绪强度", "0-100，影响语气与拉回频率。点下方「保存情绪」生效。", CompanionEmotionState.snapshot(this).optInt("intensity", 0), 0, 100, v -> emotionIntensityDraft = v));
-        g2.addView(rowSwitch("情绪驱动文案", "打开后弹窗文案随情绪变化；关闭则用中性文案。", PolicyStore.emotionDriveText(this), (v, c) -> PolicyStore.setEmotionDriveText(this, c)));
-        g2.addView(rowButton("保存情绪（标签/强度）", "把上面填的情绪标签与强度写进陪伴对象情绪。", "保存情绪",
+        g2.addView(rowNumber("回落速度（每小时）", "被安抚后想你回落速度（每小时点数）。默认 4。", PolicyStore.emotionDecayPerHour(this), 0, 50, v -> PolicyStore.setEmotionDecayPerHour(this, v)));
+        g2.addView(rowText("情绪标签（她对用户的）", "如 平静/想你/吃醋/生气/担心。点下方「保存情绪」生效。", CompanionEmotionState.emotionTag(this), s -> emotionTagDraft = s));
+        g2.addView(rowNumber("情绪强度（0-100）", "影响语气与拉回频率。点下方「保存情绪」生效。", CompanionEmotionState.snapshot(this).optInt("intensity", 0), 0, 100, v -> emotionIntensityDraft = v));
+        g2.addView(rowSwitch("情绪驱动文案（随机）", "打开后弹窗文案随情绪随机生成，每次都不一样；关闭则用中性文案。", PolicyStore.emotionDriveText(this), (v, c) -> PolicyStore.setEmotionDriveText(this, c)));
+        g2.addView(rowButton("保存情绪（标签/强度）", "把上面填的情绪标签与强度写进她对用户的情绪。", "保存情绪",
                 v -> { CompanionEmotionState.write(this, emotionTagDraft, emotionIntensityDraft, PolicyStore.emotionCurrentMiss(this), ""); Toast.makeText(this, "情绪已保存", Toast.LENGTH_SHORT).show(); refreshStatus(); }));
+        g2.addView(rowSwitch("情绪达标自动弹窗", "她想你达到阈值时自动弹出情绪判定弹窗（标明情绪标签与百分比）；未达拉回阈值给两选项，达到阈值只能回到软件。独立于查岗。",
+                PolicyStore.emotionPopupEnabled(this), (v, c) -> PolicyStore.setEmotionPopupEnabled(this, c)));
+        g2.addView(rowNumber("触发阈值（想你 %）", "想你程度达到该百分比就自动弹窗。默认 70。", PolicyStore.emotionPopupThreshold(this), 1, 100, v -> PolicyStore.setEmotionPopupThreshold(this, v)));
+        g2.addView(rowNumber("两次最小间隔（分钟）", "相邻两次情绪弹窗的最短间隔，避免反复打扰。默认 30。", PolicyStore.emotionPopupIntervalMin(this), 1, 1440, v -> PolicyStore.setEmotionPopupIntervalMin(this, v)));
 
-        LinearLayout g3 = card(container, "主动找她", "你太久没发消息，她会主动找你发一条。");
-        g3.addView(rowSwitch("开启主动找她", "关闭后她不再主动发起消息。", PolicyStore.initiativeEnabled(this), (v, c) -> PolicyStore.setInitiativeEnabled(this, c)));
+        LinearLayout g3 = card(container, "主动找用户", "你太久没发消息，她会主动找你发一条。", "initiative");
+        g3.addView(rowSwitch("开启主动找用户", "关闭后她不再主动发起消息。", PolicyStore.initiativeEnabled(this), (v, c) -> PolicyStore.setInitiativeEnabled(this, c)));
         g3.addView(rowNumber("沉默多久后主动发（分钟）", "超过这个时间你没发消息，就主动找你。默认 30。", PolicyStore.initiativeSilenceMinutes(this), 1, 1440, v -> PolicyStore.setInitiativeSilenceMinutes(this, v)));
-        g3.addView(rowNumber("两次最小间隔（分钟）", "同一次主动找她之间的最短间隔，避免刷屏。默认 20。", PolicyStore.initiativeMinInterval(this), 1, 1440, v -> PolicyStore.setInitiativeMinInterval(this, v)));
+        g3.addView(rowNumber("两次最小间隔（分钟）", "同一次主动找用户之间的最短间隔，避免刷屏。默认 20。", PolicyStore.initiativeMinInterval(this), 1, 1440, v -> PolicyStore.setInitiativeMinInterval(this, v)));
         g3.addView(rowNumber("每日条数上限", "0=不限条数；其它数字为当天上限。默认 0。", PolicyStore.initiativeDailyLimit(this), 0, 999, v -> PolicyStore.setInitiativeDailyLimit(this, v)));
         g3.addView(rowSpinner("生成方式", "自由生成（每次内容不同）或固定模板。", new String[]{"自由生成", "自定义模板"}, PolicyStore.initiativeMode(this).equals("template") ? 1 : 0, s -> PolicyStore.setInitiativeMode(this, s.equals("自定义模板") ? "template" : "free")));
         g3.addView(rowText("自定义模板", "生成方式选「自定义模板」时使用的文案。", PolicyStore.initiativeTemplate(this), s -> PolicyStore.setInitiativeTemplate(this, s)));
 
-        LinearLayout g4 = card(container, "训诫插件（小圈管束）", "接入小圈管束设定与话语；开启后人设语气增加管束意味，可选严厉 / 温柔两种语气模式。仅你本人能开，默认关闭。");
+        LinearLayout g4 = card(container, "训诫插件", "SM 小圈管束风格；仅你本人能开，默认关闭，分四档强度。", "discipline");
         g4.addView(rowSwitch("训诫总开关", "关闭则训诫完全不生效。默认关闭。仅用户本人可在手机端主动开启。", PolicyStore.disciplineEnabled(this), (v, c) -> PolicyStore.setDisciplineEnabled(this, c)));
-        g4.addView(rowSpinner("语气模式", "温柔 gentle：管束意味轻、以撒娇和关心包裹；严厉 strict：措辞更硬、更有管束力度。开启后由所选模式决定人设语气。", new String[]{"温柔", "严厉"}, PolicyStore.disciplineMode(this).equals("strict") ? 1 : 0, s -> PolicyStore.setDisciplineMode(this, s.equals("严厉") ? "strict" : "gentle")));
         g4.addView(rowSpinner("训诫档位", "0关闭/1轻/2中/3重/4极。档位越高措辞越硬。", new String[]{"0 关闭", "1 轻", "2 中", "3 重", "4 极"}, PolicyStore.disciplineLevel(this), s -> PolicyStore.setDisciplineLevel(this, parseLevel(s))));
+        g4.addView(rowSpinner("训诫语气模式", "温柔 / 严厉：接入小圈管束设定与话语，开启后人设语气按所选模式变化；写入底层并作用于陪伴话术。", new String[]{"温柔", "严厉"}, "strict".equals(PolicyStore.disciplineMode(this)) ? 1 : 0, s -> PolicyStore.setDisciplineMode(this, s.equals("严厉") ? "strict" : "gentle")));
         g4.addView(rowSwitch("强视觉警示标志", "打开后界面明确显示「训诫已开启」警示，让你随时知道状态。", PolicyStore.disciplineBadge(this), (v, c) -> PolicyStore.setDisciplineBadge(this, c)));
-        g4.addView(rowText("说明", "小圈训诫管束风格：仅本人可开、不设安全词，但界面必须有明确开启标志。", "仅本人可开", s -> { }));
+        g4.addView(rowText("说明", "SM 小圈训诫管束风格：仅本人可开、不设安全词、不写日志，但界面必须有明确开启标志。", "仅本人可开", s -> { }));
 
-        LinearLayout g5 = card(container, "分心查岗（常开）", "分心检测始终开启（不只在聊天）。定义：聊天中切出去到其它 App，又立马切回来，来回几次就是分心。未达阈值时给「回到软件 / 拒绝并填写理由」两选项；达到阈值后只能「回到软件」。");
-        g5.addView(rowSwitch("切屏算分心", "常开：检测到切到其它 App 即标记为分心。默认开启。", PolicyStore.distractionEnabled(this), (v, c) -> PolicyStore.setDistractionEnabled(this, c)));
-        g5.addView(rowSwitch("切出切回算分心", "开启后按「切出去又切回来回」判定分心查岗。默认开启。", PolicyStore.distractionLoopEnabled(this), (v, c) -> PolicyStore.setDistractionLoopEnabled(this, c)));
-        g5.addView(rowNumber("分心来回次数", "几个「切出→切回」来回算一次分心查岗。默认 2。", PolicyStore.distractionLoopTimes(this), 1, 99, v -> PolicyStore.setDistractionLoopTimes(this, v)));
-        g5.addView(rowNumber("来回时间窗口（秒）", "两次切换间隔超过它就不算「立马切回」。默认 90。", PolicyStore.distractionLoopWindowSec(this), 5, 600, v -> PolicyStore.setDistractionLoopWindowSec(this, v)));
-        g5.addView(rowSwitch("每次切屏都拉回", "关闭时仅按分心查岗/累计触发；打开则每次切屏都拉回（可拒绝）。默认关闭。", PolicyStore.distractionEveryTime(this), (v, c) -> PolicyStore.setDistractionEveryTime(this, c)));
-        g5.addView(rowNumber("累计分心阈值（次）", "连续分心达到该次数弹一次分级拉回弹窗。默认 5。", PolicyStore.distractionThreshold(this), 1, 999, v -> PolicyStore.setDistractionThreshold(this, v)));
-        g5.addView(rowSwitch("超阈值自动提醒", "分心累计达到阈值时弹一次分级拉回弹窗（是否强制由拉回阈值决定）。默认开启。", PolicyStore.distractionAutoPullback(this), (v, c) -> PolicyStore.setDistractionAutoPullback(this, c)));
+        LinearLayout g5 = card(container, "分心查岗（常开）", "分心检测始终开启，不只在聊天时。定义：聊天中切出去到其它 App，又立马切回来，来回几次算分心；未达拉回阈值给两选项，达到阈值只能回到软件。", "distraction");
+        g5.addView(rowSwitch("切屏算分心", "常开检测：聊天中切到其它 App 标记为分心。默认开启。", PolicyStore.distractionEnabled(this), (v, c) -> PolicyStore.setDistractionEnabled(this, c)));
+        g5.addView(rowSwitch("切出切回算分心", "按「切出去 → 立马切回来」的来回次数判定分心。默认开启。", PolicyStore.distractionLoopEnabled(this), (v, c) -> PolicyStore.setDistractionLoopEnabled(this, c)));
+        g5.addView(rowNumber("分心来回次数", "切出切回累计达到该次数弹一次拉回弹窗。默认 2。", PolicyStore.distractionLoopTimes(this), 1, 99, v -> PolicyStore.setDistractionLoopTimes(this, v)));
+        g5.addView(rowNumber("来回时间窗口（秒）", "切出后多少秒内切回来才算一次来回，超时重新计。默认 90。", PolicyStore.distractionLoopWindowSec(this), 5, 3600, v -> PolicyStore.setDistractionLoopWindowSec(this, v)));
+        g5.addView(rowSwitch("每次切屏都拉回", "关闭时是否拉回由她当时的情绪决定；打开则每次切屏都拉回。默认关闭。", PolicyStore.distractionEveryTime(this), (v, c) -> PolicyStore.setDistractionEveryTime(this, c)));
+        g5.addView(rowNumber("累计分心阈值（次）", "连续分心达到该次数弹一次拉回弹窗（是否强制由拉回阈值决定）。默认 5。", PolicyStore.distractionThreshold(this), 1, 999, v -> PolicyStore.setDistractionThreshold(this, v)));
+        g5.addView(rowSwitch("超阈值自动提醒", "分心累计达到阈值时弹一次拉回弹窗（不再无理由强制）。默认开启。", PolicyStore.distractionAutoPullback(this), (v, c) -> PolicyStore.setDistractionAutoPullback(this, c)));
 
-        LinearLayout g6 = card(container, "权限开关", "逐项管理 App 的各种守护功能。");
+        // —— 应用门禁：锁 App 时长 + 自主添加受限 App 合并到一处 ——
+        LinearLayout gApp = card(container, "应用门禁", "锁 App 时长、自主添加受限应用，集中在此管理。", "appgate");
+        gApp.addView(rowSwitch("连续使用自动锁", "开启后监控目标 App（或指定包名）的连续使用时长，超阈值自动锁。", PolicyStore.usageLockEnabled(this), (v, c) -> PolicyStore.setUsageLockEnabled(this, c)));
+        gApp.addView(rowNumber("连续使用阈值（分钟）", "连续使用达到该分钟数触发锁定。默认 45。", PolicyStore.usageLockMinutes(this), 1, 1440, v -> PolicyStore.setUsageLockMinutes(this, v)));
+        gApp.addView(rowNumber("自动锁定时长（分钟）", "触发后锁定该 App 多少分钟。默认 15。", PolicyStore.usageLockDuration(this), 1, 1440, v -> PolicyStore.setUsageLockDuration(this, v)));
+        gApp.addView(rowText("监控包名（逗号分隔）", "留空=只监控目标 App；也可填多个包名，如 com.tencent.mm,com.ss.android.ugc.aweme。", PolicyStore.usageLockPackages(this), s -> PolicyStore.setUsageLockPackages(this, s)));
+        gApp.addView(rowButton("查看当前使用状态", "显示当前前台 App 与连续使用时长。", "查看", v -> showUsageStatus()));
+        gApp.addView(rowText("新增受限 App", "填「别名|包名」一行，如 微博|com.sina.weibo，点下方保存。", "", s -> addGateDraft = s));
+        gApp.addView(rowButton("保存新增", "把上面填的包名加入受限列表。", "保存", v -> { saveGateDraft(); }));
+        gApp.addView(buildGateAppList(gApp));
+
+        // —— 主动提醒：把分散的各类提醒集中到此处，去掉重复项 ——
+        LinearLayout gRem = card(container, "主动提醒", "电量、屏幕、喝水、休息、周期等提醒集中管理。", "reminder");
+        gRem.addView(rowAppBool("总开关", "关闭后所有主动提醒都暂停。", AppPrefs.KEY_ACTIVE_REMINDERS, true));
+        gRem.addView(rowAppBool("低电量提醒", "电量低于阈值时提醒充电。", AppPrefs.KEY_RULE_BATTERY, true));
+        gRem.addView(rowAppInt("低电量阈值（%）", "电量低于该百分比触发提醒。默认 20。", AppPrefs.KEY_BATTERY_THRESHOLD, 20, 5, 80));
+        gRem.addView(rowAppBool("屏幕时间提醒", "连续使用达到阈值分钟提醒休息。默认开启。", AppPrefs.KEY_RULE_SCREEN, true));
+        gRem.addView(rowAppInt("屏幕时间阈值（分钟）", "连续使用达到该分钟数提醒。默认 240。", AppPrefs.KEY_SCREEN_THRESHOLD_MIN, 240, 10, 1440));
+        gRem.addView(rowAppBool("喝水提醒", "按间隔提醒喝水。默认关闭。", AppPrefs.KEY_RULE_WATER, false));
+        gRem.addView(rowAppInt("喝水间隔（分钟）", "每隔多少分钟提醒喝水。默认 120。", AppPrefs.KEY_WATER_INTERVAL_MIN, 120, 30, 720));
+        gRem.addView(rowAppBool("休息提醒", "按间隔提醒起来活动。默认开启。", AppPrefs.KEY_RULE_REST, true));
+        gRem.addView(rowAppInt("休息间隔（分钟）", "每隔多少分钟提醒休息。默认 90。", AppPrefs.KEY_REST_INTERVAL_MIN, 90, 30, 720));
+        gRem.addView(rowAppBool("周期提醒（生理期关怀）", "按周期提前提醒，给予照顾。默认关闭。", AppPrefs.KEY_CYCLE_ENABLED, false));
+        gRem.addView(rowAppText("上次开始日期", "例如 2026-07-09。", AppPrefs.KEY_LAST_PERIOD_START, ""));
+        gRem.addView(rowAppInt("周期长度（天）", "两次开始之间的天数。默认 30。", AppPrefs.KEY_CYCLE_LENGTH, 30, 15, 60));
+        gRem.addView(rowAppInt("经期天数", "持续天数。默认 6。", AppPrefs.KEY_PERIOD_LENGTH, 6, 1, 14));
+        gRem.addView(rowAppInt("提前提醒（天）", "提前多少天提醒。默认 3。", AppPrefs.KEY_CYCLE_REMIND_BEFORE, 3, 0, 14));
+
+        // —— 其它权限开关：去掉与「主动提醒」重复的喝水/久坐项 ——
+        LinearLayout g6 = card(container, "其它权限开关", "逐项管理 App 的其余守护功能。", "permissions");
         addPerm(g6, PolicyStore.KEY_PERM_SCREEN_TIME, "屏幕时长上限", "限制每天可用屏幕总时长（填分钟，0=不限）。");
         addPerm(g6, PolicyStore.KEY_PERM_SLEEP, "睡前息屏", "到时间提醒息屏睡觉（填 HH:mm）。");
         addPerm(g6, PolicyStore.KEY_PERM_CURFEW, "深夜宵禁", "深夜时段限制使用（填 23:00-06:00）。");
         addPerm(g6, PolicyStore.KEY_PERM_STUDY, "学习白名单", "只放行白名单 App（填包名，逗号分隔）。");
-        addPerm(g6, PolicyStore.KEY_PERM_DRINK, "喝水提醒", "每隔多久提醒喝水（填分钟）。");
-        addPerm(g6, PolicyStore.KEY_PERM_SIT, "久坐提醒", "每隔多久提醒起来走动（填分钟）。");
         addPerm(g6, PolicyStore.KEY_PERM_WEEKLY, "每周回顾", "每周生成一次使用回顾（填 星期,HH:mm）。");
         addPerm(g6, PolicyStore.KEY_PERM_HOME, "到家报备", "到家后提醒报备（填地点）。");
         addPerm(g6, PolicyStore.KEY_PERM_PERIOD, "生理期照顾", "按周期给予照顾提醒（填周期天数）。");
 
-        LinearLayout g8 = card(container, "应用时长查岗与自动锁", "实时展示目标 App 使用时长；连续使用超 N 分钟自动锁 M 分钟。");
-        g8.addView(rowSwitch("连续使用自动锁", "开启后监控目标 App（或指定包名）的连续使用时长，超阈值自动锁。", PolicyStore.usageLockEnabled(this), (v, c) -> PolicyStore.setUsageLockEnabled(this, c)));
-        g8.addView(rowNumber("连续使用阈值（分钟）", "连续使用达到该分钟数触发锁定。默认 45。", PolicyStore.usageLockMinutes(this), 1, 1440, v -> PolicyStore.setUsageLockMinutes(this, v)));
-        g8.addView(rowNumber("自动锁定时长（分钟）", "触发后锁定该 App 多少分钟。默认 15。", PolicyStore.usageLockDuration(this), 1, 1440, v -> PolicyStore.setUsageLockDuration(this, v)));
-        g8.addView(rowText("监控包名（逗号分隔）", "留空=只监控目标 App；也可填多个包名，如 com.tencent.mm,com.ss.android.ugc.aweme。", PolicyStore.usageLockPackages(this), s -> PolicyStore.setUsageLockPackages(this, s)));
-        g8.addView(rowButton("查看当前使用状态", "显示当前前台 App 与连续使用时长。", "查看", v -> showUsageStatus()));
-
-        LinearLayout g9 = card(container, "自主锁应用与包名管理", "自由添加、保存、修改、移除受限 App 的包名与别名。");
-        g9.addView(rowText("新增受限 App", "填「别名|包名」一行，如 微博|com.sina.weibo，点下方保存。", "", s -> addGateDraft = s));
-        g9.addView(rowButton("保存新增", "把上面填的包名加入受限列表。", "保存", v -> { saveGateDraft(); }));
-        g9.addView(buildGateAppList(g9));
-
-        LinearLayout g10 = card(container, "插件分类（架构整理）", "所有扩展能力统一归类管理，杜绝硬编码，独立持久化与配置。");
-        g10.addView(rowButton("查看插件分类", "按 管束查岗/情绪感知/日程作息/系统控制/记忆视觉 展示全部插件。", "查看", v -> showPluginRegistry()));
-
-        LinearLayout g11 = card(container, "课表插件", "录入课表，到点自动判定上课、上课静默守护、课前/下课提醒。");
+        LinearLayout g11 = card(container, "课表作息", "录入课表，到点自动判定上课、上课静默守护、课前/下课提醒。", "schedule");
         g11.addView(rowButton("录入一节新课", "填 星期/节次/起止/科目/教室 后保存。", "录入", v -> addClassEntry()));
         g11.addView(rowButton("导入示例课表", "写入几条示例课表用于验证。", "导入示例", v -> importSampleSchedule()));
         g11.addView(rowButton("查看课表", "列出全部课表与当前是否上课中。", "查看", v -> showClassSchedule()));
 
-        LinearLayout g12 = card(container, "共同记忆", "双方可增/改/删、双向修改实时生效的记忆面板。");
+        LinearLayout g12 = card(container, "共同记忆", "双方可增/改/删、双向修改实时生效的记忆面板。", "memory");
         g12.addView(rowText("新增记忆", "写下一条共同记忆，点下方保存。", "", s -> memoryDraft = s));
         g12.addView(rowButton("保存记忆", "把上面写的记忆加入共同记忆。", "保存", v -> saveMemory()));
         g12.addView(rowButton("查看共同记忆", "列出全部记忆条目。", "查看", v -> showSharedMemory()));
 
-        LinearLayout g7 = card(container, "验收与调试", "本地触发拉回弹窗、把配置同步给服务器（可选）。");
-        g7.addView(rowButton("试一下软级别拉回", "想她低于阈值：弹「回到软件 / 拒绝并填写理由」两选项，可拒绝但要留理由。", "试软级", v -> testPullBack(false)));
-        g7.addView(rowButton("试一下强级别拉回", "想她达到阈值：只给「回到软件」一个按钮，不能拒绝。", "试强级", v -> testPullBack(true)));
+        LinearLayout gOcr = card(container, "识图感知", "用读屏节点树从当前屏幕读取可见文字与状态；可随时关闭，关后本地与 MCP 都无法调用。", "ocr");
+        gOcr.addView(rowSwitch("开启识图感知", "关闭后不再读取屏幕文字，MCP 与本地都无法调用识图。默认开启。", PolicyStore.ocrEnabled(this), (v, c) -> PolicyStore.setOcrEnabled(this, c)));
+        gOcr.addView(rowButton("读取当前屏幕文字", "需要无障碍权限；读取后展示提取到的文字。", "读取", v -> runOcr()));
+
+        LinearLayout gWeather = card(container, "天气地区", "家与常用地点，天气提醒按地区给出。", "weather");
+        JSONObject wl = WeatherState.currentLocation(this);
+        weatherNameDraft = wl.optString("name", "家");
+        weatherCityDraft = wl.optString("city", "");
+        weatherNoteDraft = wl.optString("note", "");
+        gWeather.addView(rowText("当前地点名", "这个地点的名字，例如 家 / 学校。", weatherNameDraft, s -> weatherNameDraft = s));
+        gWeather.addView(rowText("城市", "用于查询天气的城市，例如 石家庄。", weatherCityDraft, s -> weatherCityDraft = s));
+        gWeather.addView(rowText("备注", "例如 风大 / 容易下雨。", weatherNoteDraft, s -> weatherNoteDraft = s));
+        gWeather.addView(rowButton("保存当前地点", "保存上面的地点信息，并设为当前地点。", "保存", v -> {
+            WeatherState.saveLocation(this, weatherNameDraft.isEmpty() ? "家" : weatherNameDraft, weatherCityDraft, weatherNoteDraft, true);
+            Toast.makeText(this, "已保存地点", Toast.LENGTH_SHORT).show(); buildUI();
+        }));
+        gWeather.addView(rowButton("查看全部地点", "列出所有已保存地点。", "查看", v -> showWeatherLocations()));
+
+        LinearLayout gHome = card(container, "回家模式", "回到熟悉的环境时，自动回到目标 App。", "homemode");
+        gHome.addView(rowAppBool("开启回家模式", "打开后监控是否在常用地点，回到就拉回。", AppPrefs.KEY_HOME_MODE_ENABLED, false));
+        gHome.addView(rowAppBool("强制回目标 APP", "不论情绪，回到常用地点立即强拉回。", AppPrefs.KEY_HOME_MODE_FORCE, false));
+        gHome.addView(rowAppText("目标 APP（每行 名称｜包名）", "回家模式要守的 App，例如 小红书|com.xingin.xhs。", AppPrefs.KEY_TARGET_APPS, ""));
+        gHome.addView(rowAppInt("阈值（分钟）", "离开常用 App 超过该分钟数触发。默认 10。", AppPrefs.KEY_HOME_THRESHOLD_MIN, 10, 1, 240));
+        gHome.addView(rowAppInt("冷却（分钟）", "两次提醒之间的最短间隔。默认 5。", AppPrefs.KEY_HOME_COOLDOWN_MIN, 5, 1, 240));
+        gHome.addView(rowAppText("返回目标（名称或包名）", "拉回时跳回的 App。", AppPrefs.KEY_HOME_TARGET_PACKAGE, ""));
+        gHome.addView(rowButton("查看状态", "显示当前回家模式配置与状态。", "查看", v -> showHomeModeStatus()));
+
+        LinearLayout g7 = card(container, "验收与调试", "本地触发拉回弹窗、把配置同步给服务器（可选）。", "debug");
+        g7.addView(rowButton("试一下软级别拉回", "想她低于阈值：两个按钮，可拒绝但必须留理由。", "试软级", v -> testPullBack(false)));
+        g7.addView(rowButton("试一下强级别拉回", "想她达到阈值：只有「现在就回去」一个按钮。", "试强级", v -> testPullBack(true)));
         g7.addView(rowButton("同步给服务器（可选）", "若已配置服务器地址，把配置 best-effort 同步过去；不影响本机生效。", "同步", v -> syncToServer()));
 
         refreshChangeLog();
@@ -195,7 +253,7 @@ public class PolicySettingsActivity extends Activity {
 
     // ============ 分组卡片（可折叠）============
 
-    private LinearLayout card(LinearLayout container, String title, String desc) {
+    private LinearLayout card(LinearLayout container, String title, String desc, String sectionKey) {
         LinearLayout group = new LinearLayout(this);
         group.setOrientation(LinearLayout.VERTICAL);
         group.setBackgroundResource(R.drawable.card_bg);
@@ -242,8 +300,144 @@ public class PolicySettingsActivity extends Activity {
         group.addView(header);
         group.addView(content);
         group.setTag("group::" + title);
-        container.addView(group);
+        // 单分区模式：只把目标分区挂进容器；其余分组照常构建（后续 addView 不会报错），但不显示、不注册深链
+        boolean shown = activeSection == null || activeSection.isEmpty() || activeSection.equals(sectionKey);
+        if (shown && sectionKey != null && !sectionKey.isEmpty()) sectionGroups.put(sectionKey, group);
+        if (shown) container.addView(group);
         return content;
+    }
+
+    // ============ 单分区导航条 ============
+
+    /** 分区 key -> 守护页标签上的中文名，用于单分区标题。 */
+    private static String sectionTitle(String key) {
+        if (key == null) return "全部设置";
+        switch (key) {
+            case "checkin": return "查岗拉回";
+            case "distraction": return "分心强拉回";
+            case "discipline": return "训诫插件";
+            case "emotion": return "情绪感知";
+            case "initiative": return "主动找用户";
+            case "appgate": return "应用门禁";
+            case "reminder": return "主动提醒";
+            case "schedule": return "课表作息";
+            case "memory": return "共同记忆";
+            case "ocr": return "识图感知";
+            case "weather": return "天气地区";
+            case "homemode": return "回家模式";
+            case "global": return "全局";
+            case "permissions": return "其它权限开关";
+            case "debug": return "验收与调试";
+            default: return key;
+        }
+    }
+
+    /** 单分区模式顶部的导航条：标明当前分区，可一键回到全部设置或返回守护界面。 */
+    private void buildSectionBanner(String key) {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        bar.setBackgroundResource(R.drawable.card_bg);
+        bar.setPadding(dp(12), dp(10), dp(8), dp(10));
+        bar.setTag("banner::" + key);
+
+        TextView t = new TextView(this);
+        t.setText("「" + sectionTitle(key) + "」设置");
+        t.setTextSize(15);
+        t.setTextColor(0xFF2D3E39);
+        t.setTypeface(t.getTypeface(), android.graphics.Typeface.BOLD);
+        t.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1f));
+        bar.addView(t);
+
+        Button all = new Button(this);
+        all.setText("全部设置");
+        all.setTextSize(11);
+        all.setBackgroundResource(R.drawable.pill_soft);
+        all.setOnClickListener(v -> { activeSection = null; buildUI(); });
+        bar.addView(all);
+
+        Button back = new Button(this);
+        back.setText("返回守护");
+        back.setTextSize(11);
+        back.setBackgroundResource(R.drawable.pill_soft);
+        back.setOnClickListener(v -> finish());
+        bar.addView(back);
+
+        ViewGroup.MarginLayoutParams lp = new ViewGroup.MarginLayoutParams(-1, -2);
+        lp.topMargin = dp(4);
+        lp.bottomMargin = dp(6);
+        container.addView(bar, lp);
+    }
+
+    // ============ AppPrefs 直读写（提醒 / 回家模式等）============
+
+    private View rowAppBool(String label, String desc, String key, boolean def) {
+        return rowSwitch(label, desc, AppPrefs.get(this).getBoolean(key, def),
+                (v, c) -> AppPrefs.get(this).edit().putBoolean(key, c).apply());
+    }
+    private View rowAppInt(String label, String desc, String key, int def, int min, int max) {
+        return rowNumber(label, desc, AppPrefs.get(this).getInt(key, def), min, max,
+                v -> AppPrefs.get(this).edit().putInt(key, v).apply());
+    }
+    private View rowAppText(String label, String desc, String key, String def) {
+        return rowText(label, desc, AppPrefs.get(this).getString(key, def == null ? "" : def),
+                s -> AppPrefs.get(this).edit().putString(key, s).apply());
+    }
+
+    // ============ 守护界面深链：展开并滚动到指定分区 ============
+
+    private void focusSection(String key) {
+        View g = sectionGroups.get(key);
+        if (g == null) return;
+        if (g instanceof ViewGroup) {
+            ViewGroup vg = (ViewGroup) g;
+            for (int i = 0; i < vg.getChildCount(); i++) {
+                View c = vg.getChildAt(i);
+                if (c instanceof LinearLayout && c.getVisibility() != View.VISIBLE) c.setVisibility(View.VISIBLE);
+            }
+        }
+        // 容器（policyContainer）的父级是 policyRoot，再外层才是 ScrollView；向上找真实的 ScrollView
+        ViewParent p = container.getParent();
+        while (p != null && !(p instanceof ScrollView)) p = p.getParent();
+        if (!(p instanceof ScrollView)) return;
+        final ScrollView sv = (ScrollView) p;
+        // g.getTop() 是相对 container 的偏移；加上 container 在 ScrollView 内容里的偏移才是绝对位置
+        final int top = container.getTop() + g.getTop();
+        sv.post(() -> sv.scrollTo(0, top));
+    }
+
+    // ============ 识图 / 天气 / 回家模式 详情 ============
+
+    private void runOcr() {
+        if (!PolicyStore.ocrEnabled(this)) {
+            AlertDialog.Builder b = new AlertDialog.Builder(this);
+            b.setTitle("识图感知已关闭").setMessage("当前已关闭识图感知。打开上方「开启识图感知」开关后即可读取屏幕文字。").setPositiveButton("知道了", null).show();
+            return;
+        }
+        try {
+            JSONObject r = OcrPlugin.extractLocal(this);
+            AlertDialog.Builder b = new AlertDialog.Builder(this);
+            b.setTitle("当前屏幕文字").setMessage(r == null ? "未读到内容（请确认已开启无障碍权限）" : r.toString()).setPositiveButton("知道了", null).show();
+        } catch (Exception e) { status("识图失败：" + ScreenshotService.shortMsg(e)); }
+    }
+
+    private void showWeatherLocations() {
+        try {
+            AlertDialog.Builder b = new AlertDialog.Builder(this);
+            b.setTitle("全部地点").setMessage(WeatherState.pretty(this)).setPositiveButton("知道了", null).show();
+        } catch (Exception e) { status("读取失败：" + ScreenshotService.shortMsg(e)); }
+    }
+
+    private void showHomeModeStatus() {
+        try {
+            AlertDialog.Builder b = new AlertDialog.Builder(this);
+            b.setTitle("回家模式状态").setMessage(
+                    "开启：" + (AppPrefs.get(this).getBoolean(AppPrefs.KEY_HOME_MODE_ENABLED, false) ? "是" : "否") + "\n"
+                            + "强制回目标：" + (AppPrefs.get(this).getBoolean(AppPrefs.KEY_HOME_MODE_FORCE, false) ? "是" : "否") + "\n"
+                            + "监视包名：" + AppPrefs.homeWatchPackages(this) + "\n"
+                            + "返回目标：" + AppPrefs.homeTargetPackage(this))
+                    .setPositiveButton("知道了", null).show();
+        } catch (Exception e) { status("读取失败：" + ScreenshotService.shortMsg(e)); }
     }
 
     // ============ 行构造 ============
@@ -371,21 +565,22 @@ public class PolicySettingsActivity extends Activity {
 
     private void filter(String q) {
         q = q.toLowerCase();
-        if (q.isEmpty()) {
-            for (View r : allRows) r.setVisibility(View.VISIBLE);
-            for (int i = 0; i < container.getChildCount(); i++) container.getChildAt(i).setVisibility(View.VISIBLE);
-            return;
+        // 顶部导航条始终保留；其余容器子项按搜索词决定显隐
+        for (int i = 0; i < container.getChildCount(); i++) {
+            View child = container.getChildAt(i);
+            if (String.valueOf(child.getTag()).startsWith("banner::")) continue;
+            child.setVisibility(q.isEmpty() ? View.VISIBLE : View.GONE);
         }
-        // 先全隐藏
-        for (View r : allRows) r.setVisibility(View.GONE);
-        for (int i = 0; i < container.getChildCount(); i++) container.getChildAt(i).setVisibility(View.GONE);
-        // 标题匹配 -> 显示整组
+        for (View r : allRows) r.setVisibility(q.isEmpty() ? View.VISIBLE : View.GONE);
+        if (q.isEmpty()) return;
+        // 标题匹配 -> 显示整组，并把该组的所有行一并显示（修复：原逻辑只显示组头，行仍是 GONE）
         for (int i = 0; i < container.getChildCount(); i++) {
             View g = container.getChildAt(i);
             String tag = String.valueOf(g.getTag());
             if (tag.startsWith("group::") && tag.substring("group::".length()).toLowerCase().contains(q)) {
                 g.setVisibility(View.VISIBLE);
                 setChildrenVisible(g, View.VISIBLE);
+                for (View r : allRows) if (findGroup(r) == g) r.setVisibility(View.VISIBLE);
             }
         }
         // 行关键词匹配 -> 显示该行及其所在分组
@@ -393,7 +588,7 @@ public class PolicySettingsActivity extends Activity {
             if (String.valueOf(r.getTag()).toLowerCase().contains(q)) {
                 r.setVisibility(View.VISIBLE);
                 View g = findGroup(r);
-                if (g != null) g.setVisibility(View.VISIBLE);
+                if (g != null) { g.setVisibility(View.VISIBLE); setChildrenVisible(g, View.VISIBLE); }
             }
         }
     }
@@ -462,6 +657,24 @@ public class PolicySettingsActivity extends Activity {
         }
     }
 
+    /**
+     * 把本机训诫开关与语气模式同步给服务端，使陪伴对象通过 get_discipline_mode
+     * 读到的状态与 App 设置页一致（否则 AI 侧会一直沿用服务端默认语气）。
+     * 网络不可用 / 未配置服务器时静默跳过，本机设置依旧生效，不弹错误、不跳转。
+     */
+    private void syncDisciplineToServer() {
+        try {
+            final String base = AppPrefs.server(this), token = AppPrefs.token(this);
+            if (base == null || base.trim().isEmpty()) return;
+            JSONObject body = new JSONObject();
+            body.put("enabled", PolicyStore.disciplineEnabled(this));
+            body.put("mode", PolicyStore.disciplineMode(this));
+            body.put("level", PolicyStore.disciplineLevel(this));
+            final String payload = body.toString();
+            new Thread(() -> request(base, token, "POST", "/api/discipline", payload), "discipline-sync").start();
+        } catch (Exception ignored) { }
+    }
+
     private void syncToServer() {
         if (!ready()) { status("未配置服务器，跳过同步（本机已生效）。"); return; }
         final String base = AppPrefs.server(this), token = AppPrefs.token(this);
@@ -498,7 +711,7 @@ public class PolicySettingsActivity extends Activity {
             int miss = strong ? Math.max(PolicyStore.forceBackThreshold(this), 80) : 35;
             cfg.put("level", strong ? "strong" : "soft");
             cfg.put("strong", strong);
-            cfg.put("allow_decline", !strong); // 强级别只能「回到软件」，软级别可「拒绝并填写理由」
+            cfg.put("allow_decline", !strong);
             cfg.put("emotion_tag", strong ? "生气" : CompanionEmotionState.emotionTag(this));
             cfg.put("miss_percent", miss);
             cfg.put("intensity", strong ? 85 : 45);

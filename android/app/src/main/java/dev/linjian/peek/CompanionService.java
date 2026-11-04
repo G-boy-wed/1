@@ -291,6 +291,17 @@ public class CompanionService extends Service {
                 return;
             }
 
+            // —— 策略配置（PRD 全部可调参数）：list / get / set / reset，手机端与 MCP 双向可改，立即生效 ——
+            if ("set_policy".equals(action) || "get_policy".equals(action)
+                    || "list_policy".equals(action) || "reset_policy".equals(action)) {
+                JSONObject rr = PolicyCommand.handleCommand(ctx, cmd);
+                boolean ok = rr.optBoolean("ok", false);
+                String result = rr.optString("result", rr.toString());
+                DebugState.append(ctx, "执行策略配置命令 " + action + "：" + result);
+                try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, true); } catch (Exception ignored) { }
+                return;
+            }
+
             if ("run_sequence".equals(action)) {
                 executeSequence(ctx, id, cmd, serverUrl, token);
                 return;

@@ -146,7 +146,7 @@ Render 一键部署时，`LINJIAN_URL` 会由 Blueprint 自动引用 server 的�
 
 - `set_tour_schedule(enabled, check_in_interval_minutes, force_back_interval_minutes, cooldown_minutes, quiet_start, quiet_end, night_start, night_end, single_app_lock_minutes, single_app_lock_duration_minutes, force_back_miss_threshold, alert_tone, exempt_packages, device_id)`：配置并开关巡回查岗调度器。所有时间与阈值都由用户自行设定。
 - `show_center_alert(title, message, tone, button_text, device_id, wait_seconds)`：在手机屏幕中央弹出一张对话框，语气可选「温柔 gentle / 生气 angry」。
-- `force_back_to_chat(level, title, message, device_id, wait_seconds)`：把用户拉回掌心窗陪伴页。**默认先弹分级弹窗**：`level` 默认 `auto`，想她百分比低于阈值且非强情绪 → **软级别**，给「回到软件」与「拒绝并填写理由」两个选项（拒绝须留理由，理由写入日志）；达到阈值或强情绪 → **强级别**，只给「回到软件」一个按钮，不能拒绝。
+- `force_back_to_chat(level, title, message, device_id, wait_seconds)`：把用户拉回掌心窗陪伴页。**默认先弹分级弹窗**：`level` 默认 `auto`，想她百分比低于阈值 → 软级别（两个按钮「现在就回去」「再等一会儿」，可拒绝但必须留下理由，理由写入日志）；达到阈值或强情绪 → 强级别（只有一个按钮，点击后强制跳回聊天界面，没有拒绝入口）。
 - `get_usage_snapshot(device_id)`：读取使用状态快照（当前 App、单 App 停留时长、今日屏幕时长、解锁次数、电量、网络等）。
 
 ## 陪伴对象自己的情绪

@@ -574,7 +574,7 @@ public class MainActivity extends Activity {
         root.addView(actionPreview, marginBottom(10));
 
         root.addView(sectionHeading("更多陪伴"), marginBottom(8));
-        root.addView(actionSettingBlock("用户的日记", "把今天看见的你，轻轻写下来。", R.drawable.ic_heart_wave, this::showDiaryHomePage), marginBottom(7));
+        root.addView(actionSettingBlock("TA 的日记", "把今天看见的你，轻轻写下来。", R.drawable.ic_heart_wave, this::showDiaryHomePage), marginBottom(7));
         root.addView(guardSettingBlock("归电", "很久没回来时，" + AppPrefs.companionName(this) + "来敲门", R.drawable.ic_clock, drawerGuidian), marginBottom(7));
         root.addView(actionSettingBlock("看见", "查看屏幕并回应此刻", R.drawable.ic_eye, this::testScreenshot), marginBottom(10));
         return root;
@@ -703,7 +703,7 @@ public class MainActivity extends Activity {
 
         LinearLayout plate = new LinearLayout(this); plate.setOrientation(LinearLayout.VERTICAL); plate.setGravity(Gravity.CENTER); plate.setPadding(dp(8), dp(8), dp(8), dp(8));
         TextView tiny = label("PRIVATE NOTEBOOK", 8); tiny.setTextColor(Color.parseColor("#895B6C")); tiny.setLetterSpacing(.14f); tiny.setGravity(Gravity.CENTER); tiny.setShadowLayer(dp(.8f), 0, dp(.5f), Color.parseColor("#99FFF9FC")); plate.addView(tiny);
-        TextView name = title(book == null ? "用户的日记" : book.optString("name", "用户的日记"), 21); name.setTextColor(Color.parseColor("#5E3D4A")); name.setGravity(Gravity.CENTER); name.setLineSpacing(dp(4), 1f); name.setShadowLayer(dp(1.1f), 0, dp(.7f), Color.parseColor("#B8FFF9FC")); plate.addView(name, matchWrapTop(13));
+        TextView name = title(book == null ? "TA 的日记" : book.optString("name", "TA 的日记"), 21); name.setTextColor(Color.parseColor("#5E3D4A")); name.setGravity(Gravity.CENTER); name.setLineSpacing(dp(4), 1f); name.setShadowLayer(dp(1.1f), 0, dp(.7f), Color.parseColor("#B8FFF9FC")); plate.addView(name, matchWrapTop(13));
         View rule = new View(this); rule.setBackgroundColor(Color.parseColor("#C18A9E")); LinearLayout.LayoutParams ruleLp = new LinearLayout.LayoutParams(dp(76), dp(1)); ruleLp.topMargin = dp(12); ruleLp.gravity = Gravity.CENTER; plate.addView(rule, ruleLp);
         TextView subtitle = body(book == null ? "把今天轻轻藏起来" : book.optString("subtitle", "把今天轻轻藏起来"), 9); subtitle.setTextColor(Color.parseColor("#74515F")); subtitle.setGravity(Gravity.CENTER); subtitle.setShadowLayer(dp(.8f), 0, dp(.5f), Color.parseColor("#A8FFF9FC")); plate.addView(subtitle, matchWrapTop(9));
         int entryCount = DiaryState.listEntries(this, book == null ? "" : book.optString("id", "")).length();
@@ -733,7 +733,7 @@ public class MainActivity extends Activity {
         JSONObject book = DiaryState.bookById(this, diaryBookId);
         LinearLayout top = horizontal();
         Button back = iconButton("←", "返回日记封面"); back.setOnClickListener(v -> showDiaryHomePage()); top.addView(back, new LinearLayout.LayoutParams(dp(36), dp(32)));
-        top.addView(title(book == null ? "用户的日记" : book.optString("name", "用户的日记"), 15), weightedWrap(1f, 9));
+        top.addView(title(book == null ? "TA 的日记" : book.optString("name", "TA 的日记"), 15), weightedWrap(1f, 9));
         Button search = iconButton("⌕", "搜索日记"); search.setOnClickListener(v -> showDiarySearchDialog()); top.addView(search, new LinearLayout.LayoutParams(dp(36), dp(32)));
         Button more = iconButton("⋯", "更多"); more.setOnClickListener(v -> showDiaryMoreMenu()); LinearLayout.LayoutParams moreLp = new LinearLayout.LayoutParams(dp(36), dp(32)); moreLp.leftMargin = dp(5); top.addView(more, moreLp);
         root.addView(top, marginBottom(8));
@@ -1106,29 +1106,42 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("最后确认一次").setMessage("删除后无法在 App 内撤销。确定删除“" + book.optString("name", "这本日记") + "”吗？").setNegativeButton("取消", null).setPositiveButton("删除日记本", (d, w) -> { DiaryState.deleteBook(this, diaryBookId); diaryBookId = ""; showDiaryHomePage(); Toast.makeText(this, "日记本已删除", Toast.LENGTH_SHORT).show(); }).show();
     }
 
+    /**
+     * 守护界面 = 所有插件的可点入口墙。每张卡片整块可点，直达「查岗与管束」对应分区（或对应内页）。
+     * 这样所有在守护界面展现的条目都能点开调整，不再把重复的提醒控件堆在守护页里。
+     */
     private View buildGuardMagazine() {
         LinearLayout root = pageColumn();
 
         root.addView(sectionHeading("守护功能"), marginBottom(8));
-        root.addView(label("日子与地点", 9), marginBottom(6));
-        root.addView(actionSettingBlock("守护日历", "纪念日、节日和倒数日", R.drawable.ic_clock, this::showGuardianCalendarDetailPage), marginBottom(7));
-        root.addView(guardSettingBlock("天气地区", "家与常用地点", R.drawable.ic_cloud, drawerWeather), marginBottom(11));
 
-        root.addView(label("安心规则", 9), marginBottom(6));
-        root.addView(actionSettingBlock("查岗与管束", "巡回周期、安静时段与拉回分级", R.drawable.ic_shield, this::openPolicySettings), marginBottom(7));
-        root.addView(guardSettingBlock("应用门禁", "需要时轻轻守住", R.drawable.ic_shield, drawerAppGate), marginBottom(7));
-        root.addView(actionSettingBlock("专注模式", "全机专注、应急放行与留言", R.drawable.ic_shield, this::showFocusModePanel), marginBottom(7));
-        root.addView(guardSettingBlock("主动提醒", "电量、休息与喝水", R.drawable.ic_clock, drawerReminder), marginBottom(7));
-        root.addView(guardSettingBlock("周期提醒", AppPrefs.userName(this) + "的周期与关怀", R.drawable.ic_heart_wave, drawerCycle), marginBottom(11));
+        root.addView(label("查岗与管束", 9), marginBottom(6));
+        root.addView(actionSettingBlock("查岗拉回", "查岗周期、拉回用户的分级与弹窗", R.drawable.ic_shield, () -> openPolicySettings("checkin")), marginBottom(7));
+        root.addView(actionSettingBlock("分心强拉回", "切出去又立马切回来，来回几次算分心；按拉回阈值分级弹窗", R.drawable.ic_shield, () -> openPolicySettings("distraction")), marginBottom(7));
+        root.addView(actionSettingBlock("训诫", "小圈管束设定与话语，温柔 / 严厉两种语气", R.drawable.ic_shield, () -> openPolicySettings("discipline")), marginBottom(11));
+
+        root.addView(label("情绪与陪伴", 9), marginBottom(6));
+        root.addView(actionSettingBlock("情绪感知", "情绪达标自动弹窗、情绪标签与百分比", R.drawable.ic_heart_wave, () -> openPolicySettings("emotion")), marginBottom(7));
+        root.addView(actionSettingBlock("主动找用户", "太久没发消息就主动找你", R.drawable.ic_heart_wave, () -> openPolicySettings("initiative")), marginBottom(11));
+
+        root.addView(label("管束与提醒", 9), marginBottom(6));
+        root.addView(actionSettingBlock("应用门禁", "锁 App 时长、自主添加受限应用", R.drawable.ic_shield, () -> openPolicySettings("appgate")), marginBottom(7));
+        root.addView(actionSettingBlock("主动提醒", "电量、屏幕、喝水、休息、周期", R.drawable.ic_clock, () -> openPolicySettings("reminder")), marginBottom(7));
+        root.addView(actionSettingBlock("专注模式", "全机专注、应急放行与留言", R.drawable.ic_shield, this::showFocusModePanel), marginBottom(11));
+
+        root.addView(label("日子与作息", 9), marginBottom(6));
+        root.addView(actionSettingBlock("守护日历", "纪念日、节日和倒数日", R.drawable.ic_clock, this::showGuardianCalendarDetailPage), marginBottom(7));
+        root.addView(actionSettingBlock("课表作息", "上课静默守护与提醒", R.drawable.ic_clock, () -> openPolicySettings("schedule")), marginBottom(7));
+        root.addView(actionSettingBlock("共同记忆", "双方可改的共享记忆", R.drawable.ic_heart_wave, () -> openPolicySettings("memory")), marginBottom(7));
+        root.addView(actionSettingBlock("识图感知", "从当前屏幕读取文字", R.drawable.ic_eye, () -> openPolicySettings("ocr")), marginBottom(7));
+        root.addView(actionSettingBlock("插件分类", "全部扩展能力归类总览", R.drawable.ic_shield, this::showPluginRegistryFromGuard), marginBottom(11));
+
+        root.addView(label("地点与设备", 9), marginBottom(6));
+        root.addView(actionSettingBlock("天气地区", "家与常用地点", R.drawable.ic_cloud, () -> openPolicySettings("weather")), marginBottom(7));
+        root.addView(actionSettingBlock("回家模式", "回来时打开熟悉的窗", R.drawable.ic_home, () -> openPolicySettings("homemode")), marginBottom(7));
+        root.addView(actionSettingBlock("归电设置", "间隔 / 冷却 / 安静时段等时间项，可点开设置、保存后立即生效", R.drawable.ic_clock, this::openGuidianSettingsFromGuard), marginBottom(10));
 
         root.addView(buildEmotionCard(), marginBottom(11));
-
-        root.addView(label("归电（陪伴对象）", 9), marginBottom(6));
-        root.addView(guardSettingBlock("归电设置", "陪伴对象来敲门的节奏、位置与语气，改完点保存即可生效", R.drawable.ic_clock, drawerGuidianSettings), marginBottom(7));
-        root.addView(guardSettingBlock("归电主题与位置", "拉回弹窗的配色与出现在屏幕的上下位置", R.drawable.ic_heart_wave, drawerGuidian), marginBottom(11));
-
-        root.addView(label("回家与设备", 9), marginBottom(6));
-        root.addView(guardSettingBlock("回家模式", "回来时打开熟悉的窗", R.drawable.ic_home, drawerHomeMode), marginBottom(10));
 
         LinearLayout ending = editorialCard();
         ending.setOrientation(LinearLayout.HORIZONTAL);
@@ -1158,14 +1171,14 @@ public class MainActivity extends Activity {
         LinearLayout card = editorialCard();
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(14), dp(12), dp(14), dp(12));
-        TextView head = title("此刻她的心情", 15);
+        TextView head = title("此刻用户对你的心情", 15);
         card.addView(head, marginBottom(6));
         emotionSummaryText = body("情绪加载中…", 11);
         emotionSummaryText.setTextColor(UITheme.current(this).subtext);
         card.addView(emotionSummaryText, marginBottom(8));
-        Button detail = iconButton("去设置情绪", "打开查岗与管束");
+        Button detail = iconButton("更改情绪感知", "打开情绪感知单分区设置");
         detail.setTextSize(13);
-        detail.setOnClickListener(v -> openPolicySettings());
+        detail.setOnClickListener(v -> openPolicySettings("emotion"));
         card.addView(detail);
         return card;
     }
@@ -1179,11 +1192,60 @@ public class MainActivity extends Activity {
      * XML 里的同名按钮会被 removeAllViews() 一起清掉，真机上就看不见了。
      */
     private void openPolicySettings() {
+        openPolicySettings(null);
+    }
+
+    /** 打开「查岗与管束」设置页，并直达指定分区（守护界面卡片用）。 */
+    private void openPolicySettings(String section) {
         try {
-            startActivity(new Intent(this, PolicySettingsActivity.class));
+            Intent it = new Intent(this, PolicySettingsActivity.class);
+            if (section != null && !section.isEmpty()) it.putExtra("section", section);
+            startActivity(it);
         } catch (Exception e) {
             DebugState.append(this, "打开查岗与管束失败：" + ScreenshotService.shortMsg(e));
             toast(false);
+        }
+    }
+
+    /**
+     * 守护界面「归电设置」入口：原地展开完整的归电设置面板，不跳转页面、不拉起别的窗口。
+     * 面板直接复用设置页的 XML 抽屉，因此间隔、冷却、每日上限、安静开始 / 结束等时间项
+     * 一项都不少；底部「保存归电设置」按钮把改动写入底层 SharedPreferences 并立即生效。
+     */
+    private void openGuidianSettingsFromGuard() {
+        if (drawerGuidianSettings == null) { toast(false); return; }
+        try {
+            loadSettings(); // 先回填底层生效值，保证打开看到的就是当前配置（含全部时间项）
+            showFeaturePanel("归电设置 · 保存后立即生效", drawerGuidianSettings);
+        } catch (Exception e) {
+            DebugState.append(this, "打开归电设置失败：" + ScreenshotService.shortMsg(e));
+            toast(false);
+        }
+    }
+
+    /** 守护界面「插件分类」入口：列出全部扩展能力归类，只读总览，无需保存。 */
+    private void showPluginRegistryFromGuard() {
+        try {
+            JSONObject reg = PluginRegistry.categorizedJson();
+            StringBuilder sb = new StringBuilder("插件分类（共 " + PluginRegistry.all().size() + " 个）：\n\n");
+            java.util.Iterator<String> it = reg.keys();
+            while (it.hasNext()) {
+                String cat = it.next();
+                sb.append("【").append(cat).append("】\n");
+                org.json.JSONArray arr = reg.optJSONArray(cat);
+                if (arr != null) {
+                    for (int i = 0; i < arr.length(); i++) {
+                        JSONObject o = arr.optJSONObject(i);
+                        if (o != null) sb.append("· ").append(o.optString("name", ""))
+                                .append("：").append(o.optString("desc", "")).append("\n");
+                    }
+                }
+                sb.append("\n");
+            }
+            new AlertDialog.Builder(this).setTitle("插件分类").setMessage(sb.toString().trim())
+                    .setPositiveButton("知道了", null).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "插件分类读取失败：" + ScreenshotService.shortMsg(e), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -2010,7 +2072,7 @@ public class MainActivity extends Activity {
         String date = new SimpleDateFormat("M月d日 · EEEE", Locale.CHINA).format(new Date());
         if ("life".equals(tab)) { headerTitle.setText(greeting() + "，" + AppPrefs.userName(this)); headerSubtitle.setText(date); }
         else if ("see".equals(tab)) {
-            if (diaryPageOpen) { headerTitle.setText("用户的日记"); headerSubtitle.setText(diaryContentOpen ? "翻开纸页，读一读 TA 留下的今天。" : "把今天看见的你，轻轻写下来。"); }
+            if (diaryPageOpen) { headerTitle.setText("TA 的日记"); headerSubtitle.setText(diaryContentOpen ? "翻开纸页，读一读 TA 留下的今天。" : "把今天看见的你，轻轻写下来。"); }
             else { headerTitle.setText("总有人在窗边等你"); headerSubtitle.setText("记录温柔的小事，也看见" + AppPrefs.companionName(this) + "的陪伴。"); }
         }
         else if ("gate".equals(tab)) {
@@ -2018,7 +2080,7 @@ public class MainActivity extends Activity {
             else { headerTitle.setText("Toujours à tes côtés"); headerSubtitle.setText("一直在你身边 · 守护状态与重要日子"); }
         }
         else { headerTitle.setText("设置这扇窗"); headerSubtitle.setText("调整" + AppPrefs.companionName(this) + "、窗面、提醒与隐私记录。"); }
-        if (brandText != null) brandText.setText("掌心窗  ·  " + ("life".equals(tab) ? "今天" : ("see".equals(tab) ? (diaryPageOpen ? "用户的日记" : "陪伴") : ("gate".equals(tab) ? (guardianCalendarDetailOpen ? "守护日历" : "守护") : "设置"))));
+        if (brandText != null) brandText.setText("掌心窗  ·  " + ("life".equals(tab) ? "今天" : ("see".equals(tab) ? (diaryPageOpen ? "TA 的日记" : "陪伴") : ("gate".equals(tab) ? (guardianCalendarDetailOpen ? "守护日历" : "守护") : "设置"))));
     }
     private String greeting() { int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY); return h < 5 ? "夜深了" : (h < 11 ? "早上好" : (h < 14 ? "午安" : (h < 18 ? "下午好" : (h < 23 ? "晚上好" : "夜深了")))); }
     private void setVisible(View v, boolean visible) { if (v != null) v.setVisibility(visible ? View.VISIBLE : View.GONE); }

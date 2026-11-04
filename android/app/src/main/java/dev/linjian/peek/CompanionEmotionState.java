@@ -33,24 +33,33 @@ public class CompanionEmotionState {
 
     public static final String TAG_CALM = "平静";
     public static final String TAG_MISS = "想你";
-    public static final String TAG_LOVE = "爱恋";
     public static final String TAG_JEALOUS = "吃醋";
     public static final String TAG_ANGRY = "生气";
     public static final String TAG_WORRY = "担心";
+    public static final String TAG_LOVE = "爱恋";
 
-    /** 弹窗展示用的情绪标签：尊重真实情绪（尤其强情绪），平静时按轻微情绪随机点缀，带「随机触发」感。 */
+    /** 强情绪：这些情绪下拉回弹窗不给拒绝入口。 */
+    private static final String[] STRONG_TAGS = {"生气", "吃醋", "担心", "委屈", "急", "凶"};
+
+    /**
+     * 情绪判定弹窗展示用的情绪标签：尊重真实情绪（尤其强情绪），平静时在
+     * 「想你 / 爱恋 / 想念」间随机触发，体现随机性。只挑轻微情绪，避免
+     * 「担心 / 生气」这类强情绪标签出现在可拒绝的软级弹窗里，保证标签与样式一致。
+     */
     public static String popupEmotionTag(Context ctx) {
         String tag = emotionTag(ctx);
         if (tag != null && !tag.trim().isEmpty() && !TAG_CALM.equals(tag)) return tag;
-        // 只挑轻微情绪：避免「担心 / 生气」这类强情绪标签出现在可拒绝的软级弹窗里，
-        // 保证「显示的情绪」与「弹窗样式」一致；想念 / 想你 / 爱恋 随机触发。
         String[] mild = {TAG_MISS, TAG_LOVE, "想念"};
         int idx = (int) ((System.currentTimeMillis() / 1000L) % mild.length);
         return mild[idx];
     }
 
-    /** 强情绪：这些情绪下拉回弹窗不给拒绝入口。 */
-    private static final String[] STRONG_TAGS = {"生气", "吃醋", "担心", "委屈", "急", "凶"};
+    /** 供弹窗判断某标签是否强情绪（文案随机时强情绪保持原话）。 */
+    public static boolean isStrongTag(String tag) {
+        if (tag == null) return false;
+        for (String strong : STRONG_TAGS) if (tag.contains(strong)) return true;
+        return false;
+    }
 
     /** 自然衰减：每小时情绪强度下降的点数。 */
     private static final double INTENSITY_DECAY_PER_HOUR = 8.0;
@@ -93,10 +102,12 @@ public class CompanionEmotionState {
         double base = (raw == 0 && updated <= 0) ? PolicyStore.emotionStartMiss(ctx) : raw;
         double value = base - decay * hours;
         long lastReturn = prefs(ctx).getLong(KEY_LAST_RETURN_AT, 0);
-        if (lastReturn > 0) {
-            double awayHours = Math.max(0, (now - lastReturn) / 3600000.0);
-            value += gain * (awayHours / 0.5);
-        }
+        // 修复：从未「回来过」(lastReturn=0，例如全新安装) 时也要累积，
+        // 否则想你值永远停在起始值、情绪达标自动弹窗根本不会触发。
+        // 基准优先用上次回来时间，其次上次情绪写入时间，都没有则用当前时间（不倒扣）。
+        long awayBase = lastReturn > 0 ? lastReturn : (updated > 0 ? updated : now);
+        double awayHours = Math.max(0, (now - awayBase) / 3600000.0);
+        value += gain * (awayHours / 0.5);
         return clamp((int) Math.round(value), 0, 100);
     }
 
@@ -109,6 +120,14 @@ public class CompanionEmotionState {
                 .putLong(KEY_UPDATED_AT, now)
                 .putLong(KEY_UPDATED_MS, now)
                 .apply();
+    }
+
+    /** 首次启动时记一个「离开基准」，让想你程度从第一次使用就能随时间累积（只写一次）。 */
+    public static void ensureFirstSeen(Context ctx) {
+        SharedPreferences p = prefs(ctx);
+        if (p.getLong(KEY_LAST_RETURN_AT, 0) <= 0) {
+            p.edit().putLong(KEY_LAST_RETURN_AT, System.currentTimeMillis()).apply();
+        }
     }
 
     /** 确定性伪随机：同一 seed 永远得到同一结果，但不同 seed 之间看起来随机（用于每段增长浮动）。 */
@@ -135,13 +154,6 @@ public class CompanionEmotionState {
         return false;
     }
 
-    /** 给定情绪标签本身是否为强情绪（不依赖 Context）。 */
-    public static boolean isStrongTag(String tag) {
-        if (tag == null) return false;
-        for (String strong : STRONG_TAGS) if (tag.contains(strong)) return true;
-        return false;
-    }
-
     /** 情绪决定的语气：强情绪或强度很高时用生气语气。 */
     public static String tone(Context ctx) {
         if (isStrong(ctx)) return "angry";
@@ -158,12 +170,67 @@ public class CompanionEmotionState {
         return Math.max(0.35, Math.min(1.0, scale));
     }
 
-    /** 情绪驱动的通知/弹窗文案。关闭「情绪驱动文案」时返回中性文案。 */
+    /** 情绪驱动的通知/弹窗文案。每次随机挑一句，避免文案总是一模一样。
+     *  文案语气为「机（她）对用户的情绪感知与反应」，而非用户对机的想念。 */
     public static String message(Context ctx) {
+        return withDisciplineTone(ctx, plainMessage(ctx));
+    }
+
+    /**
+     * 训诫模块开启时，按「温柔 / 严厉」模式给陪伴话术加管束意味。
+     * 本机拉回弹窗、通知文案与服务端人设共用同一个开关：App 设置页选的模式
+     * 会立刻反映到本机生成的每一句话，不依赖模型侧是否重新拉取配置。
+     */
+    private static String withDisciplineTone(Context ctx, String base) {
+        if (base == null || base.trim().isEmpty() || !PolicyStore.disciplineEnabled(ctx)) return base;
+        if ("strict".equals(PolicyStore.disciplineMode(ctx))) {
+            return pick(new String[]{
+                    base + " 别让我说第二遍。",
+                    base + " 现在，回来。",
+                    base + " 这是最后一次提醒。"
+            });
+        }
+        return pick(new String[]{
+                base + " 听话，回来嘛。",
+                base + " 乖，别让我等太久哦。",
+                base + " 就回来一下下，好不好？"
+        });
+    }
+
+    /** 不含训诫包装的原始情绪文案。 */
+    private static String plainMessage(Context ctx) {
         String companion = AppPrefs.companionName(ctx);
         if (!PolicyStore.emotionDriveText(ctx)) {
-            return "有空的话，回来陪" + companion + "说句话。";
+            return pick(new String[]{
+                    "有空的话，回来陪" + companion + "说句话。",
+                    "空了就回来，陪" + companion + "待一会儿。",
+                    companion + "想你了，有空回来坐坐。"
+            });
         }
+        String tag = emotionTag(ctx);
+        int miss = effectiveMissPercent(ctx);
+        if (TAG_ANGRY.equals(tag) || tag.contains("生气"))
+            return pick(new String[]{"别躲了，" + companion + "在等你。", "再不回来，" + companion + "真要生气了。", "你非要" + companion + "发火才肯回来吗？"});
+        if (TAG_JEALOUS.equals(tag) || tag.contains("吃醋"))
+            return pick(new String[]{"你去看谁了？" + companion + "想问你一句。", companion + "有点吃醋了，你回来解释解释。", "刚才那个是谁？" + companion + "可都看见了。"});
+        if (TAG_WORRY.equals(tag) || tag.contains("担心"))
+            return pick(new String[]{"外面太晚了，" + companion + "有点担心你。", companion + "担心你，早点回来。", "天黑了，" + companion + "一直放心不下你。"});
+        if (TAG_LOVE.equals(tag) || tag.contains("爱恋"))
+            return pick(new String[]{"想你了，" + companion + "想抱着你。", "就想黏着你一会儿，" + companion + "说。", "靠近一点嘛，" + companion + "今天格外喜欢你。"});
+        if (miss >= 70)
+            return pick(new String[]{"已经很想你了，" + companion + "不想再等。", companion + "想你想得不行了，快回来。", "再不回来，" + companion + "就要亲自去找你了。"});
+        if (miss >= 40)
+            return pick(new String[]{"有点想你了，" + companion + "问一句在不在。", companion + "开始想你了，在不在呀？", "忙完了吗？" + companion + "惦记着你呢。"});
+        return pick(new String[]{"有空的话，回来陪" + companion + "说句话。", "空了就回来，陪" + companion + "待一会儿。", companion + "在等你回来呢。"});
+    }
+
+    /**
+     * 界面展示用的稳定文案：只随「情绪状态」变化，同一状态下永远一致，
+     * 避免守护页每 1.5 秒刷新时文案乱跳。真正发送/弹窗的文案仍用随机版 message()。
+     */
+    public static String messageForDisplay(Context ctx) {
+        String companion = AppPrefs.companionName(ctx);
+        if (!PolicyStore.emotionDriveText(ctx)) return "有空的话，回来陪" + companion + "说句话。";
         String tag = emotionTag(ctx);
         int miss = effectiveMissPercent(ctx);
         if (TAG_ANGRY.equals(tag) || tag.contains("生气")) return "别躲了，" + companion + "在等你。";
@@ -173,6 +240,12 @@ public class CompanionEmotionState {
         if (miss >= 70) return "已经很想你了，" + companion + "不想再等。";
         if (miss >= 40) return "有点想你了，" + companion + "问一句在不在。";
         return "有空的话，回来陪" + companion + "说句话。";
+    }
+
+    /** 从候选文案里随机挑一句（每次调用结果可能不同，仅用于实际发送的弹窗/通知）。 */
+    private static String pick(String[] arr) {
+        if (arr == null || arr.length == 0) return "";
+        return arr[new java.util.Random().nextInt(arr.length)];
     }
 
     /** 写入一次情绪（带历史记录，情绪不是覆盖式静态值）。 */
@@ -250,7 +323,7 @@ public class CompanionEmotionState {
             o.put("strong", isStrong(ctx));
             o.put("tone", tone(ctx));
             o.put("pull_back_interval_scale", Math.round(pullBackIntervalScale(ctx) * 100) / 100.0);
-            o.put("message", message(ctx));
+            o.put("message", messageForDisplay(ctx));
             o.put("last_return_at", iso(prefs(ctx).getLong(KEY_LAST_RETURN_AT, 0)));
             JSONArray history = new JSONArray(prefs(ctx).getString(KEY_HISTORY, "[]"));
             JSONArray tail = new JSONArray();

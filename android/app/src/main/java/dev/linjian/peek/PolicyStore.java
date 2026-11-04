@@ -66,24 +66,31 @@ public final class PolicyStore {
     public static final String KEY_DISCIPLINE_LEVEL = PREFIX + "disc_level";     // 0~4 档，默认 0
     public static final String KEY_DISCIPLINE_USER_ONLY = PREFIX + "disc_user_only"; // 仅用户本人能开，默认 true
     public static final String KEY_DISCIPLINE_BADGE = PREFIX + "disc_badge";     // 开启标志，默认 true
-    public static final String KEY_DISCIPLINE_MODE = PREFIX + "disc_mode";       // 训诫语气模式：gentle(温柔)/strict(严厉)，默认 gentle
 
     // —— 分心判定 ——
-    public static final String KEY_DISTRACTION_ENABLED = PREFIX + "dist_enabled"; // 切屏算不算分心（常开），默认 true
+    public static final String KEY_DISTRACTION_ENABLED = PREFIX + "dist_enabled"; // 切屏算不算分心，默认 true
     public static final String KEY_DISTRACTION_EVERY = PREFIX + "dist_every";    // 是否每次切屏都拉回，默认 false
     public static final String KEY_DISTRACTION_THRESHOLD = PREFIX + "dist_threshold";   // 累计分心阈值（默认 5 次）
     public static final String KEY_DISTRACTION_AUTO_PULLBACK = PREFIX + "dist_auto_pullback"; // 超阈值自动强拉回，默认 true
     public static final String KEY_DISTRACTION_COUNT = PREFIX + "dist_count";     // 当前连续分心计数（运行时累计）
-    // —— 分心查岗：切出切回「来回」检测（新增，常开）——
-    public static final String KEY_DISTRACTION_LOOP_ENABLED = PREFIX + "dist_loop_enabled"; // 切出又切回算分心，默认 true
-    public static final String KEY_DISTRACTION_LOOP_TIMES = PREFIX + "dist_loop_times";     // 几个来回算分心，默认 2
-    public static final String KEY_DISTRACTION_LOOP_WINDOW = PREFIX + "dist_loop_window_sec"; // 来回时间窗口（秒），默认 90
+    public static final String KEY_DISTRACTION_LOOP_ENABLED = PREFIX + "dist_loop_enabled"; // 「切出→切回」算分心，默认 true
+    public static final String KEY_DISTRACTION_LOOP_TIMES = PREFIX + "dist_loop_times";     // 来回次数阈值，默认 2
+    public static final String KEY_DISTRACTION_LOOP_WINDOW = PREFIX + "dist_loop_window";   // 来回时间窗口(秒)，默认 90
+    public static final String KEY_DISCIPLINE_MODE = PREFIX + "disc_mode";       // 训诫语气 gentle / strict，默认 gentle
 
     // —— 应用使用时长自动锁 ——
     public static final String KEY_USAGE_LOCK_ENABLED = PREFIX + "usage_lock_enabled"; // 连续使用超 N 分钟自动锁，默认 false
     public static final String KEY_USAGE_LOCK_MINUTES = PREFIX + "usage_lock_min";     // 连续使用 N 分钟触发锁定，默认 45
     public static final String KEY_USAGE_LOCK_DURATION = PREFIX + "usage_lock_dur";    // 锁定 M 分钟，默认 15
     public static final String KEY_USAGE_LOCK_PACKAGES = PREFIX + "usage_lock_pkgs";   // 监控的包名（逗号分隔，空=仅目标 App）
+
+    // —— 识图感知（可开关；默认开启，用户可在「查岗与管束」里关闭）——
+    public static final String KEY_OCR_ENABLED = PREFIX + "ocr_enabled";          // 识图感知总开关，默认 true
+
+    // —— 情绪感知自动弹窗（想你程度达阈值时，独立触发「同意/拒绝」全局弹窗）——
+    public static final String KEY_EMOTION_POPUP_ENABLED = PREFIX + "emo_popup_enabled";   // 自动弹窗总开关，默认 true
+    public static final String KEY_EMOTION_POPUP_THRESHOLD = PREFIX + "emo_popup_threshold"; // 想你达到该 % 触发，默认 70
+    public static final String KEY_EMOTION_POPUP_INTERVAL = PREFIX + "emo_popup_interval";  // 两次最小间隔（分钟），默认 30
 
     // —— 安静时段 / 深夜时段（支持跨零点）——
     public static final String KEY_QUIET_START = PREFIX + "quiet_start";         // "23:30"
@@ -128,7 +135,6 @@ public final class PolicyStore {
     private static final int DEF_DISC_LEVEL = 0;
     private static final boolean DEF_DISC_USER_ONLY = true;
     private static final boolean DEF_DISC_BADGE = true;
-    private static final String DEF_DISC_MODE = "gentle";
     private static final boolean DEF_DIST_ENABLED = true;
     private static final boolean DEF_DIST_EVERY = false;
     private static final int DEF_DIST_THRESHOLD = 5;
@@ -136,9 +142,14 @@ public final class PolicyStore {
     private static final boolean DEF_DIST_LOOP_ENABLED = true;
     private static final int DEF_DIST_LOOP_TIMES = 2;
     private static final int DEF_DIST_LOOP_WINDOW = 90;
+    private static final String DEF_DISC_MODE = "gentle";
     private static final boolean DEF_USAGE_LOCK_ENABLED = false;
     private static final int DEF_USAGE_LOCK_MIN = 45;
     private static final int DEF_USAGE_LOCK_DUR = 15;
+    private static final boolean DEF_OCR_ENABLED = true;
+    private static final boolean DEF_EMO_POPUP_ENABLED = true;
+    private static final int DEF_EMO_POPUP_THRESHOLD = 70;
+    private static final int DEF_EMO_POPUP_INTERVAL = 30;
     private static final String DEF_QUIET_START = "23:30";
     private static final String DEF_QUIET_END = "08:00";
     private static final String DEF_NIGHT_START = "23:00";
@@ -281,14 +292,13 @@ public final class PolicyStore {
     public static boolean disciplineUserOnly(Context ctx) { return getBool(ctx, KEY_DISCIPLINE_USER_ONLY, DEF_DISC_USER_ONLY); }
     public static boolean disciplineBadge(Context ctx) { return getBool(ctx, KEY_DISCIPLINE_BADGE, DEF_DISC_BADGE); }
     public static void setDisciplineBadge(Context ctx, boolean v) { putBool(ctx, KEY_DISCIPLINE_BADGE, v, "训诫开启标志"); }
-    /** 训诫语气模式：gentle=温柔，strict=严厉。改变后整体人设语气与管束意味随之改变。 */
+
+    // 训诫语气模式：gentle 温柔 / strict 严厉；开启后人设语气按所选模式变化。
     public static String disciplineMode(Context ctx) {
-        String v = getString(ctx, KEY_DISCIPLINE_MODE, DEF_DISC_MODE);
-        return ("strict".equalsIgnoreCase(v) || "严厉".equals(v)) ? "strict" : "gentle";
+        return "strict".equalsIgnoreCase(getString(ctx, KEY_DISCIPLINE_MODE, DEF_DISC_MODE)) ? "strict" : "gentle";
     }
     public static void setDisciplineMode(Context ctx, String v) {
-        String mode = ("strict".equalsIgnoreCase(v) || "严厉".equals(v)) ? "strict" : "gentle";
-        putString(ctx, KEY_DISCIPLINE_MODE, mode, "训诫语气模式");
+        putString(ctx, KEY_DISCIPLINE_MODE, "strict".equalsIgnoreCase(v) ? "strict" : "gentle", "训诫语气模式");
     }
 
     // —— 分心判定 ——
@@ -301,15 +311,13 @@ public final class PolicyStore {
     public static boolean distractionAutoPullback(Context ctx) { return getBool(ctx, KEY_DISTRACTION_AUTO_PULLBACK, DEF_DIST_AUTO_PULLBACK); }
     public static void setDistractionAutoPullback(Context ctx, boolean v) { putBool(ctx, KEY_DISTRACTION_AUTO_PULLBACK, v, "超阈值自动强拉回"); }
 
-    /** 切出又切回「来回」检测开关（分心查岗核心，默认常开）。 */
+    // 分心查岗（常开）：聊天中切出去、立马切回来，来回几次才算分心。
     public static boolean distractionLoopEnabled(Context ctx) { return getBool(ctx, KEY_DISTRACTION_LOOP_ENABLED, DEF_DIST_LOOP_ENABLED); }
     public static void setDistractionLoopEnabled(Context ctx, boolean v) { putBool(ctx, KEY_DISTRACTION_LOOP_ENABLED, v, "切出切回算分心"); }
-    /** 几个「切出→切回」来回算一次分心查岗。 */
     public static int distractionLoopTimes(Context ctx) { return getInt(ctx, KEY_DISTRACTION_LOOP_TIMES, DEF_DIST_LOOP_TIMES); }
     public static void setDistractionLoopTimes(Context ctx, int v) { putInt(ctx, KEY_DISTRACTION_LOOP_TIMES, clamp(v, 1, 99), "分心来回次数"); }
-    /** 来回时间窗口（秒）：两次切换间隔超过它就不算「立马切回」。 */
     public static int distractionLoopWindowSec(Context ctx) { return getInt(ctx, KEY_DISTRACTION_LOOP_WINDOW, DEF_DIST_LOOP_WINDOW); }
-    public static void setDistractionLoopWindowSec(Context ctx, int v) { putInt(ctx, KEY_DISTRACTION_LOOP_WINDOW, clamp(v, 5, 600), "分心来回窗口(秒)"); }
+    public static void setDistractionLoopWindowSec(Context ctx, int v) { putInt(ctx, KEY_DISTRACTION_LOOP_WINDOW, clamp(v, 5, 3600), "分心来回时间窗口(秒)"); }
 
     /** 连续分心计数（运行时累计，回到目标 App 清零）。 */
     public static int distractionCount(Context ctx) { return getInt(ctx, KEY_DISTRACTION_COUNT, 0); }
@@ -326,6 +334,18 @@ public final class PolicyStore {
     public static void setUsageLockDuration(Context ctx, int v) { putInt(ctx, KEY_USAGE_LOCK_DURATION, clamp(v, 1, 1440), "自动锁定时长(分钟)"); }
     public static String usageLockPackages(Context ctx) { return getString(ctx, KEY_USAGE_LOCK_PACKAGES, ""); }
     public static void setUsageLockPackages(Context ctx, String v) { putString(ctx, KEY_USAGE_LOCK_PACKAGES, v, "时长自动锁监控包名"); }
+
+    // —— 识图感知（可开关）——
+    public static boolean ocrEnabled(Context ctx) { return getBool(ctx, KEY_OCR_ENABLED, DEF_OCR_ENABLED); }
+    public static void setOcrEnabled(Context ctx, boolean v) { putBool(ctx, KEY_OCR_ENABLED, v, "识图感知开关"); }
+
+    // —— 情绪感知自动弹窗（独立于查岗，想你达阈值即弹「同意/拒绝」）——
+    public static boolean emotionPopupEnabled(Context ctx) { return getBool(ctx, KEY_EMOTION_POPUP_ENABLED, DEF_EMO_POPUP_ENABLED); }
+    public static void setEmotionPopupEnabled(Context ctx, boolean v) { putBool(ctx, KEY_EMOTION_POPUP_ENABLED, v, "情绪自动弹窗开关"); }
+    public static int emotionPopupThreshold(Context ctx) { return getInt(ctx, KEY_EMOTION_POPUP_THRESHOLD, DEF_EMO_POPUP_THRESHOLD); }
+    public static void setEmotionPopupThreshold(Context ctx, int v) { putInt(ctx, KEY_EMOTION_POPUP_THRESHOLD, clamp(v, 1, 100), "情绪弹窗触发阈值(%)"); }
+    public static int emotionPopupIntervalMin(Context ctx) { return getInt(ctx, KEY_EMOTION_POPUP_INTERVAL, DEF_EMO_POPUP_INTERVAL); }
+    public static void setEmotionPopupIntervalMin(Context ctx, int v) { putInt(ctx, KEY_EMOTION_POPUP_INTERVAL, clamp(v, 1, 1440), "情绪弹窗最小间隔(分钟)"); }
 
     // —— 安静 / 深夜时段 ——
     public static String quietStart(Context ctx) { return getString(ctx, KEY_QUIET_START, DEF_QUIET_START); }
@@ -514,7 +534,6 @@ public final class PolicyStore {
         e.putInt(KEY_DISCIPLINE_LEVEL, DEF_DISC_LEVEL);
         e.putBoolean(KEY_DISCIPLINE_USER_ONLY, DEF_DISC_USER_ONLY);
         e.putBoolean(KEY_DISCIPLINE_BADGE, DEF_DISC_BADGE);
-        e.putString(KEY_DISCIPLINE_MODE, DEF_DISC_MODE);
         e.putBoolean(KEY_DISTRACTION_ENABLED, DEF_DIST_ENABLED);
         e.putBoolean(KEY_DISTRACTION_EVERY, DEF_DIST_EVERY);
         e.putInt(KEY_DISTRACTION_THRESHOLD, DEF_DIST_THRESHOLD);
@@ -522,11 +541,16 @@ public final class PolicyStore {
         e.putBoolean(KEY_DISTRACTION_LOOP_ENABLED, DEF_DIST_LOOP_ENABLED);
         e.putInt(KEY_DISTRACTION_LOOP_TIMES, DEF_DIST_LOOP_TIMES);
         e.putInt(KEY_DISTRACTION_LOOP_WINDOW, DEF_DIST_LOOP_WINDOW);
+        e.putString(KEY_DISCIPLINE_MODE, DEF_DISC_MODE);
         e.putInt(KEY_DISTRACTION_COUNT, 0);
         e.putBoolean(KEY_USAGE_LOCK_ENABLED, DEF_USAGE_LOCK_ENABLED);
         e.putInt(KEY_USAGE_LOCK_MINUTES, DEF_USAGE_LOCK_MIN);
         e.putInt(KEY_USAGE_LOCK_DURATION, DEF_USAGE_LOCK_DUR);
         e.putString(KEY_USAGE_LOCK_PACKAGES, "");
+        e.putBoolean(KEY_OCR_ENABLED, DEF_OCR_ENABLED);
+        e.putBoolean(KEY_EMOTION_POPUP_ENABLED, DEF_EMO_POPUP_ENABLED);
+        e.putInt(KEY_EMOTION_POPUP_THRESHOLD, DEF_EMO_POPUP_THRESHOLD);
+        e.putInt(KEY_EMOTION_POPUP_INTERVAL, DEF_EMO_POPUP_INTERVAL);
         e.putString(KEY_QUIET_START, DEF_QUIET_START);
         e.putString(KEY_QUIET_END, DEF_QUIET_END);
         e.putString(KEY_NIGHT_START, DEF_NIGHT_START);
@@ -557,6 +581,7 @@ public final class PolicyStore {
           .append(" 想她锁定=").append(emotionLock(ctx))
           .append(" 分心计数=").append(distractionCount(ctx)).append("/").append(distractionThreshold(ctx))
           .append(" 时长自动锁=").append(usageLockEnabled(ctx) ? usageLockMinutes(ctx)+"分→锁"+usageLockDuration(ctx)+"分" : "关")
+          .append(" 情绪自动弹窗=").append(emotionPopupEnabled(ctx) ? emotionPopupThreshold(ctx)+"%" : "关")
           .append(" 变更记录=").append(changeLogCount(ctx)).append("条");
         return sb.toString();
     }
