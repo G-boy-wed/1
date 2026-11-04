@@ -209,12 +209,12 @@ const MCP_TOOLS = [
   { name: "send_phone_command", description: "通用手机命令队列入口，支持 open_app/home/back/recents/screen_off/tap/swipe/set_alarm/send_notification/run_sequence、屏幕休息、归电、读屏、输入等旧版 action。", inputSchema: obj({ action: str("noop"), app: str(""), package: str(""), payload: anyObj(), device_id: str(DEFAULT_DEVICE), wait_seconds: int(0) }, ["action"]) },
 
   { name: "show_center_alert", description: "在用户手机屏幕正中央弹出一张对话框，支持标题、正文与按钮；语气 tone 可选「温柔 gentle」或「生气 angry」。", inputSchema: obj({ title: str("掌心窗"), message: str(""), tone: str("gentle"), button_text: str("知道啦"), device_id: str(DEFAULT_DEVICE), wait_seconds: int(8) }) },
-  { name: "force_back_to_chat", description: "把用户拉回掌心窗陪伴页，先弹分级拉回弹窗（不直接强制跳转）：想她百分比低于阈值且非强情绪 → 软级别，给「回到软件」与「拒绝并填写理由」两个选项；达到阈值或强情绪 → 强级别，只给「回到软件」一个按钮，不能拒绝。", inputSchema: obj({ tone: str("gentle"), level: str("auto"), title: str(""), message: str(""), device_id: str(DEFAULT_DEVICE), wait_seconds: int(8) }) },
+  { name: "force_back_to_chat", description: "把用户拉回掌心窗陪伴页，先弹分级拉回弹窗（不直接强制跳转）：想你程度低于阈值且非强情绪 → 软级别，给「回到软件」与「拒绝并填写理由」两个选项；达到阈值或强情绪 → 强级别，只给「回到软件」一个按钮，不能拒绝。", inputSchema: obj({ tone: str("gentle"), level: str("auto"), title: str(""), message: str(""), device_id: str(DEFAULT_DEVICE), wait_seconds: int(8) }) },
   { name: "get_usage_snapshot", description: "读取用户今天的用量快照：当前 App、单 App 停留时长、今日屏幕总时长、解锁次数、电量、充电、网络，以及 top Apps。直接读缓存，不等待手机实时刷新。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
-  { name: "get_emotion_snapshot", description: "读取「用户手机状态」的情绪感知输入快照：汇总当前 App、停留时长、解锁频率、是否深夜、电量、情绪标签，给出建议（该提醒 remind / 该拉回 pullback / 该安静 quiet）与推荐语气。想读陪伴对象自己的心情请用 get_companion_emotion。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
+  { name: "get_emotion_snapshot", description: "读取底层代码算出的【你（陪伴对象）对用户】的情绪感知结果：设备依据用户状态（时间、分心来回、离开时长、深夜、当前 App 等）自动算出情绪标签、强度、想你程度百分比与触发原因，并给出建议与语气。情绪判定由底层代码完成，不由大模型判断；用户状态只是输入，不是情绪主体。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
   { name: "write_emotion_tag", description: "回写一条情绪标签到掌心窗（如 撒娇、低落、嘴硬），并刷新“上次聊天时间”。", inputSchema: obj({ tag: str(""), note: str(""), device_id: str(DEFAULT_DEVICE) }) },
-  { name: "write_companion_emotion", description: "写入陪伴对象（TA）自己的情绪：emotion_tag（平静/想你/吃醋/生气/担心等）、intensity 0-100、miss_percent 0-100（想她百分比）、note。与用户手机状态的情绪快照分开存，互不覆盖；情绪会随时间自然衰减，也会随用户未回来的时间累积。", inputSchema: obj({ emotion_tag: str("平静"), intensity: int(undefined), miss_percent: int(undefined), note: str(""), device_id: str(DEFAULT_DEVICE) }) },
-  { name: "get_companion_emotion", description: "读取陪伴对象（TA）自己此刻的情绪：情绪标签、强度、想她百分比、备注、更新时间、是否强情绪。用于决定语气、文案与要不要拉回。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
+  { name: "write_companion_emotion", description: "手动微调【你（陪伴对象）对用户】的情绪（仅校准/调试）：emotion_tag（平静/想你/爱恋/吃醋/生气/担心等）、intensity 0-100、miss_percent 0-100（想你程度）、note。正常情况情绪由设备底层代码依据用户状态自动计算并触发，模型不要凭感觉写入；写入后短暂生效，随后底层感知自动接管。", inputSchema: obj({ emotion_tag: str("平静"), intensity: int(undefined), miss_percent: int(undefined), note: str(""), device_id: str(DEFAULT_DEVICE) }) },
+  { name: "get_companion_emotion", description: "读取【你（陪伴对象）对用户】此刻由底层代码算出的情绪：情绪标签、强度、想你程度、触发原因、更新时间、是否强情绪。不是识别用户自己的情绪，也不交给模型判断；用于决定语气、文案与要不要拉回。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
   { name: "set_tour_schedule", description: "配置掌心窗的巡回查岗策略：查岗周期、强制拉回周期、冷却时间、安静时段、单 App 锁阈值与时长、豁免应用列表、弹窗语气、拉回分级阈值。所有时间参数均可自由设定，无强制默认值。", inputSchema: obj({ enabled: bool(undefined), check_in_interval_minutes: int(undefined), force_back_interval_minutes: int(undefined), cooldown_minutes: int(undefined), quiet_hours: anyObj(), night_hours: anyObj(), single_app_lock_minutes: int(undefined), single_app_lock_duration_minutes: int(undefined), alert_tone: str(""), force_back_miss_threshold: int(undefined), exempt_packages: arr({ type: "string" }), device_id: str(DEFAULT_DEVICE) }) },
   { name: "get_tour_schedule", description: "读取当前巡回查岗与管束策略，与手机端「查岗与管束」页面显示的是同一份配置。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
 
@@ -711,7 +711,20 @@ async function callMcpTool(name, args = {}, env) {
       const tone = lateNight && dwell > 60 ? "angry" : (sched.alert_tone || "gentle");
       const lastChatAt = emo.last_chat_at || "";
       const sinceChat = lastChatAt ? Math.round((Date.now() - Date.parse(lastChatAt)) / 60000) : -1;
-      return mcpText({ ok: true, device_id, local_time: hm, late_night: lateNight, quiet, inputs: { current_app: raw.current_app || "", current_package: raw.current_package || "", current_app_dwell_minutes: dwell, screen_time_today_minutes: screen, unlock_count_today: Number(raw.unlock_count_today || 0), battery_percent: raw.battery_percent ?? null, charging: Boolean(raw.charging), network_type: raw.network_type || "", minutes_since_last_chat: sinceChat, emotion_tags: tags }, suggestion, reasons, recommended_tone: tone });
+      // 情绪主体：全部由底层代码依据用户状态判定，不交给模型、也不是识别用户自己的情绪。
+      const ce = effectiveCompanionEmotion(await getCompanionEmotion(env));
+      const miss = Number(ce.miss_percent || 0);
+      const intensity = Number(ce.intensity || 0);
+      const threshold = Number(sched.force_back_miss_threshold || 70);
+      let emoTag, emoReason;
+      if (quiet || suggestion === "quiet") { emoTag = "想你"; emoReason = "安静/上课时段，先安静陪着你，不打扰。"; }
+      else if (lateNight && (dwell > 60 || screen > 240)) { emoTag = "担心"; emoReason = "深夜还在外面逗留很久，有点担心你。"; }
+      else if (sinceChat >= 120 && miss >= 55) { emoTag = "想念"; emoReason = "很久没回来了，想你程度已达 " + miss + "%。"; }
+      else if (miss >= 70) { emoTag = "想念"; emoReason = "想你程度 " + miss + "%，已经很想你了。"; }
+      else { emoTag = String(ce.emotion_tag || "平静"); emoReason = "状态平稳，想你程度 " + miss + "%。"; }
+      const emoStrong = companionEmotionIsStrong(emoTag) || miss >= threshold;
+      const emotion = { emotion_tag: emoTag, intensity, miss_percent: miss, tone: emoStrong ? "angry" : tone, reason: emoReason, strong: emoStrong, force_back_threshold: threshold, recommend_level: emoStrong ? "strong" : "soft" };
+      return mcpText({ ok: true, device_id, direction: "companion_to_user", source: "device_low_level_code", emotion, local_time: hm, late_night: lateNight, quiet, inputs: { current_app: raw.current_app || "", current_package: raw.current_package || "", current_app_dwell_minutes: dwell, screen_time_today_minutes: screen, unlock_count_today: Number(raw.unlock_count_today || 0), battery_percent: raw.battery_percent ?? null, charging: Boolean(raw.charging), network_type: raw.network_type || "", minutes_since_last_chat: sinceChat, emotion_tags: tags }, suggestion, reasons, recommended_tone: tone });
     }
     case "write_emotion_tag": {
       const tag = String(args.tag || args.emotion_tag || "").trim();

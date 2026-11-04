@@ -149,7 +149,7 @@ public class GuidianState {
         if (auto.length() > 0) sb.append("上次检查：").append(auto).append("\n");
         if (o.optBoolean("due_but_not_shown", false)) sb.append("诊断：已经到点但未弹，等待补弹检查。\n");
         // 陪伴对象自己的情绪（与读用户手机状态的情绪快照分开存）。
-        sb.append(CompanionEmotionState.emotionTag(ctx)).append(" · 想她 ")
+        sb.append(CompanionEmotionState.emotionTag(ctx)).append(" · 想你 ")
                 .append(CompanionEmotionState.effectiveMissPercent(ctx)).append("% · 强度 ")
                 .append(CompanionEmotionState.effectiveIntensity(ctx)).append("\n");
         sb.append("只检测已设置目标应用是否在前台，不读取应用内容。");

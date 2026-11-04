@@ -1121,7 +1121,7 @@ public class MainActivity extends Activity {
         root.addView(actionSettingBlock("训诫", "小圈管束设定与话语，温柔 / 严厉两种语气", R.drawable.ic_shield, () -> openPolicySettings("discipline")), marginBottom(11));
 
         root.addView(label("情绪与陪伴", 9), marginBottom(6));
-        root.addView(actionSettingBlock("情绪感知", "情绪达标自动弹窗、情绪标签与百分比", R.drawable.ic_heart_wave, () -> openPolicySettings("emotion")), marginBottom(7));
+        root.addView(actionSettingBlock("情绪感知", "你对用户的情绪：达标自动弹窗、情绪标签与想你程度", R.drawable.ic_heart_wave, () -> openPolicySettings("emotion")), marginBottom(7));
         root.addView(actionSettingBlock("主动找用户", "太久没发消息就主动找你", R.drawable.ic_heart_wave, () -> openPolicySettings("initiative")), marginBottom(11));
 
         root.addView(label("管束与提醒", 9), marginBottom(6));
@@ -1164,7 +1164,7 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * 实时情绪卡片：直接展示陪伴对象的情绪标签、情绪强度、想她百分比（修复 P1.4 前端不展示的问题）。
+     * 实时情绪卡片：直接展示陪伴对象的情绪标签、情绪强度、想你程度（修复 P1.4 前端不展示的问题）。
      * 数据来自本机 CompanionEmotionState，updateUI() 会刷新 emotionSummaryText。
      */
     private View buildEmotionCard() {
@@ -1223,25 +1223,45 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 守护界面「插件分类」入口：列出全部扩展能力归类，只读总览，无需保存。 */
+    /**
+     * 守护界面「插件分类」入口：只列没有独立卡片的扩展能力，避免与守护页卡片重复出现。
+     * 每个能力在 PluginRegistry 只登记一次；守护页已有可点卡片的能力在此只给计数，
+     * 不重复列出名称与说明（去重：一个能力、一个入口、一个标签）。
+     */
     private void showPluginRegistryFromGuard() {
         try {
             JSONObject reg = PluginRegistry.categorizedJson();
-            StringBuilder sb = new StringBuilder("插件分类（共 " + PluginRegistry.all().size() + " 个）：\n\n");
+            int total = PluginRegistry.all().size();
+            int guardCards = 0, extensions = 0;
+            StringBuilder sb = new StringBuilder("插件分类 · 共 " + total
+                    + " 个能力，均只登记一次。\n守护页已提供可点卡片的能力在此不重复罗列，下面只列没有独立卡片的扩展能力。\n\n");
             java.util.Iterator<String> it = reg.keys();
             while (it.hasNext()) {
                 String cat = it.next();
-                sb.append("【").append(cat).append("】\n");
                 org.json.JSONArray arr = reg.optJSONArray(cat);
-                if (arr != null) {
-                    for (int i = 0; i < arr.length(); i++) {
-                        JSONObject o = arr.optJSONObject(i);
-                        if (o != null) sb.append("· ").append(o.optString("name", ""))
+                if (arr == null) continue;
+                StringBuilder ext = new StringBuilder();
+                int cardCount = 0;
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject o = arr.optJSONObject(i);
+                    if (o == null) continue;
+                    if (o.optString("guard_section", "").isEmpty()) {
+                        ext.append("· ").append(o.optString("name", ""))
                                 .append("：").append(o.optString("desc", "")).append("\n");
+                        extensions++;
+                    } else {
+                        cardCount++;
+                        guardCards++;
                     }
                 }
+                sb.append("【").append(cat).append("】");
+                if (cardCount > 0) sb.append(" 守护页已有 ").append(cardCount).append(" 张可点卡片");
+                sb.append("\n");
+                sb.append(ext.length() > 0 ? ext : "（本类能力均已在守护页有可点卡片，不重复列出）\n");
                 sb.append("\n");
             }
+            sb.append("合计：守护页可点卡片 ").append(guardCards)
+                    .append(" 项 · 仅此处可见的扩展能力 ").append(extensions).append(" 项。");
             new AlertDialog.Builder(this).setTitle("插件分类").setMessage(sb.toString().trim())
                     .setPositiveButton("知道了", null).show();
         } catch (Exception e) {
@@ -2890,7 +2910,7 @@ public class MainActivity extends Activity {
                 JSONObject snap = CompanionEmotionState.snapshot(this);
                 String line = "情绪标签：" + snap.optString("emotion_tag", "平静")
                         + "　强度：" + snap.optInt("intensity", 0)
-                        + "　想她：" + snap.optInt("miss_percent", 0) + "%";
+                        + "　想你：" + snap.optInt("miss_percent", 0) + "%";
                 if (PolicyStore.emotionLock(this)) line += "（已锁定）";
                 emotionSummaryText.setText(line + "\n文案：" + snap.optString("message", ""));
             } catch (Exception ignored) { }

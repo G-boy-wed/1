@@ -901,7 +901,7 @@ DEFAULT_TOUR_SCHEDULE = {
     "exempt_packages": [],
     # 弹窗语气：gentle（温柔）/ angry（生气），由用户选择。
     "alert_tone": "gentle",
-    # 拉回分级阈值：陪伴对象「想她百分比」达到该值 → 强级别拉回弹窗（只给「回到软件」一个按钮）。
+    # 拉回分级阈值：陪伴对象「想你程度」达到该值 → 强级别拉回弹窗（只给「回到软件」一个按钮）。
     "force_back_miss_threshold": 70,
 }
 
@@ -1031,7 +1031,13 @@ def is_package_exempt(state: "State", device_id: str, sched: dict) -> bool:
 
 
 def build_emotion_snapshot(state: "State", device_id: str) -> dict:
-    """情绪感知输入汇总：掌心窗只提供感知输入，情绪判断由大模型完成。"""
+    """【你（陪伴对象）对用户】的情绪感知结果：由底层代码依据用户状态算出，不由大模型判断。
+
+    方向：不是「识别用户自己的情绪」，而是陪伴对象感知用户状态后对用户产生的情绪
+    （想你 / 爱恋 / 生气 / 吃醋 / 担心 / 平静）与想你程度百分比。
+    设备端有更完整的信号（分心来回、离开时长等）时以设备端结果为准；
+    服务端用设备快照 + 已同步的陪伴情绪做等价的代码计算与兜底。
+    """
     sched = load_tour_schedule(state)
     snap = build_usage_snapshot(state, device_id)
     hm = _device_local_hm(state, device_id)
@@ -1070,8 +1076,37 @@ def build_emotion_snapshot(state: "State", device_id: str) -> dict:
     tone = sched.get("alert_tone", "gentle")
     if late_night and dwell > 60:
         tone = "angry"
+
+    # 情绪主体：全部由底层代码依据用户状态判定，不交给模型、也不读「用户自己的情绪」。
+    ce = effective_companion_emotion(state, device_id)
+    miss = int(ce.get("miss_percent", 0) or 0)
+    intensity = int(ce.get("intensity", 0) or 0)
+    threshold = int((load_tour_schedule(state).get("force_back_miss_threshold") or 70))
+    if quiet or suggestion == "quiet":
+        emo_tag, emo_reason = "想你", "安静/上课时段，先安静陪着你，不打扰。"
+    elif late_night and (dwell > 60 or screen > 240):
+        emo_tag, emo_reason = "担心", "深夜还在外面逗留很久，有点担心你。"
+    elif since_chat_min >= 120 and miss >= 55:
+        emo_tag, emo_reason = "想念", "很久没回来了，想你程度已达 %d%%。" % miss
+    elif miss >= 70:
+        emo_tag, emo_reason = "想念", "想你程度 %d%%，已经很想你了。" % miss
+    else:
+        emo_tag, emo_reason = str(ce.get("emotion_tag") or "平静"), "状态平稳，想你程度 %d%%。" % miss
+    strong = emo_tag in COMPANION_EMOTION_STRONG_TAGS or miss >= threshold
     return {
         "ok": True,
+        "direction": "companion_to_user",
+        "source": "device_low_level_code",
+        "emotion": {
+            "emotion_tag": emo_tag,
+            "intensity": intensity,
+            "miss_percent": miss,
+            "tone": "angry" if strong else tone,
+            "reason": emo_reason,
+            "strong": strong,
+            "force_back_threshold": threshold,
+            "recommend_level": "strong" if strong else "soft",
+        },
         "device_id": device_id,
         "local_time": hm,
         "late_night": late_night,
@@ -1108,9 +1143,9 @@ def record_emotion_tag(state: "State", tag: str, note: str = "") -> None:
 # 用户侧情绪仍保存在 emotion_state.json（标签、聊天时间）；
 # 陪伴对象的情绪保存在 companion_emotion.json，两者互不覆盖。
 COMPANION_EMOTION_STRONG_TAGS = ("生气", "吃醋", "担心", "委屈")
-COMPANION_MISS_DECAY_PER_HOUR = 6.0      # 自然衰减：每小时想她百分比下降
+COMPANION_MISS_DECAY_PER_HOUR = 6.0      # 自然衰减：每小时想你程度下降
 COMPANION_INTENSITY_DECAY_PER_HOUR = 8.0  # 自然衰减：每小时情绪强度下降
-COMPANION_MISS_GAIN_PER_30MIN = 4.0      # 累积：用户每 30 分钟没回来，想她加深
+COMPANION_MISS_GAIN_PER_30MIN = 4.0      # 累积：用户每 30 分钟没回来，想你加深
 
 
 def companion_emotion_is_strong(tag: str) -> bool:
@@ -1207,7 +1242,7 @@ def effective_companion_emotion(state: "State", device_id: str = DEFAULT_DEVICE)
 
 
 def build_companion_emotion(state: "State", device_id: str = DEFAULT_DEVICE) -> dict:
-    """陪伴对象情绪的对外视图；与 /api/emotion/snapshot（读用户手机状态）互不干扰。"""
+    """【你（陪伴对象）对用户】的情绪对外视图：由代码按时间衰减与未回来时长算出，不由模型判断。"""
     out = effective_companion_emotion(state, device_id)
     out["device_id"] = device_id
     out["storage"] = "companion_emotion.json"
@@ -1216,7 +1251,7 @@ def build_companion_emotion(state: "State", device_id: str = DEFAULT_DEVICE) -> 
 
 
 def write_companion_emotion(state: "State", payload: dict, device_id: str = DEFAULT_DEVICE) -> dict:
-    """写入情绪并把同一份值下发给手机，保证手机与 MCP 看到的是同一份数据。"""
+    """手动微调情绪并把同一份值下发给手机；手机端短暂生效后由底层感知自动接管。"""
     save_companion_emotion(state, payload, source=str(payload.get("source") or "mcp"))
     effective = effective_companion_emotion(state, device_id)
     try:
@@ -1310,7 +1345,7 @@ def tour_step_check_in(state: "State", sched: dict, device_id: str = DEFAULT_DEV
 def tour_step_force_back(state: "State", sched: dict, device_id: str = DEFAULT_DEVICE) -> dict:
     """强制拉回一步：分级弹窗（不再直接跳转）。
 
-    想她百分比低于阈值 → 软级别：两个按钮，可拒绝，拒绝必须留下理由；
+    想你程度低于阈值 → 软级别：两个按钮，可拒绝，拒绝必须留下理由；
     达到阈值或情绪为生气/吃醋等强情绪 → 强级别：只有一个按钮，点击后强制跳回聊天界面。
     """
     ds = state.device_states.get(device_id) or {}
@@ -1345,7 +1380,7 @@ def tour_step_force_back(state: "State", sched: dict, device_id: str = DEFAULT_D
         "tone": tone,
     }, device_id)
     add_tour_event(state, "force_back",
-                   "分级拉回 %s（情绪 %s 想她 %d%% 阈值 %d%%）" % (level, emo.get("emotion_tag", "平静"), miss, threshold),
+                   "分级拉回 %s（情绪 %s 想你 %d%% 阈值 %d%%）" % (level, emo.get("emotion_tag", "平静"), miss, threshold),
                    device_id)
     return {"ok": True, "step": "force_back", "level": level, "miss_percent": miss,
             "threshold": threshold, "emotion_tag": emo.get("emotion_tag", "平静")}
@@ -1365,7 +1400,7 @@ def tour_scheduler_loop(state: "State") -> None:
             now = time.time()
             ci = max(1, int(sched.get("check_in_interval_minutes", 15))) * 60
             fb_base = max(1, int(sched.get("force_back_interval_minutes", 30))) * 60
-            # 拉回频率跟着陪伴对象的情绪走：想她越深，拉回间隔越短（最短 30 秒）。
+            # 拉回频率跟着陪伴对象的情绪走：想你越深，拉回间隔越短（最短 30 秒）。
             comp = effective_companion_emotion(state, DEFAULT_DEVICE)
             fb = max(30, int(fb_base * float(comp.get("pull_back_interval_scale", 1.0))))
             hm = _device_local_hm(state, DEFAULT_DEVICE)

@@ -44,7 +44,7 @@ import java.util.List;
  *  - 所有参数只存本机 SharedPreferences，改任意一项立即生效，不用重启 App / 后端 / MCP；
  *  - 每一项都有默认值，可一键恢复默认；
  *  - 分组可折叠、可搜索，每项配一句人话说明它到底干什么；
- *  - 安静时段 / 深夜时段支持跨零点；冷却改参数后重算；想她可锁定；
+ *  - 安静时段 / 深夜时段支持跨零点；冷却改参数后重算；想你可锁定；
  *  - 参数变更自动留一行记录；支持导出 / 导入一份配置 JSON（剪贴板）；
  *  - 一键全部关闭，用户能自己拿回手机；
  *  - 网络同步（若配置了服务器）仅作可选 best-effort，永不阻塞 UI、不依赖。
@@ -114,11 +114,11 @@ public class PolicySettingsActivity extends Activity {
         top.addView(rowButton("导入配置", "从剪贴板读取之前导出的 JSON 并应用。", "从剪贴板导入", v -> importConfig()));
 
         // —— 查岗与管束：本页只聚焦「查岗」本身，其它能力都在守护界面卡片直达 ——
-        LinearLayout g1 = card(container, "查岗", "多久查一次、想她到什么程度强制拉回、拉回长什么样。", "checkin");
+        LinearLayout g1 = card(container, "查岗", "多久查一次、想你到什么程度强制拉回、拉回长什么样。", "checkin");
         g1.addView(rowSwitch("开启查岗", "关闭后不再自动查岗（其它拉回逻辑仍可手动触发）。", PolicyStore.checkinEnabled(this), (v, c) -> PolicyStore.setCheckinEnabled(this, c)));
         g1.addView(rowNumber("查岗随机上限（分钟）", "每次查岗间隔在这个上限内随机取值，避免太机械。默认 60。", PolicyStore.randomUpper(this), 5, 1440, v -> PolicyStore.setRandomUpper(this, v)));
         g1.addView(rowNumber("查岗随机下限（分钟）", "间隔不会低于这个值，避免连续两次挨着弹。默认 8。", PolicyStore.randomLower(this), 1, 120, v -> PolicyStore.setRandomLower(this, v)));
-        g1.addView(rowNumber("拉回分级阈值（%）", "想她达到该值 → 强级弹窗（只能「回到软件」）；低于则软级（「回到软件 / 拒绝并填写理由」两选项）。默认 70。", PolicyStore.forceBackThreshold(this), 1, 100, v -> PolicyStore.setForceBackThreshold(this, v)));
+        g1.addView(rowNumber("拉回分级阈值（%）", "想你达到该值 → 强级弹窗（只能「回到软件」）；低于则软级（「回到软件 / 拒绝并填写理由」两选项）。默认 70。", PolicyStore.forceBackThreshold(this), 1, 100, v -> PolicyStore.setForceBackThreshold(this, v)));
         g1.addView(rowSwitch("拒绝理由必填", "软级弹窗拒绝拉回必须留理由才放你走；关闭则可空拒绝。", PolicyStore.declineReasonRequired(this), (v, c) -> PolicyStore.setDeclineReasonRequired(this, c)));
         g1.addView(rowText("拉回目标 App", "点「回到软件」要跳回的 App 包名。默认 com.psyche.kelivo。", PolicyStore.targetPackage(this), s -> PolicyStore.setTargetPackage(this, s)));
         g1.addView(rowSpinner("弹窗主题", "跟随归电，或单独覆盖一套主题。", themeOptions(), themeOverrideIndex(), s -> PolicyStore.setThemeOverride(this, normalizeTheme(s))));
@@ -127,27 +127,27 @@ public class PolicySettingsActivity extends Activity {
         g1.addView(rowTimePair("安静时段", "这段时间里不主动打扰（支持跨零点，如 23:30→08:00）。", PolicyStore.quietStart(this), PolicyStore.quietEnd(this), s -> PolicyStore.setQuietStart(this, s), s -> PolicyStore.setQuietEnd(this, s)));
         g1.addView(rowTimePair("深夜时段", "用于情绪感知判断的深夜范围（支持跨零点）。", PolicyStore.nightStart(this), PolicyStore.nightEnd(this), s -> PolicyStore.setNightStart(this, s), s -> PolicyStore.setNightEnd(this, s)));
 
-        LinearLayout g2 = card(container, "情绪感知", "机（她）对你情绪状态的感知与反应，独立于你的手机状态、不覆盖你的快照。", "emotion");
+        LinearLayout g2 = card(container, "情绪感知", "你（陪伴对象）对用户的情绪：由底层代码依据用户状态（时间、分心、离开时长等）自动算出，不交给模型判断。", "emotion");
         g2.addView(rowNumber("想你程度（当前值）", "她（机）当前想你的程度；锁定后不被自动衰减盖回。", PolicyStore.emotionCurrentMiss(this), 0, 100, v -> PolicyStore.setEmotionCurrentMiss(this, v)));
         g2.addView(rowSwitch("想你锁定", "打开后她想你的当前值固定不变，衰减与累积都不再动它。", PolicyStore.emotionLock(this), (v, c) -> PolicyStore.setEmotionLock(this, c)));
         g2.addView(rowNumber("平静起始值", "很久没互动时她对你的初始想念值，低一点更自然。默认 8。", PolicyStore.emotionStartMiss(this), 0, 100, v -> PolicyStore.setEmotionStartMiss(this, v)));
         g2.addView(rowNumber("每30分钟增长下限", "你越久不回来，她想你累积越快；这是增长的下限。默认 2。", PolicyStore.emotionGainMin(this), 0, 20, v -> PolicyStore.setEmotionGainMin(this, v)));
         g2.addView(rowNumber("每30分钟增长上限", "增长上限，配合下限形成随机浮动，不会一直匀速。默认 5。", PolicyStore.emotionGainMax(this), 0, 20, v -> PolicyStore.setEmotionGainMax(this, v)));
         g2.addView(rowNumber("回落速度（每小时）", "被安抚后想你回落速度（每小时点数）。默认 4。", PolicyStore.emotionDecayPerHour(this), 0, 50, v -> PolicyStore.setEmotionDecayPerHour(this, v)));
-        g2.addView(rowText("情绪标签（她对用户的）", "如 平静/想你/吃醋/生气/担心。点下方「保存情绪」生效。", CompanionEmotionState.emotionTag(this), s -> emotionTagDraft = s));
+        g2.addView(rowText("情绪标签（你对用户的）", "如 平静/想你/爱恋/吃醋/生气/担心。底层感知会自动刷新；手动保存后短暂生效。点下方「保存情绪」。", CompanionEmotionState.emotionTag(this), s -> emotionTagDraft = s));
         g2.addView(rowNumber("情绪强度（0-100）", "影响语气与拉回频率。点下方「保存情绪」生效。", CompanionEmotionState.snapshot(this).optInt("intensity", 0), 0, 100, v -> emotionIntensityDraft = v));
         g2.addView(rowSwitch("情绪驱动文案（随机）", "打开后弹窗文案随情绪随机生成，每次都不一样；关闭则用中性文案。", PolicyStore.emotionDriveText(this), (v, c) -> PolicyStore.setEmotionDriveText(this, c)));
-        g2.addView(rowButton("保存情绪（标签/强度）", "把上面填的情绪标签与强度写进她对用户的情绪。", "保存情绪",
+        g2.addView(rowButton("保存情绪（标签/强度）", "把上面填的情绪标签与强度写入本机；底层感知会在短暂保持后自动接管。", "保存情绪",
                 v -> { CompanionEmotionState.write(this, emotionTagDraft, emotionIntensityDraft, PolicyStore.emotionCurrentMiss(this), ""); Toast.makeText(this, "情绪已保存", Toast.LENGTH_SHORT).show(); refreshStatus(); }));
-        g2.addView(rowSwitch("情绪达标自动弹窗", "她想你达到阈值时自动弹出情绪判定弹窗（标明情绪标签与百分比）；未达拉回阈值给两选项，达到阈值只能回到软件。独立于查岗。",
+        g2.addView(rowSwitch("情绪达标自动弹窗", "你对用户的想你程度达到阈值时自动弹出情绪判定弹窗（标明情绪标签与百分比）；未达拉回阈值给两选项，达到阈值只能回到软件。独立于查岗。",
                 PolicyStore.emotionPopupEnabled(this), (v, c) -> PolicyStore.setEmotionPopupEnabled(this, c)));
         g2.addView(rowNumber("触发阈值（想你 %）", "想你程度达到该百分比就自动弹窗。默认 70。", PolicyStore.emotionPopupThreshold(this), 1, 100, v -> PolicyStore.setEmotionPopupThreshold(this, v)));
-        g2.addView(rowNumber("两次最小间隔（分钟）", "相邻两次情绪弹窗的最短间隔，避免反复打扰。默认 30。", PolicyStore.emotionPopupIntervalMin(this), 1, 1440, v -> PolicyStore.setEmotionPopupIntervalMin(this, v)));
+        g2.addView(rowNumber("情绪弹窗最小间隔（分钟）", "相邻两次情绪弹窗的最短间隔，避免反复打扰。默认 30。", PolicyStore.emotionPopupIntervalMin(this), 1, 1440, v -> PolicyStore.setEmotionPopupIntervalMin(this, v)));
 
         LinearLayout g3 = card(container, "主动找用户", "你太久没发消息，她会主动找你发一条。", "initiative");
         g3.addView(rowSwitch("开启主动找用户", "关闭后她不再主动发起消息。", PolicyStore.initiativeEnabled(this), (v, c) -> PolicyStore.setInitiativeEnabled(this, c)));
         g3.addView(rowNumber("沉默多久后主动发（分钟）", "超过这个时间你没发消息，就主动找你。默认 30。", PolicyStore.initiativeSilenceMinutes(this), 1, 1440, v -> PolicyStore.setInitiativeSilenceMinutes(this, v)));
-        g3.addView(rowNumber("两次最小间隔（分钟）", "同一次主动找用户之间的最短间隔，避免刷屏。默认 20。", PolicyStore.initiativeMinInterval(this), 1, 1440, v -> PolicyStore.setInitiativeMinInterval(this, v)));
+        g3.addView(rowNumber("主动发消息最小间隔（分钟）", "同一次主动找用户之间的最短间隔，避免刷屏。默认 20。", PolicyStore.initiativeMinInterval(this), 1, 1440, v -> PolicyStore.setInitiativeMinInterval(this, v)));
         g3.addView(rowNumber("每日条数上限", "0=不限条数；其它数字为当天上限。默认 0。", PolicyStore.initiativeDailyLimit(this), 0, 999, v -> PolicyStore.setInitiativeDailyLimit(this, v)));
         g3.addView(rowSpinner("生成方式", "自由生成（每次内容不同）或固定模板。", new String[]{"自由生成", "自定义模板"}, PolicyStore.initiativeMode(this).equals("template") ? 1 : 0, s -> PolicyStore.setInitiativeMode(this, s.equals("自定义模板") ? "template" : "free")));
         g3.addView(rowText("自定义模板", "生成方式选「自定义模板」时使用的文案。", PolicyStore.initiativeTemplate(this), s -> PolicyStore.setInitiativeTemplate(this, s)));
@@ -244,8 +244,8 @@ public class PolicySettingsActivity extends Activity {
         gHome.addView(rowButton("查看状态", "显示当前回家模式配置与状态。", "查看", v -> showHomeModeStatus()));
 
         LinearLayout g7 = card(container, "验收与调试", "本地触发拉回弹窗、把配置同步给服务器（可选）。", "debug");
-        g7.addView(rowButton("试一下软级别拉回", "想她低于阈值：两个按钮，可拒绝但必须留理由。", "试软级", v -> testPullBack(false)));
-        g7.addView(rowButton("试一下强级别拉回", "想她达到阈值：只有「现在就回去」一个按钮。", "试强级", v -> testPullBack(true)));
+        g7.addView(rowButton("试一下软级别拉回", "想你低于阈值：两个按钮，可拒绝但必须留理由。", "试软级", v -> testPullBack(false)));
+        g7.addView(rowButton("试一下强级别拉回", "想你达到阈值：只有「现在就回去」一个按钮。", "试强级", v -> testPullBack(true)));
         g7.addView(rowButton("同步给服务器（可选）", "若已配置服务器地址，把配置 best-effort 同步过去；不影响本机生效。", "同步", v -> syncToServer()));
 
         refreshChangeLog();
@@ -783,26 +783,6 @@ public class PolicySettingsActivity extends Activity {
             b.setMessage("前台 App：" + label + "\n包名：" + pkg + "\n是否在自动锁监控中：" + (watched ? "是" : "否")
                     + "\n（连续使用时长由本地调度器实时统计，达到阈值即自动锁）");
             b.setPositiveButton("知道了", null).show();
-        } catch (Exception e) { status("读取失败：" + ScreenshotService.shortMsg(e)); }
-    }
-
-    private void showPluginRegistry() {
-        try {
-            JSONObject reg = PluginRegistry.categorizedJson();
-            StringBuilder sb = new StringBuilder("插件分类（共 " + PluginRegistry.all().size() + " 个）：\n\n");
-            java.util.Iterator<String> it = reg.keys();
-            while (it.hasNext()) {
-                String cat = it.next();
-                sb.append("【").append(cat).append("】\n");
-                org.json.JSONArray arr = reg.optJSONArray(cat);
-                for (int i = 0; i < arr.length(); i++) {
-                    org.json.JSONObject o = arr.optJSONObject(i);
-                    sb.append("· ").append(o.optString("name", "")).append("：").append(o.optString("desc", "")).append("\n");
-                }
-                sb.append("\n");
-            }
-            AlertDialog.Builder b = new AlertDialog.Builder(this);
-            b.setTitle("插件分类").setMessage(sb.toString().trim()).setPositiveButton("知道了", null).show();
         } catch (Exception e) { status("读取失败：" + ScreenshotService.shortMsg(e)); }
     }
 

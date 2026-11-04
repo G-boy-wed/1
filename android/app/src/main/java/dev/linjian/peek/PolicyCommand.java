@@ -32,7 +32,7 @@ public final class PolicyCommand {
         a.put(meta("master_enabled", "bool", 0, 0, true, "一键总开关（关闭后所有守护暂停）"));
         a.put(meta("random_upper_min", "int", 5, 1440, 60, "随机查岗间隔上限（分钟）"));
         a.put(meta("random_lower_min", "int", 1, 120, 8, "随机查岗间隔下限（分钟，避免连续弹）"));
-        a.put(meta("force_back_threshold", "int", 1, 100, 70, "分级拉回阈值：想她百分比达到此值触发强拉回"));
+        a.put(meta("force_back_threshold", "int", 1, 100, 70, "分级拉回阈值：想你程度达到此值触发强拉回"));
         a.put(meta("decline_reason_required", "bool", 0, 0, false, "软拉回时是否必须填写拒绝理由"));
         a.put(meta("target_package", "string", 0, 0, "com.psyche.kelivo", "拉回目标 App 包名"));
         a.put(meta("theme_override", "string", 0, 0, "", "弹窗主题覆盖（空=跟随归电）"));
@@ -41,13 +41,13 @@ public final class PolicyCommand {
         a.put(meta("checkin_enabled", "bool", 0, 0, true, "是否开启随机查岗"));
 
         // —— 陪伴情绪 ——
-        a.put(meta("emotion_start_miss", "int", 0, 100, 8, "想她百分比起始值"));
-        a.put(meta("emotion_gain_min", "int", 0, 20, 2, "每 30 分钟想她增长下限"));
-        a.put(meta("emotion_gain_max", "int", 0, 20, 5, "每 30 分钟想她增长上限"));
-        a.put(meta("emotion_decay_per_hour", "int", 0, 50, 4, "想她回落速度（每小时点数）"));
+        a.put(meta("emotion_start_miss", "int", 0, 100, 8, "想你程度起始值"));
+        a.put(meta("emotion_gain_min", "int", 0, 20, 2, "每 30 分钟想你增长下限"));
+        a.put(meta("emotion_gain_max", "int", 0, 20, 5, "每 30 分钟想你增长上限"));
+        a.put(meta("emotion_decay_per_hour", "int", 0, 50, 4, "想你回落速度（每小时点数）"));
         a.put(meta("emotion_drive_text", "bool", 0, 0, true, "情绪是否驱动文案"));
-        a.put(meta("emotion_lock", "bool", 0, 0, false, "想她百分比手动锁定（不被自动演化覆盖）"));
-        a.put(meta("emotion_current_miss", "int", 0, 100, 0, "想她百分比当前值（手动设定）"));
+        a.put(meta("emotion_lock", "bool", 0, 0, false, "想你程度手动锁定（不被自动演化覆盖）"));
+        a.put(meta("emotion_current_miss", "int", 0, 100, 0, "想你程度当前值（手动设定）"));
 
         // —— 主动找她 ——
         a.put(meta("initiative_enabled", "bool", 0, 0, true, "主动找她总开关"));

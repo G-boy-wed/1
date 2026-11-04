@@ -16,7 +16,7 @@ import java.util.Calendar;
  *  - 用本机 Handler 自循环定时器，不需要网络、不需要后端、不需要 MCP；
  *    即便 CompanionService 因没配服务器而没启动，只要无障碍服务开着，本调度器照常执行；
  *  - 查岗：在 [随机下限, 随机上限] 之间随机间隔触发分级拉回弹窗；
- *  - 拉回分级：想她达到阈值 / 强情绪 → 强级别单按钮（点「现在就回去」跳到 target_package）；
+ *  - 拉回分级：想你达到阈值 / 强情绪 → 强级别单按钮（点「现在就回去」跳到 target_package）；
  *            低于阈值 → 软级别双按钮（可拒绝并留理由，拒绝写日志 + 强制留痕上报）；
  *  - 主动找她：用户沉默超过阈值且达到最小间隔、未超每日上限 → 主动到 Kelivo 并留痕；
  *  - 分心判定：切到其他 App 记为分心；是否立即拉回由情绪阈值决定（distractionEveryTime 时每次都拉回）；
@@ -119,6 +119,19 @@ public final class PolicyScheduler {
             if (PolicyStore.distractionCount(appCtx) != 0) PolicyStore.setDistractionCount(appCtx, 0); // 连续分心计数清零
         }
 
+        // 底层情绪感知：由代码依据用户状态（时间、分心来回、离开时长、深夜、上课等）
+        // 自动算出「你对用户的情绪」并写入本机；后续查岗 / 情绪弹窗 / 分心拉回 /
+        // 陪伴话术 / 守护页情绪卡全部读取这个结果，不依赖模型在聊天里「感到」。
+        try {
+            EmotionPerception.Signals sig = new EmotionPerception.Signals();
+            sig.now = now;
+            sig.currentPackage = current == null ? "" : current;
+            sig.inChat = inTarget;
+            sig.distractionLoopCount = distractLoopCount;
+            sig.distractionCount = PolicyStore.distractionCount(appCtx);
+            EmotionPerception.perceive(appCtx, sig);
+        } catch (Exception ignored) { }
+
         evaluateCheckIn(now, current);
         evaluateEmotionPopup(now);
         evaluateInitiative(now, current);
@@ -179,13 +192,13 @@ public final class PolicyScheduler {
         PolicyStore.markAction(appCtx);
         ActivityEventStore.recordForced(appCtx, "checkin_pull_back",
                 "查岗拉回(" + (CompanionEmotionState.isStrong(appCtx) || CompanionEmotionState.effectiveMissPercent(appCtx) >= PolicyStore.forceBackThreshold(appCtx) ? "强" : "软") + ")",
-                "想她 " + CompanionEmotionState.effectiveMissPercent(appCtx) + "%");
-        DebugState.append(appCtx, "本地查岗触发分级拉回：想她 " + CompanionEmotionState.effectiveMissPercent(appCtx) + "%");
+                "想你 " + CompanionEmotionState.effectiveMissPercent(appCtx) + "%");
+        DebugState.append(appCtx, "本地查岗触发分级拉回：想你 " + CompanionEmotionState.effectiveMissPercent(appCtx) + "%");
 
         nextCheckInAt = now + delayWithScale();
     }
 
-    /** 查岗间隔：基础随机延迟再乘「想她越深拉回越频繁」的倍率。 */
+    /** 查岗间隔：基础随机延迟再乘「想你越深拉回越频繁」的倍率。 */
     private long delayWithScale() {
         long base = PolicyStore.nextCheckInDelayMs(appCtx);
         double scale = CompanionEmotionState.pullBackIntervalScale(appCtx);
@@ -195,7 +208,7 @@ public final class PolicyScheduler {
     // ============ 情绪感知自动弹窗（独立于查岗，想你达阈值弹「同意/拒绝」）============
 
     /**
-     * 她对用户的情绪（想你程度）达到设定阈值时，独立触发一个全局悬浮弹窗，
+     * 你（陪伴对象）对用户的情绪（想你程度）达到设定阈值时，独立触发一个全局悬浮弹窗，
      * 用户可选择「同意，回去陪她」或「拒绝，再等会儿」（拒绝留理由）。
      * 与随机查岗彻底分开：尊重总开关、安静时段、上课免打扰、冷却与最小间隔，
      * 触发后写冷却，避免和查岗弹窗在同一时刻叠加。
@@ -358,10 +371,9 @@ public final class PolicyScheduler {
         }
     }
 
-    /** 是否达到拉回阈值：只由想她百分比与强情绪决定，不因触发来源改变。 */
+    /** 是否达到拉回阈值：只由底层代码算出的想你程度与强情绪决定，不因触发来源改变。 */
     private boolean strongByThreshold() {
-        return CompanionEmotionState.effectiveMissPercent(appCtx) >= PolicyStore.forceBackThreshold(appCtx)
-                || CompanionEmotionState.isStrong(appCtx);
+        return EmotionPerception.isStrongNow(appCtx);
     }
 
     /** 统一组装分级拉回配置并显示：悬浮在当前 App 之上，不拉起掌心窗、不自动跳转。 */

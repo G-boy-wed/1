@@ -18,7 +18,7 @@ import java.util.Locale;
  *  2. 每一项都有默认值，可一键恢复默认；
  *  3. 安静时段支持跨零点（如 23:30 → 08:00）；
  *  4. 冷却时间内不重复提醒；改参数后冷却重新计算；
- *  5. 手动改过的想她百分比可「锁定」，不被自动衰减盖回去；
+ *  5. 手动改过的想你程度可「锁定」，不被自动衰减盖回去；
  *  6. 参数变更留一行记录：谁改的、什么时候、改了什么；
  *  7. 支持导出 / 导入一份配置 JSON（用于重装或换机后恢复）；
  *  8. 数据只存本机，不上云（若用户配置了服务器，仅作可选同步，永不阻塞 UI）。
@@ -51,7 +51,7 @@ public final class PolicyStore {
     public static final String KEY_EMOTION_GAIN_MAX = PREFIX + "emo_gain_max";   // 每 30 分钟增长上限，默认 5
     public static final String KEY_EMOTION_DECAY = PREFIX + "emo_decay_per_hour"; // 回落速度（每小时点数），默认 4
     public static final String KEY_EMOTION_DRIVE_TEXT = PREFIX + "emo_drive_text"; // 是否驱动文案，默认 true
-    public static final String KEY_EMOTION_LOCK = PREFIX + "emo_lock";           // 想她锁定，默认 false
+    public static final String KEY_EMOTION_LOCK = PREFIX + "emo_lock";           // 想你锁定，默认 false
 
     // —— 主动找她 ——
     public static final String KEY_INITIATIVE_ENABLED = PREFIX + "init_enabled";   // 总开关，默认 true
@@ -259,15 +259,15 @@ public final class PolicyStore {
     public static boolean emotionDriveText(Context ctx) { return getBool(ctx, KEY_EMOTION_DRIVE_TEXT, DEF_EMO_DRIVE); }
     public static void setEmotionDriveText(Context ctx, boolean v) { putBool(ctx, KEY_EMOTION_DRIVE_TEXT, v, "情绪驱动文案"); }
     public static boolean emotionLock(Context ctx) { return getBool(ctx, KEY_EMOTION_LOCK, DEF_EMO_LOCK); }
-    public static void setEmotionLock(Context ctx, boolean v) { putBool(ctx, KEY_EMOTION_LOCK, v, "想她锁定"); }
+    public static void setEmotionLock(Context ctx, boolean v) { putBool(ctx, KEY_EMOTION_LOCK, v, "想你锁定"); }
 
-    /** 手动改「想她百分比当前值」。未锁定时调度器会在此基础上演化；锁定时固定不变。 */
+    /** 手动改「想你程度当前值」。未锁定时调度器会在此基础上演化；锁定时固定不变。 */
     public static int emotionCurrentMiss(Context ctx) { return sp(ctx).getInt(KEY_EMOTION_MISS, 0); }
     public static void setEmotionCurrentMiss(Context ctx, int v) {
         int c = clamp(v, 0, 100);
         int old = sp(ctx).getInt(KEY_EMOTION_MISS, 0);
         CompanionEmotionState.setManualMiss(ctx, c); // 同时刷新更新时间作为新基准
-        if (old != c) logChange(ctx, "用户", "想她百分比当前值", String.valueOf(old), String.valueOf(c));
+        if (old != c) logChange(ctx, "用户", "想你程度当前值", String.valueOf(old), String.valueOf(c));
     }
 
     // —— 主动找她 ——
@@ -578,7 +578,7 @@ public final class PolicyStore {
           .append(" 阈值=").append(forceBackThreshold(ctx))
           .append(" 目标App=").append(targetPackage(ctx))
           .append(" 冷却=").append(cooldownMinutes(ctx)).append("分")
-          .append(" 想她锁定=").append(emotionLock(ctx))
+          .append(" 想你锁定=").append(emotionLock(ctx))
           .append(" 分心计数=").append(distractionCount(ctx)).append("/").append(distractionThreshold(ctx))
           .append(" 时长自动锁=").append(usageLockEnabled(ctx) ? usageLockMinutes(ctx)+"分→锁"+usageLockDuration(ctx)+"分" : "关")
           .append(" 情绪自动弹窗=").append(emotionPopupEnabled(ctx) ? emotionPopupThreshold(ctx)+"%" : "关")

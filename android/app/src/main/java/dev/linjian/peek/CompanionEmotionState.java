@@ -11,14 +11,18 @@ import java.util.Date;
 import java.util.Locale;
 
 /**
- * 陪伴对象（TA）自己的情绪状态。
+ * 【你（陪伴对象）对用户】的情绪状态——软件里所有「情绪感知」的唯一口径。
  *
- * 与「读用户手机状态」的情绪快照（服务端 emotion_state.json / 用户情绪标签）完全分开存储：
- * 本文件只使用 companion_emotion_* 前缀的键，不会覆盖用户侧的任何数据，
- * 服务端也用独立的 companion_emotion.json 保存，互不覆盖。
+ * 方向：不是「识别用户自己的情绪」，不是「用户想念陪伴对象」，而是陪伴对象
+ * 感知用户的状态（时间、分心来回、离开时长、深夜、上课等）后，对用户产生的情绪
+ * （想你 / 爱恋 / 生气 / 吃醋 / 担心 / 平静）与想你程度百分比。
  *
- * 情绪不是静态值：写入后会随时间自然衰减，同时「用户多久没回来」会持续累积想她百分比，
- * 因此同一份数据在不同时刻读出来的结果是不一样的。
+ * 触发：情绪由底层代码 EmotionPerception 在调度器每个 tick 依据用户状态自动算出并写入，
+ * 不依赖大模型在聊天里「感到」才写入，也不交给模型判断。本类对外读取的方法
+ * （emotionTag / effectiveMissPercent / isStrong / tone 等）都优先返回底层感知结果。
+ *
+ * 存储：本机 companion_emotion_* 键只存「基准值与手动写入值」；底层感知结果存在
+ * emotion_perception_* 独立键，两者互不覆盖，避免每 tick 写回导致想念值重复累加。
  */
 public class CompanionEmotionState {
 
@@ -42,16 +46,13 @@ public class CompanionEmotionState {
     private static final String[] STRONG_TAGS = {"生气", "吃醋", "担心", "委屈", "急", "凶"};
 
     /**
-     * 情绪判定弹窗展示用的情绪标签：尊重真实情绪（尤其强情绪），平静时在
-     * 「想你 / 爱恋 / 想念」间随机触发，体现随机性。只挑轻微情绪，避免
-     * 「担心 / 生气」这类强情绪标签出现在可拒绝的软级弹窗里，保证标签与样式一致。
+     * 弹窗展示用的情绪标签：直接取底层 EmotionPerception 算出的真实情绪。
+     * 随机性由底层按时间片在候选标签里挑选，UI 层不再临时伪造标签，
+     * 保证「弹窗上写的情绪」与「底层实际判定的情绪」完全一致。
      */
     public static String popupEmotionTag(Context ctx) {
         String tag = emotionTag(ctx);
-        if (tag != null && !tag.trim().isEmpty() && !TAG_CALM.equals(tag)) return tag;
-        String[] mild = {TAG_MISS, TAG_LOVE, "想念"};
-        int idx = (int) ((System.currentTimeMillis() / 1000L) % mild.length);
-        return mild[idx];
+        return (tag == null || tag.trim().isEmpty()) ? TAG_CALM : tag;
     }
 
     /** 供弹窗判断某标签是否强情绪（文案随机时强情绪保持原话）。 */
@@ -70,8 +71,8 @@ public class CompanionEmotionState {
 
     private static SharedPreferences prefs(Context ctx) { return AppPrefs.get(ctx); }
 
-    /** 有效强度：随时间自然衰减。 */
-    public static int effectiveIntensity(Context ctx) {
+    /** 基准强度：只按「上次写入值 + 自然衰减」算，不读底层感知结果，避免循环引用。 */
+    public static int baselineIntensity(Context ctx) {
         long now = System.currentTimeMillis();
         long updated = prefs(ctx).getLong(KEY_UPDATED_MS, 0);
         int raw = clamp(prefs(ctx).getInt(KEY_INTENSITY, 0), 0, 100);
@@ -80,13 +81,18 @@ public class CompanionEmotionState {
         return clamp((int) Math.round(raw - INTENSITY_DECAY_PER_HOUR * hours), 0, 100);
     }
 
+    /** 对外生效强度：优先用底层代码算出的「你对用户的情绪」。 */
+    public static int effectiveIntensity(Context ctx) {
+        return EmotionPerception.activeIntensity(ctx);
+    }
+
     /**
-     * 有效「想她百分比」：自然衰减 + 未回来的时间累积。
+     * 有效「想你程度」：自然衰减 + 未回来的时间累积。
      * 所有系数（衰减、增长范围、起始值）来自 PolicyStore，可在设置页调节；
      * 锁定打开时直接返回手动值，不被自动衰减盖回。
      * 增长范围按每 30 分钟一段做确定性伪随机浮动，既不跳变又带随机感。
      */
-    public static int effectiveMissPercent(Context ctx) {
+    public static int baselineMissPercent(Context ctx) {
         if (PolicyStore.emotionLock(ctx)) {
             return clamp(prefs(ctx).getInt(KEY_MISS, 0), 0, 100);
         }
@@ -111,7 +117,12 @@ public class CompanionEmotionState {
         return clamp((int) Math.round(value), 0, 100);
     }
 
-    /** 手动写入想她百分比（设置页「当前值」），刷新更新时间作为新基准。 */
+    /** 对外生效的想你程度：优先用底层感知引擎算出的值，未刷新时回退基准计算。 */
+    public static int effectiveMissPercent(Context ctx) {
+        return EmotionPerception.activeMissPercent(ctx);
+    }
+
+    /** 手动写入想你程度（设置页「当前值」），刷新更新时间作为新基准。 */
     public static void setManualMiss(Context ctx, int miss) {
         long now = System.currentTimeMillis();
         int m = clamp(miss, 0, 100);
@@ -138,31 +149,47 @@ public class CompanionEmotionState {
         return min + (int) (h % (max - min + 1));
     }
 
-    public static String emotionTag(Context ctx) {
+    /** 本机存储的情绪标签（不含底层感知结果）。 */
+    public static String storedEmotionTag(Context ctx) {
         String tag = prefs(ctx).getString(KEY_TAG, TAG_CALM);
         return (tag == null || tag.trim().isEmpty()) ? TAG_CALM : tag.trim();
+    }
+
+    /** 对外生效的情绪标签：优先用底层代码算出的「你对用户的情绪」。 */
+    public static String emotionTag(Context ctx) {
+        return EmotionPerception.activeTag(ctx);
     }
 
     public static String note(Context ctx) { return prefs(ctx).getString(KEY_NOTE, ""); }
 
     public static long updatedAt(Context ctx) { return prefs(ctx).getLong(KEY_UPDATED_MS, 0); }
 
-    /** 是否强情绪：生气 / 吃醋等。 */
-    public static boolean isStrong(Context ctx) {
-        String tag = emotionTag(ctx);
+    /** 基准强情绪判定：只看本机存储标签。 */
+    public static boolean storedIsStrong(Context ctx) {
+        String tag = storedEmotionTag(ctx);
         for (String strong : STRONG_TAGS) if (tag.contains(strong)) return true;
         return false;
     }
 
-    /** 情绪决定的语气：强情绪或强度很高时用生气语气。 */
+    /** 是否强情绪：优先用底层感知结果（生气 / 吃醋 / 担心等）。 */
+    public static boolean isStrong(Context ctx) {
+        return EmotionPerception.isStrongNow(ctx);
+    }
+
+    /** 基准语气：强情绪或强度很高时用生气语气。 */
+    public static String storedTone(Context ctx) {
+        if (storedIsStrong(ctx)) return "angry";
+        return baselineIntensity(ctx) >= 70 ? "angry" : "gentle";
+    }
+
+    /** 对外生效语气：优先用底层感知结果。 */
     public static String tone(Context ctx) {
-        if (isStrong(ctx)) return "angry";
-        return effectiveIntensity(ctx) >= 70 ? "angry" : "gentle";
+        return EmotionPerception.activeTone(ctx);
     }
 
     /**
-     * 拉回频率倍率：想她越深、拉回越频繁（间隔越短）。
-     * 想她 0% 时 1.0（按用户设定的间隔），想她 100% 时 0.35（间隔最多缩短到约三分之一）。
+     * 拉回频率倍率：想你越深、拉回越频繁（间隔越短）。
+     * 想你 0% 时 1.0（按用户设定的间隔），想你 100% 时 0.35（间隔最多缩短到约三分之一）。
      */
     public static double pullBackIntervalScale(Context ctx) {
         int miss = effectiveMissPercent(ctx);
@@ -171,7 +198,7 @@ public class CompanionEmotionState {
     }
 
     /** 情绪驱动的通知/弹窗文案。每次随机挑一句，避免文案总是一模一样。
-     *  文案语气为「机（她）对用户的情绪感知与反应」，而非用户对机的想念。 */
+     *  文案是【你（陪伴对象）对用户】的情绪表达，不是识别用户自己的情绪，也不是用户想念陪伴对象。 */
     public static String message(Context ctx) {
         return withDisciplineTone(ctx, plainMessage(ctx));
     }
@@ -253,8 +280,8 @@ public class CompanionEmotionState {
         SharedPreferences p = prefs(ctx);
         long now = System.currentTimeMillis();
         String newTag = (tag == null || tag.trim().isEmpty()) ? emotionTag(ctx) : tag.trim();
-        int newIntensity = intensity == null ? effectiveIntensity(ctx) : clamp(intensity, 0, 100);
-        int newMiss = missPercent == null ? effectiveMissPercent(ctx) : clamp(missPercent, 0, 100);
+        int newIntensity = intensity == null ? baselineIntensity(ctx) : clamp(intensity, 0, 100);
+        int newMiss = missPercent == null ? baselineMissPercent(ctx) : clamp(missPercent, 0, 100);
         SharedPreferences.Editor e = p.edit();
         e.putString(KEY_TAG, newTag);
         e.putInt(KEY_INTENSITY, newIntensity);
@@ -263,16 +290,17 @@ public class CompanionEmotionState {
         e.putLong(KEY_UPDATED_AT, now);
         e.putLong(KEY_UPDATED_MS, now);
         e.apply();
+        EmotionPerception.holdManual(ctx); // 手动/远程写入后短暂以该值为准，随后底层感知自动接管
         appendHistory(ctx, newTag, newIntensity, newMiss, note == null ? "" : note);
         return snapshot(ctx);
     }
 
-    /** 用户回来了：想她清零，情绪回到平静，并留下记录。 */
+    /** 用户回来了：想你程度清零，情绪回到平静，并留下记录。 */
     public static void markReturned(Context ctx) {
         SharedPreferences p = prefs(ctx);
         long now = System.currentTimeMillis();
-        String tag = emotionTag(ctx);
-        appendHistory(ctx, tag, effectiveIntensity(ctx), effectiveMissPercent(ctx), "用户回来了，情绪回落");
+        String tag = storedEmotionTag(ctx);
+        appendHistory(ctx, tag, baselineIntensity(ctx), baselineMissPercent(ctx), "用户回来了，情绪回落");
         p.edit()
                 .putString(KEY_TAG, TAG_CALM)
                 .putInt(KEY_INTENSITY, 0)
@@ -282,6 +310,7 @@ public class CompanionEmotionState {
                 .putLong(KEY_UPDATED_AT, now)
                 .putLong(KEY_UPDATED_MS, now)
                 .apply();
+        EmotionPerception.invalidate(ctx); // 让底层感知立即刷新，UI 不再读旧的强情绪
     }
 
     private static void appendHistory(Context ctx, String tag, int intensity, int miss, String note) {
@@ -346,7 +375,7 @@ public class CompanionEmotionState {
                 Integer miss = payload.has("miss_percent") ? Integer.valueOf(payload.optInt("miss_percent", 0)) : null;
                 String note = payload.optString("note", "");
                 JSONObject snap = write(ctx, tag, intensity, miss, note);
-                DebugState.append(ctx, "陪伴对象情绪已更新：" + snap.optString("emotion_tag", "") + " " + snap.optInt("miss_percent", 0) + "%");
+                DebugState.append(ctx, "你对用户的情绪已更新：" + snap.optString("emotion_tag", "") + " " + snap.optInt("miss_percent", 0) + "%");
                 return snap.put("ok", true).put("result", "companion_emotion_saved");
             }
             if ("get_companion_emotion".equals(action)) return snapshot(ctx).put("ok", true).put("result", "companion_emotion_snapshot");

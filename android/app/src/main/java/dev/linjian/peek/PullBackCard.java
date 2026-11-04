@@ -18,9 +18,9 @@ import org.json.JSONObject;
 /**
  * 分级拉回弹窗的卡片内容。
  *
- * 软级别（想她百分比低于阈值）：两个按钮「现在就回去」「再等一会儿」，
+ * 软级别（想你程度低于阈值）：两个按钮「现在就回去」「再等一会儿」，
  *          拒绝必须留下理由，理由由调用方写入日志。
- * 强级别（想她百分比达到阈值，或情绪为生气/吃醋等）：只给一个按钮，点击后强制跳回聊天界面。
+ * 强级别（想你程度达到阈值，或情绪为生气/吃醋等）：只给一个按钮，点击后强制跳回聊天界面。
  *
  * 配色与位置不在这份代码里决定，统一读归电的设置（GuidianTheme + GuidianState.popupPosition），
  * 归电改主题或改位置，这里跟着变。
@@ -63,7 +63,8 @@ public class PullBackCard {
         final boolean strong = isStrongLevel(cfg);
         final int accent = theme.accentFor(cfg.optString("tone", "gentle"));
         String companion = AppPrefs.companionName(ctx);
-        // 情绪判定弹窗必须标明情绪：平静时用 popupEmotionTag 随机点缀（想念/想你/爱恋）。
+        // 情绪判定弹窗必须标明情绪：标签由底层 EmotionPerception 依据用户状态算出，
+        // 弹窗只负责展示，不再临时伪造随机标签，保证与底层判定完全一致。
         String tag = cfg.optString("emotion_tag", "");
         if (tag.trim().isEmpty() || CompanionEmotionState.TAG_CALM.equals(tag)) {
             tag = CompanionEmotionState.popupEmotionTag(ctx);
@@ -94,7 +95,7 @@ public class PullBackCard {
         tagLp.topMargin = dp(ctx, 6);
         card.addView(tagRow, tagLp);
 
-        // 想她百分比进度条
+        // 想你程度进度条
         View bar = progressBar(ctx, theme, miss);
         LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(-1, dp(ctx, 6));
         barLp.topMargin = dp(ctx, 10);

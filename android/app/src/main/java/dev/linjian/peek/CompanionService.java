@@ -265,7 +265,7 @@ public class CompanionService extends Service {
             }
             if ("force_back_to_chat".equals(action)) {
                 // 分级拉回：先弹窗，不直接跳转。
-                // 想她百分比低于阈值 → 软级别（两个按钮，可拒绝并留下理由）；
+                // 想你程度低于阈值 → 软级别（两个按钮，可拒绝并留下理由）；
                 // 达到阈值或强情绪 → 强级别（只有一个按钮，点击强制跳回聊天界面）。
                 JSONObject cfg = buildPullBackConfig(ctx, cmd);
                 PullBackActivity.show(ctx, cfg);
@@ -547,7 +547,7 @@ public class CompanionService extends Service {
     /**
      * 组装分级拉回弹窗的配置。
      * 服务端可以在 payload 里覆盖 level / threshold / 文案；
-     * 没给的时候按本机保存的陪伴对象情绪判断：想她百分比达到阈值、或情绪是生气/吃醋等强情绪 → 强级别。
+     * 没给的时候按本机保存的陪伴对象情绪判断：想你程度达到阈值、或情绪是生气/吃醋等强情绪 → 强级别。
      */
     private static JSONObject buildPullBackConfig(Context ctx, JSONObject cmd) {
         JSONObject cfg = new JSONObject();
