@@ -7,7 +7,10 @@ import android.os.Looper;
 
 import org.json.JSONObject;
 
+import java.util.Arrays;
 import java.util.Calendar;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * 本机「查岗与管束」独立调度器（离线可跑，不依赖后端 / MCP）。
@@ -31,6 +34,44 @@ public final class PolicyScheduler {
 
     private static final long TICK_MS = 20_000L; // 每 20 秒评估一次
     private static final String SELF_PKG = "dev.linjian.peek";
+
+    /**
+     * Bug #34：系统级白名单 —— 输入法、系统面板、媒体选择器、截屏工具、桌面/启动器
+     * 等永远不会被记成「分心」。这是系统级兜底，不进 exempt_packages 配置、不可被用户关闭，
+     * 否则打字弹输入法、相册选图都会被误判分心并触发训诫。
+     */
+    private static final Set<String> SYSTEM_EXEMPT_PACKAGES = new HashSet<>(Arrays.asList(
+            "com.android.providers.media.module",   // 媒体选择器
+            "com.android.documentsui",              // 文件选择器
+            "com.android.externalstorage",          // 存储访问
+            "com.android.systemui",                 // 系统 UI / 状态栏 / 截屏
+            "com.android.systemui.screenshot",
+            "com.android.settings",                 // 系统设置
+            "com.android.quickstep",                // 多任务/桌面手势
+            "com.android.launcher3",
+            "com.miui.home", "com.miui.launcher", "com.miui.screenshot",
+            "com.vivo.launcher", "com.bbk.launcher2", "com.vivo.card", "com.vivo.screenshot",
+            "com.huawei.android.launcher", "com.huawei.systemmanager",
+            "com.sec.android.app.launcher", "com.sec.android.app.taskmanager",
+            "com.oppo.launcher", "com.coloros.launcher",
+            "com.bbk.launcher", "com.touchtype.swiftkey",
+            "im.weshine.keyboard", "com.android.inputmethod.latin",
+            "com.google.android.inputmethod.latin", "com.baidu.input",
+            "com.sohu.inputmethod", "com.iflytek.inputmethod",
+            "com.cootek.smartinputv5", "com.tencent.qqpinyin",
+            "com.simeji.android", "com.komoe.inputmethod", "com.zui.input"
+    ));
+
+    private static boolean isSystemExemptPackage(String pkg) {
+        if (pkg == null || pkg.isEmpty()) return false;
+        if (SYSTEM_EXEMPT_PACKAGES.contains(pkg)) return true;
+        String p = pkg.toLowerCase();
+        return p.contains("inputmethod") || p.endsWith("keyboard") || p.contains(".keyboard")
+                || p.contains(".ime") || p.contains("systemui") || p.contains("launcher")
+                || p.contains("documentsui") || p.contains("providers.media")
+                || p.contains("externalstorage") || p.contains("screenshot")
+                || p.contains("com.android.settings") || p.contains("quickstep") || p.contains("recents");
+    }
 
     private static PolicyScheduler instance;
 
@@ -308,7 +349,7 @@ public final class PolicyScheduler {
         if (current == null || current.isEmpty()) return;
 
         boolean inChat = current.equals(SELF_PKG) || current.equals(PolicyStore.targetPackage(appCtx));
-        boolean systemLayer = current.contains("systemui") || current.contains("inputmethod");
+        boolean systemLayer = isSystemExemptPackage(current);
         boolean excluded = inChat || systemLayer;
 
         if (!excluded) {

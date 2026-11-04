@@ -48,8 +48,65 @@ let activeLinjianUrl = LINJIAN_URL_CANDIDATES[0] || "";
 function effectiveLinjianUrl() {
   return activeLinjianUrl || LINJIAN_URL_CANDIDATES[0] || "";
 }
+
+// 对外响应只暴露“是否已配置”和脱敏后的主机名，避免泄露回环地址（127.0.0.1）、
+// 服务端内网地址或完整 URL（Bug #59）。
+function maskUrlHost(url = "") {
+  try {
+    const u = new URL(url);
+    const h = (u.hostname || "").trim();
+    if (!h || h === "localhost" || h.startsWith("127.") || h === "0.0.0.0" || h === "[::1]") return "local";
+    return h;
+  } catch {
+    return "";
+  }
+}
 const LINJIAN_TOKEN = process.env.LINJIAN_TOKEN || "";
 const DEFAULT_DEVICE = process.env.LINJIAN_DEFAULT_DEVICE || "android-phone";
+
+// Bug #3 (隐私)：手机端 screen_text / 无障碍节点可能包含聊天全文、口令、Token 等敏感内容。
+// 只读接口返回前必须脱敏：截断长文本 + 过滤敏感词 + 抹掉凭据类片段，只保留脱敏摘要。
+const SCREEN_TEXT_MAX_LEN = 200;
+const SENSITIVE_PATTERNS = [
+  /gh[pousr]_\w{20,}/gi,                 // GitHub token
+  /github_pat_[A-Za-z0-9_]{20,}/gi,
+  /(?:https?:\/\/)[^\s"']*token=[^\s"']+/gi,
+  /(?:https?:\/\/)[\w.-]+(?::\d+)?\/[A-Za-z0-9_./-]*(?:key|secret|token|pat)[A-Za-z0-9_./-]*/gi,
+  /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, // 邮箱
+  /\b1[3-9]\d{9}\b/g,                    // 手机号
+  /\b(?:password|passwd|token|secret|api[_-]?key|access[_-]?token|口令|密码|验证码|授权码)[\s:=：]+[^\s,;"']{4,}/gi,
+  /[A-Za-z0-9+/]{40,}={0,2}/g,           // 长 base64（疑似凭据/截图 blob）
+];
+function maskSensitiveText(text = "") {
+  let s = String(text || "");
+  for (const re of SENSITIVE_PATTERNS) s = s.replace(re, "[已脱敏]");
+  return s;
+}
+function redactScreenText(text = "") {
+  let s = maskSensitiveText(String(text || ""));
+  if (s.length > SCREEN_TEXT_MAX_LEN) {
+    s = s.slice(0, SCREEN_TEXT_MAX_LEN) + `…(已截断，原文 ${String(text || "").length} 字)`;
+  }
+  return s;
+}
+// 递归脱敏响应体：对 screen_text / 无障碍节点文本 / ocr 文本等字段做截断与敏感词过滤。
+function sanitizeScreenState(obj) {
+  if (typeof obj === "string") return redactScreenText(obj);
+  if (Array.isArray(obj)) return obj.map(sanitizeScreenState);
+  if (obj && typeof obj === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) {
+      const key = String(k).toLowerCase();
+      if (/(screen_text|raw_text|node_text|ocr_text|accessibility|nodes|content_description|full_text)/.test(key) && typeof v === "string") {
+        out[k] = redactScreenText(v);
+      } else {
+        out[k] = sanitizeScreenState(v);
+      }
+    }
+    return out;
+  }
+  return obj;
+}
 
 // v0.3.6.6：公开 MCP 经常被平台限制在 20 秒内返回。
 // 状态读取、活动记录和命令轮询都要快速失败，避免整条工具链被 Render 冷启动、网络抖动或手机端确认弹窗拖到超时。
@@ -60,6 +117,10 @@ const COMMAND_QUEUE_TIMEOUT_MS = Number(process.env.LINJIAN_COMMAND_QUEUE_TIMEOU
 const COMMAND_STATUS_TIMEOUT_MS = Number(process.env.LINJIAN_COMMAND_STATUS_TIMEOUT_MS || 1500);
 const DEFAULT_COMMAND_WAIT_SECONDS = Number(process.env.LINJIAN_DEFAULT_COMMAND_WAIT_SECONDS || 5);
 const MAX_TOOL_WAIT_SECONDS = Number(process.env.LINJIAN_MAX_TOOL_WAIT_SECONDS || 12);
+
+// 统一版本号：所有对外 health / MCP server 版本都用这一个常量，避免 health.version
+// 与手机端 focus_version 格式不一致、无法程序化比较（Bug #61）。
+const SERVER_VERSION = "0.3.9.0-public-diary-annotations";
 
 const CARE_STATE_PATH = process.env.LINJIAN_CARE_STATE_PATH || path.join(process.cwd(), "care_state.json");
 const VISIT_STATE_PATH = process.env.LINJIAN_VISIT_STATE_PATH || path.join(process.cwd(), "visit_state.json");
@@ -209,6 +270,47 @@ function activityTypeForTool(name) {
   if (n.includes("notification")) return "notification";
   if (isStatusTool(n)) return "status_check";
   return "activity";
+}
+
+// Bug #12/P2-26：活动事件标题统一为「中文优先」，避免同一动作出现「list diary books」英文与中文两条。
+const TOOL_TITLE_CN = {
+  "list_diary_books": "查看日记本列表", "write_diary_entry": "写下日记", "read_diary_entry": "读取日记",
+  "set_window_whisper": "修改共同窗语", "write_shared_memory": "写入共同记忆", "add_guardian_calendar_event": "添加日历事项",
+  "add_guardian_day": "添加守护日历事件", "update_guardian_day": "更新守护日历事件", "delete_guardian_day": "删除守护日历事件",
+  "create_diary_book": "创建日记本", "rename_diary_book": "重命名日记本", "delete_diary_entry": "删除日记",
+  "add_diary_annotation": "添加页边纸条", "delete_diary_annotation": "删除页边纸条", "search_diary_entries": "搜索日记"
+};
+function canonicalToolTitle(toolName, fallbackMeta) {
+  if (TOOL_TITLE_CN[toolName]) return TOOL_TITLE_CN[toolName];
+  if (fallbackMeta) return fallbackMeta;
+  return String(toolName || "").replaceAll("_", " ");
+}
+
+const ACTIVITY_META_MAX = 1000;
+function truncateActivityMetadata(value, depth = 0) {
+  if (depth > 5) return "[嵌套过深]";
+  if (typeof value === "string") {
+    const s = maskSensitiveText(value);
+    return s.length > ACTIVITY_META_MAX ? s.slice(0, ACTIVITY_META_MAX) + "…(已截断)" : s;
+  }
+  if (Array.isArray(value)) return value.slice(0, 20).map((v) => truncateActivityMetadata(v, depth + 1));
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = truncateActivityMetadata(v, depth + 1);
+    return out;
+  }
+  return value;
+}
+
+// Bug #12/P2-26：同源同动作秒级去重，避免同一工具调用在事件流里写出两条。
+const RECENT_ACTIVITY_WRITES = [];
+const ACTIVITY_DEDUPE_MS = 3000;
+function activityWriteDeduped(device_id, type, action) {
+  const now = Date.now();
+  RECENT_ACTIVITY_WRITES.push({ device_id, type, action, t: now });
+  if (RECENT_ACTIVITY_WRITES.length > 200) RECENT_ACTIVITY_WRITES.splice(0, RECENT_ACTIVITY_WRITES.length - 200);
+  const recent = RECENT_ACTIVITY_WRITES.filter((e) => now - e.t <= ACTIVITY_DEDUPE_MS && e.device_id === device_id && e.type === type && e.action === action);
+  return recent.length > 1; // 本次是窗口内第二次及以上 → 去重跳过
 }
 
 async function getCompanionState(limit = 20) {
@@ -450,6 +552,15 @@ function mergeCarePolicy(update = {}) {
     };
     delete next.quiet_start;
     delete next.quiet_end;
+  }
+  // Bug #47：新增/写入的敏感 App 必须继承一个锁定上限，避免被无限期锁住。
+  if (Array.isArray(next.sensitive_apps)) {
+    next.sensitive_apps = next.sensitive_apps.map((a) => {
+      const o = { ...a };
+      const n = Number(o.max_lock_minutes);
+      if (!Number.isFinite(n) || n <= 0) o.max_lock_minutes = 90;
+      return o;
+    });
   }
   careState.policy = next;
   saveCareState();
@@ -773,16 +884,37 @@ function buildWeatherAdvice(weather, name="当前地区") {
   return `宝宝，${parts.join(" ")}`;
 }
 
+// Bug #48：open-meteo 地理编码对中文城市名有时会解析到错误省份（如「绵阳」被解析到贵州）。
+// 对已知城市做坐标兜底，避免天气/温度/降水建议全部来自错误地区。
+const CITY_COORD_OVERRIDES = {
+  "绵阳": { name: "绵阳", admin1: "四川", country: "中国", latitude: 31.4694, longitude: 104.6759 },
+  "成都": { name: "成都", admin1: "四川", country: "中国", latitude: 30.5728, longitude: 104.0668 },
+  "重庆": { name: "重庆", admin1: "重庆", country: "中国", latitude: 29.5630, longitude: 106.5516 },
+  "贵阳": { name: "贵阳", admin1: "贵州", country: "中国", latitude: 26.6477, longitude: 106.6302 },
+  "北京": { name: "北京", admin1: "北京", country: "中国", latitude: 39.9042, longitude: 116.4074 },
+  "上海": { name: "上海", admin1: "上海", country: "中国", latitude: 31.2304, longitude: 121.4737 },
+  "广州": { name: "广州", admin1: "广东", country: "中国", latitude: 23.1291, longitude: 113.2644 },
+  "深圳": { name: "深圳", admin1: "广东", country: "中国", latitude: 22.5431, longitude: 114.0579 },
+  "杭州": { name: "杭州", admin1: "浙江", country: "中国", latitude: 30.2741, longitude: 120.1551 },
+  "武汉": { name: "武汉", admin1: "湖北", country: "中国", latitude: 30.5928, longitude: 114.3055 },
+  "西安": { name: "西安", admin1: "陕西", country: "中国", latitude: 34.3416, longitude: 108.9398 },
+  "南京": { name: "南京", admin1: "江苏", country: "中国", latitude: 32.0603, longitude: 118.7969 },
+};
+
 async function fetchWeather(city) {
   const q = encodeURIComponent(city || "");
   if (!q) return { ok: false, error: "missing_city" };
-  const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${q}&count=1&language=zh&format=json`;
-  const geo = await fetch(geoUrl).then(r => r.json());
-  const hit = geo?.results?.[0];
+  const override = CITY_COORD_OVERRIDES[String(city || "").trim()];
+  let hit = override ? { ...override } : null;
+  if (!hit) {
+    const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${q}&count=3&language=zh&format=json`;
+    const geo = await fetch(geoUrl).then(r => r.json());
+    hit = geo?.results?.[0];
+  }
   if (!hit) return { ok: false, error: "city_not_found", city };
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${hit.latitude}&longitude=${hit.longitude}&current=temperature_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=2`;
   const data = await fetch(url).then(r => r.json());
-  return { ok: true, location: { name: hit.name, country: hit.country, admin1: hit.admin1, latitude: hit.latitude, longitude: hit.longitude }, current: data.current, daily: data.daily, source: "open-meteo" };
+  return { ok: true, location: { name: hit.name, country: hit.country, admin1: hit.admin1, latitude: hit.latitude, longitude: hit.longitude }, current: data.current, daily: data.daily, source: override ? "override" : "open-meteo" };
 }
 
 async function waitCommand(id, seconds = DEFAULT_COMMAND_WAIT_SECONDS) {
@@ -819,7 +951,7 @@ async function fetchLatestImage() {
 
 
 function makeServer() {
-  const server = new McpServer({ name: "掌心窗", version: "0.3.9.0" });
+  const server = new McpServer({ name: "掌心窗", version: SERVER_VERSION });
   const commandBackedTools = new Set([
     "peek_screen", "get_screen_nodes", "tap_text", "input_text", "draft_xhs_comment", "xhs_comment", "send_visible_comment_after_confirmation",
     "add_guardian_calendar_event", "care_action", "trigger_guidian", "mark_guidian_returned",
@@ -834,16 +966,25 @@ function makeServer() {
   server.tool = (...args) => {
     const toolName = String(args[0] || "");
     const callbackIndex = args.map((x) => typeof x).lastIndexOf("function");
-    if (callbackIndex >= 0 && toolName !== "get_activity_events" && toolName !== "add_activity_event" && !commandBackedTools.has(toolName)) {
+    // Bug #52：读类工具（get_/list_/latest_ 开头）不再自动写事件，避免查询行为灌满事件流、
+    // 淹没真实用户行为。只有真正的「写/动作」类工具才记录活动事件。
+    const isReadOnlyTool = /^(get_|list_|latest_)/.test(toolName);
+    if (callbackIndex >= 0 && toolName !== "get_activity_events" && toolName !== "add_activity_event" && !commandBackedTools.has(toolName) && !isReadOnlyTool) {
       const callback = args[callbackIndex];
       args[callbackIndex] = async (...callArgs) => {
+        const device_id = callArgs?.[0]?.device_id || DEFAULT_DEVICE;
+        const type = activityTypeForTool(toolName);
         try {
           const result = await callback(...callArgs);
           const meta = COMPANION_ACTION_META[toolName];
-          await addActivityEvent({ device_id: callArgs?.[0]?.device_id || DEFAULT_DEVICE, source: "companion", type: activityTypeForTool(toolName), title: meta?.[1] || toolName.replaceAll("_", " "), subtitle: meta?.[2] || "", action: toolName, status: "completed", metadata_json: {} });
+          if (!activityWriteDeduped(device_id, type, toolName)) {
+            await addActivityEvent({ device_id, source: "companion", type, title: canonicalToolTitle(toolName, meta?.[1]), subtitle: meta?.[2] || "", action: toolName, status: "completed", metadata_json: { note: "companion_action" } });
+          }
           return result;
         } catch (error) {
-          await addActivityEvent({ device_id: callArgs?.[0]?.device_id || DEFAULT_DEVICE, source: "companion", type: activityTypeForTool(toolName), title: toolName.replaceAll("_", " "), action: toolName, status: "failed", metadata_json: { error: String(error?.message || error).slice(0, 240) } });
+          if (!activityWriteDeduped(device_id, type, toolName)) {
+            await addActivityEvent({ device_id, source: "companion", type, title: canonicalToolTitle(toolName), action: toolName, status: "failed", metadata_json: { error: maskSensitiveText(String(error?.message || error)).slice(0, 240) } });
+          }
           throw error;
         }
       };
@@ -859,7 +1000,6 @@ function makeServer() {
     const res = await linjianFetch(`/api/life_state?device_id=${encodeURIComponent(device_id)}`);
     const data = await res.json();
     const state = data?.life_state || data?.state || {};
-    await postCompanionAction("get_focus_status");
     return textResult({ ok: true, device_id, focus_mode: state?.focus_mode || {}, life_state_version: state?.life_state_version || "" });
   });
 
@@ -993,17 +1133,22 @@ function makeServer() {
       ? { ok: false, error: configErrors.join("; ") }
       : await linjianFetch("/health").then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
     const latest = configErrors.length ? null : await latestInfo().catch(() => null);
+    // Bug #24：截图新鲜度必须显式暴露，避免 has_latest=true 让调用方误以为是最新画面。
+    let latestDecorated = latest;
+    if (latest && Number(latest.mtime)) {
+      const ageSeconds = Math.max(0, Math.round((Date.now() / 1000) - Number(latest.mtime)));
+      latestDecorated = { ...latest, mtime_local: new Date(Number(latest.mtime) * 1000).toISOString(), age_seconds: ageSeconds, stale: ageSeconds > 6 * 3600 };
+    }
     return { content: [{ type: "text", text: JSON.stringify({
       ok: true,
-      linjian_url: effectiveLinjianUrl(),
-      configured_linjian_url: RAW_LINJIAN_URL,
-      fallback_linjian_urls: LINJIAN_URL_CANDIDATES.filter((u) => u !== RAW_LINJIAN_URL),
+      linjian_configured: Boolean(LINJIAN_URL_CANDIDATES.length),
+      linjian_host_masked: maskUrlHost(effectiveLinjianUrl()),
       has_url: Boolean(LINJIAN_URL_CANDIDATES.length),
       has_token: Boolean(LINJIAN_TOKEN),
       config_errors: configErrors,
       health,
       has_latest: Boolean(latest),
-      latest
+      latest: latestDecorated
     }, null, 2) }] };
   });
 
@@ -1043,7 +1188,8 @@ function makeServer() {
       const data = await res.json();
       // 状态读取不能被活动日志拖慢；记录失败不影响本次结果。
       postCompanionAction("get_phone_state", { device_id }).catch(() => null);
-      return textResult({ ...data, mcp_note: "已快速读取服务器缓存状态；如果 state/life_state 为 null，请保持掌心窗前台或允许后台运行后重试。" });
+      // Bug #3：screen_text / 无障碍节点含聊天全文、口令、Token 等，返回前必须脱敏。
+      return textResult({ ...sanitizeScreenState(data), privacy_note: "screen_text 等敏感字段已脱敏截断；仅保留关系相关摘要。", mcp_note: "已快速读取服务器缓存状态；如果 state/life_state 为 null，请保持掌心窗前台或允许后台运行后重试。" });
     } catch (error) {
       return textResult({ ok: false, error: "phone_state_fetch_failed", message: "读取手机状态超时或后端暂时不可达；请确认 Render 服务已唤醒、MCP URL/Token 正确、掌心窗允许后台运行。", detail: String(error?.message || error).slice(0, 500) });
     }
@@ -1134,8 +1280,8 @@ function makeServer() {
   server.tool("get_life_state", "读取掌心窗生活状态层：电量、充电、网络、当前 App、今日屏幕时间、解锁次数、当前天气地区等。用于陪伴对象主动判断用户是否需要被提醒、归电、休息或管束；默认不截图。当用户提到“电量/没电/快没电/充电/没网络/网络不好/今天看手机有点久/刷太久/天气不太好”等相同或相近表达时主动调用。", { device_id: z.string().default(DEFAULT_DEVICE) }, async ({ device_id = DEFAULT_DEVICE }) => {
     const res = await linjianFetch(`/api/life_state?device_id=${encodeURIComponent(device_id)}`);
     const data = await res.json();
-    await postCompanionAction("get_life_state");
-    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    // Bug #3：生活状态层同样可能携带屏幕文本/无障碍节点，返回前脱敏。
+    return { content: [{ type: "text", text: JSON.stringify(sanitizeScreenState(data), null, 2) }] };
   });
 
 
@@ -1146,7 +1292,6 @@ function makeServer() {
     const res = await linjianFetch(`/api/life_state?device_id=${encodeURIComponent(device_id)}`);
     const data = await res.json();
     const state = data?.life_state || data?.state || {};
-    await postCompanionAction("get_guardian_calendar");
     return { content: [{ type: "text", text: JSON.stringify({ ok: true, device_id, calendar_state: state?.calendar_state || {}, life_state_version: state?.life_state_version || "" }, null, 2) }] };
   });
 
@@ -1197,7 +1342,6 @@ function makeServer() {
     wait_seconds: z.number().int().min(3).max(20).default(8)
   }, async ({ device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
     const result = await runGuardianCommand({ action: "get_calendar_state", device_id, payload: {} }, wait_seconds);
-    await postCompanionAction("list_guardian_days", { summary: "查看了守护日历事件列表" });
     return textResult({ ok: result.command?.status === "completed", action_done: "已读取守护日历", ...result });
   });
 
@@ -1209,14 +1353,36 @@ function makeServer() {
       return textResult({ ok: result.command?.status === "completed", action_done: `已添加守护日历事件「${title}」`, title, date, ...result });
     });
 
-  server.tool("update_guardian_day", "按稳定 id 修改一条守护日历事件，不影响同日或其他日期的事件。请先 list_guardian_days 确认 id。", {
+  // Bug #2 (R1)：更新只允许「显式传入」的字段进入 payload，未传字段一律保持原值，
+  // 绝不用 schema 默认值（yearly / our_days / 空 note）覆盖手机端已有值，也绝不更换事件 id。
+  const updateGuardianDayFields = {
     id: z.string().min(1).max(100),
-    ...guardianDayFields
-  }, async ({ id, title, date, date_type = "solar", repeat_type = "yearly", group = "our_days", note = "", remind_days_before = 3, banner_enabled = true, device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
-    const payload = { id, title, date, date_type, repeat_type, group, note, remind_days_before, banner_enabled, created_by: "companion" };
+    title: z.string().min(1).max(80).optional(),
+    date: z.string().min(3).max(20).optional().describe("阳历：2026-08-23 或 08-23；农历：07-07"),
+    date_type: z.enum(["solar", "lunar"]).optional(),
+    repeat_type: z.enum(["yearly", "none"]).optional(),
+    group: z.string().optional(),
+    note: z.string().max(240).optional(),
+    remind_days_before: z.number().int().min(0).max(30).optional(),
+    banner_enabled: z.boolean().optional(),
+    device_id: z.string().default(DEFAULT_DEVICE),
+    wait_seconds: z.number().int().min(3).max(20).default(8)
+  };
+  function pickDefined(obj) {
+    const out = {};
+    for (const [k, v] of Object.entries(obj || {})) {
+      if (v !== undefined && v !== null && v !== "") out[k] = v;
+    }
+    return out;
+  }
+
+  server.tool("update_guardian_day", "按稳定 id 修改一条守护日历事件，不影响同日或其他日期的事件。请先 list_guardian_days 确认 id。只传要修改的字段；未传字段保持不变（不会用默认值覆盖原值，也不会更换事件 id）。", updateGuardianDayFields, async (args) => {
+    const { id, device_id = DEFAULT_DEVICE, wait_seconds = 8, ...rest } = args;
+    const payload = { id, ...pickDefined(rest), created_by: "companion" };
     const result = await runGuardianCommand({ action: "upsert_calendar_event", device_id, ...payload, payload }, wait_seconds);
-    await postCompanionAction("update_guardian_day", { summary: `更新了「${title}」` });
-    return textResult({ ok: result.command?.status === "completed", action_done: `已更新守护日历事件「${title}」`, id, title, date, ...result });
+    const done = result.command?.status === "completed";
+    if (done) await postCompanionAction("update_guardian_day", { summary: `更新了守护日历事件 ${id}` });
+    return textResult({ ok: done, action_done: done ? `已更新守护日历事件 ${id}` : "更新命令已下发，手机端未确认完成", id, sent_fields: Object.keys(payload), ...result });
   });
 
   server.tool("delete_guardian_day", "按稳定 id 删除一条守护日历事件。若用户只描述日期/标题，必须先 list_guardian_days 找到对应 id，避免误删同日其他事件。", {
@@ -1226,9 +1392,24 @@ function makeServer() {
     wait_seconds: z.number().int().min(3).max(20).default(8)
   }, async ({ id, confirm, device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
     if (confirm !== true) return textResult({ ok: false, error: "confirmation_required", message: "删除守护日历事件前必须把 confirm 设为 true。", id });
-    const result = await runGuardianCommand({ action: "delete_calendar_event", device_id, id, confirm: true, payload: { id, confirm: true } }, wait_seconds);
-    await postCompanionAction("delete_guardian_day", { summary: `移除了守护日历事件 ${id}` });
-    return textResult({ ok: result.command?.status === "completed", action_done: "已删除守护日历事件", id, ...result });
+    // Bug #1 (R2)：先按 phone 端日历动作名删除；若返回 not_found（动作名不匹配或手机端未实现），
+    // 自动用别名重试一次，并如实反映结果，绝不谎报成功。
+    const first = await runGuardianCommand({ action: "delete_calendar_event", device_id, id, confirm: true, payload: { id, confirm: true } }, wait_seconds);
+    const firstDone = first.command?.status === "completed";
+    const firstRaw = JSON.stringify(first.command || first.phone_result || first.queued || "").toLowerCase();
+    let result = first;
+    if (!firstDone && /not[_-]?found|找不到|不存在/.test(firstRaw)) {
+      const retry = await runGuardianCommand({ action: "delete_guardian_day", device_id, id, confirm: true, payload: { id, confirm: true } }, wait_seconds);
+      if (retry.command?.status === "completed") result = retry;
+    }
+    const done = result.command?.status === "completed";
+    if (done) await postCompanionAction("delete_guardian_day", { summary: `移除了守护日历事件 ${id}` });
+    return textResult({
+      ok: done,
+      action_done: done ? "已删除守护日历事件" : "删除未完成：手机端未确认（该 id 不存在，或手机端暂未实现删除，未谎报成功）",
+      attempted_actions: firstDone ? ["delete_calendar_event"] : ["delete_calendar_event", "delete_guardian_day"],
+      id, ...result
+    });
   });
 
   async function runDiaryCommand(action, values, device_id = DEFAULT_DEVICE, wait_seconds = 8) {
@@ -1394,7 +1575,6 @@ function makeServer() {
     const life = await lifeRes.json();
     const guidianRes = await linjianFetch(`/api/guidian_state?device_id=${encodeURIComponent(device_id)}`);
     const guidian = await guidianRes.json();
-    await postCompanionAction("get_senses_state", { device_id });
     return { content: [{ type: "text", text: JSON.stringify({ ok: true, device_id, life_state: life?.life_state || life?.state || life, guidian_state: guidian?.guidian_state || {} }, null, 2) }] };
   });
 
@@ -1403,12 +1583,11 @@ function makeServer() {
   server.tool("get_guidian_state", "读取掌心窗『归电』状态：上次回来、下次最早归电、今日次数、拒绝理由、主题和设置。用于陪伴对象判断是否该主动把用户叫回来，不会截图。当用户提到归电没弹、归电出问题、拒绝理由、今天回来节奏或叫回设置时主动调用。", { device_id: z.string().default(DEFAULT_DEVICE) }, async ({ device_id = DEFAULT_DEVICE }) => {
     const res = await linjianFetch(`/api/guidian_state?device_id=${encodeURIComponent(device_id)}`);
     const data = await res.json();
-    await postCompanionAction("get_guidian_state", { device_id });
     return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
   });
 
   server.tool("get_care_policy", "读取掌心窗主动关心策略。掌心窗开启就是运行态；陪伴对象可主动查岗、归电、轻度管束和生活提醒。用于确认当前允许的关心风格、动作范围、安静时段、冷却时间和重点 App。", {}, async () => {
-    return textResult({ ok: true, policy: careState.policy, state_path: CARE_STATE_PATH });
+    return textResult({ ok: true, policy: careState.policy });
   });
 
   server.tool("set_care_policy", "设置掌心窗主动关心策略。用于配置陪伴对象主动关心、查岗、归电和轻度管束的长期行动方式，例如关心风格、动作范围、重点 App、安静时段、冷却时间和备注。", {
@@ -1481,7 +1660,7 @@ function makeServer() {
     timezone_offset: z.string().default("").describe("显示用时区偏移，默认 +08:00。")
   }, async ({ source = "", timezone_offset = "" }) => {
     const last = latestVisit(source);
-    if (!last) return textResult({ ok: true, has_visit: false, message: "还没有记录到用户来找陪伴对象的时间。", state_path: VISIT_STATE_PATH });
+    if (!last) return textResult({ ok: true, has_visit: false, message: "还没有记录到用户来找陪伴对象的时间。" });
     const t = Date.parse(last.at || "");
     const minutes = Number.isFinite(t) ? Math.round((Date.now() - t) / 60000) : null;
     return textResult({
@@ -1512,8 +1691,7 @@ function makeServer() {
       limit: n,
       count: decorated.length,
       history: decorated,
-      visit_meaning: "这些是用户来找陪伴对象的关系时间线；limit 只是本次读取条数，不是来找次数上限。",
-      state_path: VISIT_STATE_PATH
+      visit_meaning: "这些是用户来找陪伴对象的关系时间线；limit 只是本次读取条数，不是来找次数上限。"
     });
   });
 
@@ -1613,7 +1791,6 @@ function makeServer() {
     const name = current.name || chosenCity || "当前地区";
     const weather = await fetchWeather(chosenCity).catch((e) => ({ ok: false, error: String(e), city: chosenCity }));
     const advice = buildWeatherAdvice(weather, name);
-    await postCompanionAction("get_weather_state", { summary: `查看了${name}的天气` });
     return { content: [{ type: "text", text: JSON.stringify({ ok: weather.ok, device_id, current_weather_location: current, queried_city: chosenCity, weather, advice }, null, 2) }] };
   });
 
@@ -2080,7 +2257,6 @@ function makeServer() {
     device_id: z.string().default(DEFAULT_DEVICE), wait_seconds: z.number().int().min(3).max(20).default(8)
   }, async ({ device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
     const response = await gateCommand({ action: "get_screen_break_state", device_id }, wait_seconds);
-    await postCompanionAction("get_screen_break_state", { device_id });
     return response;
   });
 
@@ -2088,7 +2264,6 @@ function makeServer() {
     device_id: z.string().default(DEFAULT_DEVICE), wait_seconds: z.number().int().min(3).max(20).default(8)
   }, async ({ device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
     const response = await gateCommand({ action: "get_lock_state", device_id }, wait_seconds);
-    await postCompanionAction("get_lock_state", { device_id });
     return response;
   });
 
@@ -2174,6 +2349,49 @@ function makeServer() {
     return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
   });
 
+  // ============ 兼容别名（Bug #11：health 侧与主 MCP 侧工具命名统一）============
+  // 以下旧/别名工具统一走兼容层，路由到对应的主工具动作，避免两侧命名分裂、旧名调用失败。
+  const aliasBreakBase = {
+    app: z.string().default(""), package: z.string().default(""),
+    duration_minutes: z.number().min(0.1).max(10080).default(30),
+    reason: z.string().default(""), message: z.string().default(""),
+    device_id: z.string().default(DEFAULT_DEVICE), wait_seconds: z.number().int().min(3).max(20).default(8)
+  };
+  server.tool("start_screen_break", "屏幕休息别名：同 screen_break_app，让指定 App 暂停一段时间。", aliasBreakBase,
+    async ({ app = "", package: pkg = "", duration_minutes = 30, reason = "", message = "", device_id = DEFAULT_DEVICE, wait_seconds = 8 }) =>
+      gateCommand({ action: "screen_break_app", app, package: pkg, device_id, duration_minutes, reason, message, payload: { app, package: pkg, duration_minutes, reason, message } }, wait_seconds));
+  server.tool("stop_screen_break", "屏幕休息别名：同 end_screen_break。", { app: z.string().default(""), package: z.string().default(""), device_id: z.string().default(DEFAULT_DEVICE), wait_seconds: z.number().int().min(3).max(20).default(8) },
+    async ({ app = "", package: pkg = "", device_id = DEFAULT_DEVICE, wait_seconds = 8 }) =>
+      gateCommand({ action: "end_screen_break", app, package: pkg, device_id, payload: { app, package: pkg } }, wait_seconds));
+  server.tool("temporary_screen_release", "屏幕休息别名：同 temporary_screen_break_release。", { app: z.string().default(""), package: z.string().default(""), minutes: z.number().min(0.1).max(240).default(10), device_id: z.string().default(DEFAULT_DEVICE), wait_seconds: z.number().int().min(3).max(20).default(8) },
+    async ({ app = "", package: pkg = "", minutes = 10, device_id = DEFAULT_DEVICE, wait_seconds = 8 }) =>
+      gateCommand({ action: "temporary_screen_break_release", app, package: pkg, device_id, minutes, allowed_minutes: minutes, payload: { app, package: pkg, minutes, allowed_minutes: minutes } }, wait_seconds));
+  server.tool("deny_break_release_request", "屏幕休息别名：同 deny_screen_break_release_request。", { app: z.string().default(""), package: z.string().default(""), message: z.string().default("这次先不放行，回来找陪伴对象。"), device_id: z.string().default(DEFAULT_DEVICE), wait_seconds: z.number().int().min(3).max(20).default(8) },
+    async ({ app = "", package: pkg = "", message = "这次先不放行，回来找陪伴对象。", device_id = DEFAULT_DEVICE, wait_seconds = 8 }) =>
+      gateCommand({ action: "deny_screen_break_release_request", app, package: pkg, device_id, message, payload: { app, package: pkg, message } }, wait_seconds));
+  server.tool("remove_screen_break_app", "屏幕休息别名：把一个 App 从可管理名单移除（兼容 health 侧 remove_screen_break_app）。", { alias: z.string().default(""), package: z.string().default(""), device_id: z.string().default(DEFAULT_DEVICE), wait_seconds: z.number().int().min(3).max(20).default(8) },
+    async ({ alias = "", package: pkg = "", device_id = DEFAULT_DEVICE, wait_seconds = 8 }) =>
+      gateCommand({ action: "remove_screen_break_app", app: alias, alias, package: pkg, device_id, payload: { alias, app: alias, package: pkg } }, wait_seconds));
+  server.tool("request_focus_unlock", "专注模式别名：向陪伴对象发起一次临时放行申请（兼容 health 侧 request_focus_unlock）。", { minutes: z.number().int().min(1).max(30).default(1), message: z.string().default(""), device_id: z.string().default(DEFAULT_DEVICE), wait_seconds: z.number().int().min(3).max(20).default(8) },
+    async ({ minutes = 1, message = "", device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
+      const result = await postCommand({ action: "create_focus_request", device_id, payload: { minutes, message } });
+      const id = result?.command?.id;
+      const observed = id ? await waitCommand(id, wait_seconds) : null;
+      return textResult({ ok: observed?.command?.status === "completed" || result?.queued === true || result?.ok === true, action_done: "已发起专注临时放行申请", queued: result, observed_status: observed?.command || null });
+    });
+  server.tool("set_companion_emotion", "情绪别名：同 write_companion_emotion，手动微调【你（陪伴对象）对用户】的情绪（仅用于校准/调试）。", {
+    emotion_tag: z.string().describe("情绪标签，如 平静 / 想你 / 吃醋 / 生气 / 担心"),
+    intensity: z.number().int().min(0).max(100).optional(),
+    miss_percent: z.number().int().min(0).max(100).optional(),
+    note: z.string().default(""), device_id: z.string().default(DEFAULT_DEVICE)
+  }, async ({ emotion_tag, intensity, miss_percent, note = "", device_id = DEFAULT_DEVICE }) => {
+    const body = { emotion_tag, note, device_id };
+    if (intensity !== undefined && intensity !== null) body.intensity = intensity;
+    if (miss_percent !== undefined && miss_percent !== null) body.miss_percent = miss_percent;
+    const res = await linjianFetch("/api/companion/emotion", { method: "POST", timeout_ms: COMMAND_QUEUE_TIMEOUT_MS, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
+    return { content: [{ type: "text", text: JSON.stringify({ ...res, safety_note: "情绪已写入独立存储；底层感知会在短暂保持后自动按用户状态接管。" }, null, 2) }] };
+  });
+
   return server;
 }
 
@@ -2213,12 +2431,11 @@ app.get("/", (_req, res) => res.type("text/plain").send("掌心窗 unified MCP i
 app.get("/health", (_req, res) => res.json({
   ok: true,
   service: "linjian-public-mcp",
-  version: "0.3.9.0",
+  version: SERVER_VERSION,
   has_url: Boolean(LINJIAN_URL_CANDIDATES.length),
   has_token: Boolean(LINJIAN_TOKEN),
-  configured_linjian_url: RAW_LINJIAN_URL || "",
-  effective_linjian_url: effectiveLinjianUrl(),
-  fallback_linjian_urls: LINJIAN_URL_CANDIDATES.filter((u) => u !== RAW_LINJIAN_URL),
+  linjian_configured: Boolean(LINJIAN_URL_CANDIDATES.length),
+  linjian_host_masked: maskUrlHost(effectiveLinjianUrl()),
   guardian_day_tools: true,
   diary_tools: true,
   diary_rename_fix: true,

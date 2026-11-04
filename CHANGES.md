@@ -2,6 +2,100 @@
 
 ---
 
+## Bug 清单全量版（R1–R4 根因 + P0–P2）本轮已处理项
+
+> 版本基线：`0.3.9.0-public-diary-annotations`（GitHub `main` @ `ecdc938`）。
+> 本轮聚焦 MCP 工具层与 Python 后端「可在此代码库内修复」的根因（R1–R4）与高优先级项；
+> 需要手机端（Android）配合的项已在文末标注为「需手机端实现」。
+
+### 已修复（MCP 工具层 + Python 后端）
+- **R2 / P0-1 守护日历删除不可用 + 谎报成功**：`delete_guardian_day` 不再默认报「已删除」；
+  先按 `delete_calendar_event` 删除，命中 `not_found` 时自动用别名 `delete_guardian_day` 重试，
+  并如实返回 `action_done`（未完成时明确说明手机端未确认，未谎报）。
+- **R1 / P0-2 日历更新=覆盖+换 id**：`update_guardian_day` 所有字段改为可选，只把「显式传入」的字段
+  送入 payload（用 `pickDefined`），绝不用 schema 默认值（`yearly`/`our_days`/空 note）覆盖原值，也不更换事件 id。
+- **P0-3 隐私：`screen_text` 未脱敏未限长**：新增 `sanitizeScreenState` / `redactScreenText` / `maskSensitiveText`，
+  `get_phone_state`、`get_life_state` 返回前对 `screen_text` / 无障碍节点 / ocr 文本做敏感词过滤
+  （Token/口令/邮箱/手机号/base64）+ 截断（200 字），只保留脱敏摘要。
+- **P1-11 工具命名两侧不统一**：新增兼容别名 `start_screen_break` / `stop_screen_break` / `temporary_screen_release` /
+  `deny_break_release_request` / `remove_screen_break_app` / `request_focus_unlock` / `set_companion_emotion`，
+  路由到对应主工具动作，旧名不再调用失败。
+- **P1-12 / P2-25 / P2-26 事件流双写 + metadata 失控 + 无上限**：
+  - MCP 工具包裹层改为中文优先标题（`canonicalToolTitle`），同源同动作 3 秒去重（不再双写中英文两条）；
+  - 活动事件 `metadata_json` 递归截断（超长字符串/嵌套），敏感内容 `maskSensitiveText`；
+  - Python 后端 `add_activity_event` 新增 `_clip_metadata` 递归截断（字符串≤1000、数组≤30、嵌套≤6 层），
+    实测 5000 字 metadata 已收敛为 1006 字。
+- **P2-24 `linjian_status.latest` 不标时效**：返回体补充 `mtime_local` / `age_seconds` / `stale(>6h)`，
+  不再让 `has_latest=true` 误导调用方以为是最新画面。
+- **P1-9 / P2-18 天气坐标错（续）**：`fetchWeather` 已知城市坐标兜底表已覆盖绵阳/成都/重庆/贵阳等，`绵阳→贵州` 类错误已规避；
+  温度口径统一取 `daily` 的 `min~max`，避免三处不一致。
+- **P1-10 / P1-6c / #45 / #46 安静时段与情绪矛盾（续）**：`build_emotion_snapshot` 已统一
+  `direction=companion_to_user` / `source=device_low_level_code`，安静时段 `suggestion` 强制 `quiet` 且与原因一致，
+  并区分「深夜休息」与「安静/上课时段」（实测返回 `想你` + `quiet`，自洽）。
+- **#47 新增可锁 App 无上限（续）**：`mergeCarePolicy` 强制每个 `sensitive_apps` 继承 `max_lock_minutes`（缺省 90）。
+- **#52 / #58 / #59 / #61（续）**：读类工具不再写事件流、移除服务端路径/回环地址外泄、统一 `SERVER_VERSION`。
+- **#34 Android 系统级分心白名单（续）**：`PolicyScheduler` 新增 `SYSTEM_EXEMPT_PACKAGES`，输入法/系统面板/媒体选择器/
+  截屏/桌面/卡包等不可被 `exempt_packages` 配置关闭，打字弹键盘不再误判分心。
+
+### 需手机端（Android）实现 / 运行态联调的项（本代码库无法单独闭环）
+- **P0-4 专注求助申请既不推送也不流转**：13 条 `requests` 全 `pending`、陪伴对象侧未收到通知——需在手机端
+  `FocusMode` 把申请推送至陪伴对象会话，并对超时申请给明确提示（MCP 已保证不谎报、如实返回状态）。
+- **P0-5 离线应急计数不重置**：`emergency_used` 跨会话不归零、时长不受 `emergency_minutes` 约束——需手机端
+  在每次 `start_focus_mode` 重置计数并按配置时长放行。
+- **P1-7 / P1-8 / R4 门禁申请无去重、失活锁不清理**：同理由 2 秒提交 13 条、3 把 `active=false` 锁残留——
+  需在手机端 `AppGate` 做申请去重（同 reason 窗口合并）+ 失效锁归档/清理。
+- **P1-6 状态多源矛盾（R3）**：`unlock_count_today=0` vs `screen_time=291`、`focus active=false` 但 `ended<started`、
+  同时刻 `companion_emotion` 与 `emotion_snapshot` 标签不同——需统一状态来源（单一快照派生），避免多份快照各算各的。
+- **#33 五页设置缺少保存按钮**：主设置页已有「保存设置」按钮（flush + toast）；`巡回/归电/门禁/专注/训诫` 子页
+  仍需在 Android 各 `Activity` 底部加固定「保存」按钮 + 未保存离开二次确认（本仓库已含 `PolicyStore.flush` 能力）。
+- **#42–#44 配置写了不生效**（single_app_lock_duration / 归电 interval / alert_tone）：需手机端读取配置项真正落地，
+  MCP 已保证「配置值决定语气/时长」的传递链路正确。
+- **#49–#51 统计字段**（unlock_count_today 恒 0 / minutes_since_last_chat 滞后 / 降水概率与天气码矛盾）：需手机端
+  真实统计并上报；Python 端天气口径已统一。
+- **#62–#65 共同记忆/日记/截图**：MCP/后端已提供写入与去重能力，需在手机端面板接上同一数据源并支持手动增删改。
+- **#66–#69 / #70–#72 课表作息模块 + 守护日历口径**：需在手机端新增「课表作息」作为课表唯一数据源，并与日历/
+  安静时段/情绪/训诫打通；日历 `custom_events` 重复、`events`/`upcoming` 口径、`upcoming` 静默截断需在手机端归一。
+
+---
+
+## Bug 清单补充（33–72）本轮已处理项
+
+> 版本基线：`0.3.9.0-public-diary-annotations`（GitHub `main` @ `ecdc938`）。
+> 说明：清单共 40 条，本轮优先处理「影响体感 / 天天误报 / 数据自相矛盾 / 安全外泄」类，已逐项落地并做了语法校验；
+> 剩余需配合运行态联调或更大重构的项在文末「待续」列出。
+
+### 已修复（后端 / MCP / 服务端逻辑）
+- **#61 版本号格式不统一**：新增单一常量 `SERVER_VERSION = "0.3.9.0-public-diary-annotations"`，
+  `McpServer.version` 与 `/health.version` 统一来源；`worker.js` 与 `FocusMode.java` 早已一致；`linjian_server.py` 的 `VERSION` 同步对齐，避免 `health.version` 与 `focus_version` 不可比较。
+- **#58 / #59 服务端信息外泄**：`get_care_policy` / 到访接口不再返回 `state_path`（服务端绝对路径）；
+  `linjian_status` 与 `/health` 删除 `linjian_url` / `configured_linjian_url` / `fallback_linjian_urls`
+  等回环地址（`127.0.0.1`）与内网信息，改为 `linjian_configured` 布尔 + `linjian_host_masked`（脱敏主机名，loopback 显示为 `local`）。
+- **#52 读类工具污染事件流**：重写 `server.tool` 包裹层，凡 `get_/list_/latest_` 开头的只读工具不再自动写活动事件；
+  并删除各只读工具（focus / guidian / senses / life / calendar / weather / screen_break / lock 等）内部冗余的 `postCompanionAction` 写入。
+- **#47 新增可锁 App 无锁定上限**：`mergeCarePolicy` 归一化 `sensitive_apps`，每个 App 强制继承 `max_lock_minutes`（缺失默认 90），杜绝无限期锁定。
+- **#48 天气地理编码错误（绵阳→贵州）**：`fetchWeather` 增加已知城市坐标兜底表（绵阳/成都/重庆/贵阳等），命中后直接走正确经纬度，并放宽 geocoding 候选数避免误匹配。
+- **#45 / #46 安静时段矛盾**：`build_emotion_snapshot` 安静时段强制 `suggestion="quiet"`，不再被深夜/锁定逻辑推翻；
+  安静原因区分「深夜休息」与「安静/上课时段」，避免凌晨被标注成「上课」。
+
+### 已修复（Android 底层）
+- **#34 切输入法 / 系统面板被判定为分心**：`PolicyScheduler` 新增**系统级白名单** `SYSTEM_EXEMPT_PACKAGES`（输入法、系统面板、媒体/文件选择器、截屏、桌面/启动器、vivo 卡包、KK 键盘等），
+  由 `isSystemExemptPackage()` 判定，**不在 `exempt_packages` 配置里、不可被关闭**，打字弹输入法 / 相册选图不再误判分心并触发训诫。
+
+### 待续（需运行态联调 / 更大重构，未在本轮改动）
+- #33 五页（巡回/归电/门禁/专注/训诫）保存按钮与未保存二次确认：主设置页 `PolicySettingsActivity` 已有「保存设置」按钮（落盘+生效+同步训诫）；
+  归电/门禁/专注等子页需逐一确认是否独立 Activity 并补保存按钮（见下方说明）。
+- #35 训诫单一开关与 0 档语义（事件生产在 Android `PolicyScheduler.discipline()`，需客户端侧统一门禁）。
+- #36–#41 专注求助推送 / 应急次数 / 门禁 status 字段 / 状态字段同步 / 失活锁清理 / 测试数据清理入口。
+- #42–#44 单 App 锁时长 / 归电间隔 / alert_tone 配置未生效（多为参数未真正进入下发链路）。
+- #49–#51 unlock_count_today / minutes_since_last_chat / 降水概率 统计与天气码矛盾（依赖手机端上报字段）。
+- #53–#56 事件流去重 / 节流 / metadata 截断 / 来回切换合并（需在服务端写入层统一）。
+- #57 protected_packages 自动纳入陪伴 App（Android `AppGate`）。
+- #60 工具别名统一与弃用标注（涉及 `mcp/server.js` 大量别名，需逐工具清理）。
+- #62–#65 共同记忆手机端写入入口 / 去重分类 / 截图新鲜度 / 日记命名。
+- #66–#72 课表作息模块（新增唯一数据源并打通日历/安静/情绪/训诫）+ 守护日历 `custom_events` 重复 / `events` 与 `upcoming` 口径 / `upcoming` 静默截断。
+
+---
+
 ## 第三轮返工：情绪感知方向 + 底层触发 + 去重
 
 **方向修正（唯一口径）**：软件里所有「情绪感知」都是【你（陪伴对象）对用户】的情绪，

@@ -26,7 +26,7 @@ from urllib.request import Request, urlopen
 DEFAULT_PORT = 8513
 DEFAULT_KEEP = 3
 MAX_UPLOAD_BYTES = 24 * 1024 * 1024
-VERSION = "0.3.9.0"
+VERSION = "0.3.9.0-public-diary-annotations"
 DEFAULT_DEVICE = os.environ.get("LINJIAN_DEFAULT_DEVICE", "android-phone")
 ACTIVITY_EVENT_LIMIT = 500
 
@@ -269,6 +269,9 @@ class State:
                 try: metadata = json.loads(metadata)
                 except Exception: metadata = {"value": clip_text(metadata, 1000)}
             if not isinstance(metadata, (dict, list)): metadata = {}
+            # Bug #25/#26：事件 metadata 只存摘要级内容，超长字符串（如门禁全量 state）递归截断，
+            # 避免事件体体积失控、下游 JSON 解析失败。
+            metadata = _clip_metadata(metadata)
             entry = {
                 "id": event_id,
                 "device_id": clip_text(str(data.get("device_id") or DEFAULT_DEVICE), 80),
@@ -419,6 +422,34 @@ def clip_text(value: str, limit: int = 1200) -> str:
     if len(value) <= limit:
         return value
     return value[:limit].rstrip() + "…"
+
+
+# Bug #25/#26：事件 metadata 递归截断，避免塞入整段接口返回体导致体积失控、下游解析失败。
+METADATA_STR_LIMIT = 1000
+METADATA_DEPTH_LIMIT = 6
+METADATA_ARR_LIMIT = 30
+
+
+def _clip_metadata(value, depth: int = 0):
+    if isinstance(value, str):
+        s = value
+        if len(s) > METADATA_STR_LIMIT:
+            s = s[:METADATA_STR_LIMIT] + "…(已截断)"
+        return s
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    if isinstance(value, list):
+        if depth >= METADATA_DEPTH_LIMIT:
+            return "[嵌套过深已省略]"
+        return [_clip_metadata(v, depth + 1) for v in value[:METADATA_ARR_LIMIT]]
+    if isinstance(value, dict):
+        if depth >= METADATA_DEPTH_LIMIT:
+            return "[嵌套过深已省略]"
+        return {str(k): _clip_metadata(v, depth + 1) for k, v in value.items()}
+    try:
+        return str(value)
+    except Exception:
+        return "[无法序列化]"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1062,6 +1093,9 @@ def build_emotion_snapshot(state: "State", device_id: str) -> dict:
     if lock_min > 0 and dwell > lock_min:
         suggestion = "pullback"
         reasons.append("单个 App 连续使用已超过阈值")
+    # Bug #46：安静时段建议必须是不打扰，不能因为深夜/锁定又改成拉回，与 reason 自相矛盾。
+    if quiet:
+        suggestion = "quiet"
     if ("低落" in tags or "撒娇" in tags) and not quiet:
         if suggestion == "quiet":
             suggestion = "remind"
@@ -1083,7 +1117,11 @@ def build_emotion_snapshot(state: "State", device_id: str) -> dict:
     intensity = int(ce.get("intensity", 0) or 0)
     threshold = int((load_tour_schedule(state).get("force_back_miss_threshold") or 70))
     if quiet or suggestion == "quiet":
-        emo_tag, emo_reason = "想你", "安静/上课时段，先安静陪着你，不打扰。"
+        # Bug #45/#46：区分「深夜休息」与「安静/上课时段」，避免凌晨却被标注成「上课」。
+        if late_night:
+            emo_tag, emo_reason = "想你", "深夜休息时间，先安静陪着你，不打扰。"
+        else:
+            emo_tag, emo_reason = "想你", "安静/上课时段，先安静陪着你，不打扰。"
     elif late_night and (dwell > 60 or screen > 240):
         emo_tag, emo_reason = "担心", "深夜还在外面逗留很久，有点担心你。"
     elif since_chat_min >= 120 and miss >= 55:
