@@ -64,22 +64,32 @@ public class CalendarState {
             JSONArray banners = new JSONArray();
             for (Occurrence x : occ) {
                 JSONObject item = x.toJson();
-                if (nearest.length() < 3) nearest.put(item);
+                // P2-15：已关横幅的课表/日子不再占据 nearest 与摘要的醒目位置
+                if (x.bannerEnabled && nearest.length() < 3) nearest.put(item);
                 if (upcoming.length() < 12) upcoming.put(item);
                 if (x.bannerEnabled && x.daysLeft >= 0 && x.daysLeft <= Math.max(0, x.remindDays)) banners.put(item);
             }
             JSONArray customEvents = events(ctx);
+            // #70/#71：events 与 custom_events 不再同文重复。events=全部定义(自定义+内置节日)，
+            // custom_events=仅自定义(带稳定 id 供编辑删除)；两者口径与计数明确分开。
+            JSONArray allRawEvents = new JSONArray();
+            for (int i = 0; i < customEvents.length(); i++) allRawEvents.put(customEvents.opt(i));
+            for (JSONObject be : builtinEvents()) allRawEvents.put(be);
             o.put("enabled", true);
             o.put("version", VERSION);
             o.put("theme_color", THEME_COLOR);
             o.put("default_remind_days_before", DEFAULT_REMIND_DAYS);
-            o.put("event_count", customEvents.length());
+            o.put("event_count", allRawEvents.length());
             o.put("custom_event_count", customEvents.length());
             o.put("nearest", nearest);
             o.put("upcoming", upcoming);
+            // #72：不再静默截断，明确给出总数与 has_more
+            o.put("upcoming_total", occ.size());
+            o.put("upcoming_has_more", occ.size() > upcoming.length());
             o.put("active_banners", banners);
             o.put("custom_events", customEvents);
-            o.put("events", customEvents);
+            o.put("events", allRawEvents);
+            o.put("event_fields_note", "events=全部日子定义(自定义+内置节日, event_count 计此); custom_events=仅用户/陪伴自定义(custom_event_count 计此, 带稳定 id 供编辑删除); upcoming=按临近排序的展示预览(最多12条), 用 upcoming_total/upcoming_has_more 判断是否被截断; nearest/active_banners 仅含启用横幅的日子");
             o.put("summary", summaryLine(ctx));
         } catch (Exception e) {
             try { o.put("error", ScreenshotService.shortMsg(e)); } catch (Exception ignored) { }
@@ -121,8 +131,10 @@ public class CalendarState {
     public static String summaryLine(Context ctx) {
         try {
             List<Occurrence> list = occurrences(ctx, false);
-            if (list.isEmpty()) return "守护日历 · 暂无临近日子";
-            Occurrence x = list.get(0);
+            // P2-15：跳过已关闭横幅的项，避免关掉的课表占据摘要首位
+            Occurrence x = null;
+            for (Occurrence c : list) { if (c.bannerEnabled) { x = c; break; } }
+            if (x == null) return "守护日历 · 暂无临近提醒";
             return "守护日历 · " + x.title + " · " + daysText(x.daysLeft);
         } catch (Exception e) { return "守护日历 · 读取中"; }
     }
@@ -195,32 +207,92 @@ public class CalendarState {
         return arr;
     }
 
+    /** R1/R2 根因：命令对象顶层 id 是「命令 uuid」，真正的事件 id 在 payload.id。
+     *  旧代码直接用 cmd.optString("id") 当事件 id，导致删除返回 not_found:<命令id>、
+     *  更新把事件 id 换成命令 id。这里把 payload 覆盖到顶层副本，得到稳定的「业务参数」。 */
+    private static JSONObject bizArgs(JSONObject cmd) {
+        try {
+            JSONObject biz = new JSONObject();
+            java.util.Iterator<String> it = cmd.keys();
+            while (it.hasNext()) { String k = it.next(); if (!"id".equals(k)) biz.put(k, cmd.opt(k)); }
+            JSONObject p = cmd.optJSONObject("payload");
+            if (p != null) {
+                java.util.Iterator<String> pit = p.keys();
+                while (pit.hasNext()) { String k = pit.next(); biz.put(k, p.opt(k)); }
+                String eid = firstNonEmpty(p.optString("id", ""), p.optString("event_id", ""));
+                if (eid.length() > 0) biz.put("id", eid);
+            } else {
+                // 兼容旧文本命令路径：没有 payload 时顶层 id 才是业务 id
+                biz.put("id", cmd.optString("id", ""));
+            }
+            return biz;
+        } catch (Exception ignored) { return cmd; }
+    }
+
+    /** R1：带 id 且命中已有事件 -> 只覆盖「显式传入」的字段（绝不换 id、绝不用默认值补空）；
+     *  带 id 但找不到 -> 明确失败（不静默新建、不谎报）；无 id -> 全量新建。 */
+    private static JSONObject upsertEventSmart(Context ctx, JSONObject biz) {
+        JSONObject out = new JSONObject();
+        String id = firstNonEmpty(biz.optString("id", ""), biz.optString("event_id", ""));
+        if (id.length() == 0) {
+            return upsertEvent(ctx, "",
+                    biz.optString("title", ""),
+                    normalizeDateType(firstNonEmpty(biz.optString("date_type", ""), biz.optBoolean("lunar", false) ? TYPE_LUNAR : TYPE_SOLAR)),
+                    firstNonEmpty(biz.optString("date", ""), biz.optString("solar_date", ""), biz.optString("date_text", "")),
+                    firstPositive(biz.optInt("lunar_month", 0), biz.optInt("month", 0)),
+                    firstPositive(biz.optInt("lunar_day", 0), biz.optInt("day", 0)),
+                    biz.optBoolean("lunar_is_leap", biz.optBoolean("leap", false)),
+                    normalizeRepeatType(biz.optString("repeat_type", biz.optBoolean("repeat", true) ? REPEAT_YEARLY : REPEAT_NONE)),
+                    biz.optString("group", "our_days"),
+                    biz.optString("note", ""),
+                    biz.optInt("remind_days_before", DEFAULT_REMIND_DAYS),
+                    biz.optBoolean("banner_enabled", true),
+                    biz.optString("created_by", "companion"));
+        }
+        try {
+            JSONArray arr = events(ctx);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject e = arr.optJSONObject(i);
+                if (e == null || !id.equals(e.optString("id", ""))) continue;
+                if (biz.has("title")) e.put("title", safe(biz.optString("title")));
+                if (biz.has("date_type")) e.put("date_type", normalizeDateType(biz.optString("date_type")));
+                if (biz.has("repeat_type")) e.put("repeat_type", normalizeRepeatType(biz.optString("repeat_type")));
+                if (biz.has("group")) e.put("group", normalizeGroup(biz.optString("group")));
+                if (biz.has("note")) e.put("note", safe(biz.optString("note")));
+                if (biz.has("remind_days_before")) e.put("remind_days_before", clamp(biz.optInt("remind_days_before", DEFAULT_REMIND_DAYS), 0, 30));
+                if (biz.has("banner_enabled")) e.put("banner_enabled", biz.optBoolean("banner_enabled"));
+                if (biz.has("created_by")) e.put("created_by", safe(biz.optString("created_by")));
+                if (biz.has("date")) e.put("date", safe(biz.optString("date")));
+                if (biz.has("solar_date")) e.put("solar_date", safe(biz.optString("solar_date")));
+                e.put("id", id); // id 恒定，绝不更换
+                e.put("updated_at", formatDateTime(System.currentTimeMillis()));
+                arr.put(i, e);
+                if (!saveEvents(ctx, arr)) return out.put("ok", false).put("error", "save_failed");
+                return out.put("ok", true).put("event", e).put("calendar_state", collect(ctx));
+            }
+            return out.put("ok", false).put("error", "event_not_found").put("id", id);
+        } catch (Exception ex) {
+            try { out.put("ok", false).put("error", ScreenshotService.shortMsg(ex)); } catch (Exception ignored) { }
+            return out;
+        }
+    }
+
     public static JSONObject handleCommand(Context ctx, JSONObject cmd) {
         JSONObject out = new JSONObject();
         try {
-            String action = cmd.optString("action", "");
+            JSONObject biz = bizArgs(cmd);
+            String action = biz.optString("action", cmd.optString("action", ""));
             if ("get_calendar_state".equals(action)) {
                 out.put("ok", true).put("result", collect(ctx).toString()).put("calendar_state", collect(ctx));
             } else if ("upsert_calendar_event".equals(action) || "add_calendar_event".equals(action)) {
-                JSONObject saved = upsertEvent(ctx,
-                        cmd.optString("id", ""),
-                        cmd.optString("title", ""),
-                        normalizeDateType(cmd.optString("date_type", cmd.optBoolean("lunar", false) ? TYPE_LUNAR : TYPE_SOLAR)),
-                        firstNonEmpty(cmd.optString("date", ""), cmd.optString("solar_date", ""), cmd.optString("date_text", "")),
-                        firstPositive(cmd.optInt("lunar_month", 0), cmd.optInt("month", 0)),
-                        firstPositive(cmd.optInt("lunar_day", 0), cmd.optInt("day", 0)),
-                        cmd.optBoolean("lunar_is_leap", cmd.optBoolean("leap", false)),
-                        normalizeRepeatType(cmd.optString("repeat_type", cmd.optBoolean("repeat", true) ? REPEAT_YEARLY : REPEAT_NONE)),
-                        cmd.optString("group", "our_days"),
-                        cmd.optString("note", ""),
-                        cmd.optInt("remind_days_before", DEFAULT_REMIND_DAYS),
-                        cmd.optBoolean("banner_enabled", true),
-                        cmd.optString("created_by", "companion"));
+                // R1：只覆盖显式字段、id 恒定；带 id 找不到时明确失败，不静默新建换 id
+                JSONObject saved = upsertEventSmart(ctx, biz);
                 out.put("ok", saved.optBoolean("ok", false)).put("result", saved.toString()).put("saved", saved);
             } else if ("delete_calendar_event".equals(action)) {
-                String id = cmd.optString("id", "");
-                boolean ok = deleteEvent(ctx, id);
-                out.put("ok", ok).put("result", ok ? "deleted:" + id : "not_found:" + id);
+                // R2：事件 id 取 payload.id（业务 id），绝不再把命令 uuid 当事件 id
+                String id = firstNonEmpty(biz.optString("id", ""), biz.optString("event_id", ""));
+                boolean ok = id.length() > 0 && deleteEvent(ctx, id);
+                out.put("ok", ok).put("result", ok ? "deleted:" + id : (id.length() == 0 ? "missing_event_id" : "not_found:" + id));
             } else {
                 out.put("ok", false).put("result", "unknown_calendar_action");
             }
@@ -469,7 +541,17 @@ public class CalendarState {
 
     private static Calendar midnight(Calendar c) { c.set(Calendar.HOUR_OF_DAY, 0); c.set(Calendar.MINUTE, 0); c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0); return c; }
     private static String daysText(int d) { if (d < 0) return "已经过去 " + Math.abs(d) + " 天"; if (d == 0) return "今天"; if (d == 1) return "明天"; return "还有 " + d + " 天"; }
-    private static String bannerText(String title, int d) { if (d == 0) return "今天是" + title + "，记得回来看看。"; if (d == 1) return "明天是" + title + "，已经帮你记着。"; return "还有 " + d + " 天是" + title + "，别忘了这份小仪式。"; }
+    /** P2-14/#69：按事件类型（课表/节日/纪念日/考试/项目）分别给横幅文案模板；
+     *  课表不再套用纪念日的「别忘了这份小仪式」。 */
+    private static String bannerText(String title, int d, String group) {
+        String head = d == 0 ? "今天是" + title : (d == 1 ? "明天是" + title : "还有 " + d + " 天是" + title);
+        String g = normalizeGroup(group);
+        if ("study".equals(g)) return head + "，提前把课本和作业备好，别迟到。";
+        if ("festival".equals(g)) return head + "，一起过个节，我记着呢。";
+        if ("project".equals(g)) return head + "，节点快到了，提前收个尾。";
+        if ("user".equals(g) || "companion".equals(g)) return head + "，这个日子只属于你，我陪你过。";
+        return head + "，别忘了这份小仪式。";
+    }
     private static String formatDate(Calendar c) { return new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(c.getTime()); }
     private static String formatDateTime(long ms) { return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA).format(new Date(ms)); }
     private static String pad2(int n) { return n < 10 ? "0" + n : String.valueOf(n); }
@@ -545,7 +627,7 @@ public class CalendarState {
             try {
                 o.put("id", id); o.put("title", title); o.put("group", group); o.put("group_label", groupLabel(group)); o.put("note", note);
                 o.put("date", formatDate(date)); o.put("days_left", daysLeft); o.put("days_text", daysText(daysLeft)); o.put("date_type", dateType); o.put("repeat_type", repeatType);
-                o.put("lunar_label", lunarLabel); o.put("remind_days_before", remindDays); o.put("banner_enabled", bannerEnabled); o.put("banner_text", bannerText(title, daysLeft)); o.put("created_by", createdBy); o.put("builtin", builtin);
+                o.put("lunar_label", lunarLabel); o.put("remind_days_before", remindDays); o.put("banner_enabled", bannerEnabled); o.put("banner_text", bannerEnabled ? bannerText(title, daysLeft, group) : ""); o.put("created_by", createdBy); o.put("builtin", builtin);
             } catch (Exception ignored) { }
             return o;
         }

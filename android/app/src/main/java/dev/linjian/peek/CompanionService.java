@@ -357,7 +357,7 @@ public class CompanionService extends Service {
             ScreenshotService svc = ScreenshotService.getInstance();
             if ("wait".equals(action)) { ok = true; result = "wait";
             } else if ("get_life_state".equals(action)) { ok = true; result = LifeState.collect(ctx).toString();
-            } else if ("get_calendar_state".equals(action) || "upsert_calendar_event".equals(action) || "add_calendar_event".equals(action) || "delete_calendar_event".equals(action)) { JSONObject rr = CalendarState.handleCommand(ctx, new JSONObject().put("action", action).put("title", title).put("date", message)); ok = rr.optBoolean("ok", false); result = rr.optString("result", rr.toString());
+            } else if ("get_calendar_state".equals(action) || "upsert_calendar_event".equals(action) || "add_calendar_event".equals(action) || "delete_calendar_event".equals(action)) { // 日历命令统一由 handleCommandBody(ctx, cmd) 处理：那里带完整 payload，能解析出稳定的事件 id。 // performAction 这条旧标量路径没有 payload，若继续用命令 id 顶替会重现「删除 not_found:命令id / 更新换 id」(R1/R2)， // 因此明确拒绝，绝不再悄悄构造一个缺 id 的 cmd。 ok = false; result = "calendar_command_requires_payload_use_handleCommandBody";
             } else if (FocusMode.isFocusAction(action)) {
                 JSONObject focusCmd = new JSONObject().put("action", action).put("app", app).put("package", pkg);
                 if (duration > 0 && duration != 350) focusCmd.put("duration_minutes", Math.max(1, Math.round(duration / 60000.0)));

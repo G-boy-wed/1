@@ -2,7 +2,40 @@
 
 ---
 
-## 第四轮：交付格式重排 + R3 状态一致性专项（本轮）
+## 第五轮：R1/R2 手机端真修 + 守护日历专项（Commit C，本轮）
+
+> 关键修正：第四轮之前 R1/R2 **只在 MCP 层做了「如实返回」**，手机端 `CalendarState`（真正写数据的地方）没动，
+> 所以真机上删除依旧 `not_found:<命令id>`、更新依旧换 id 覆盖 —— 属于「没真正修好」。本轮从数据源修。
+
+**根因（对上清单现象）**：`make_command()` 用 `uuid4` 生成命令 id，`CalendarState.handleCommand` 却把
+命令对象顶层 `id`（命令 uuid）当事件 id 用；MCP 传的业务事件 id 实际在 `cmd.payload.id`。
+
+- **R2 / P0-1 删除**：`CalendarState.bizArgs()` 从 `payload.id` 取事件 id；`deleteEvent` 真删除。
+  运行时实测 `deleted:cal_...`（事件 id）、落库由 1 条变 0 条，不再是 `not_found:命令id`。
+- **R1 / P0-2 更新**：新增 `upsertEventSmart()` —— 带 id 命中已有事件时**只覆盖显式传入字段**，
+  id 恒定、group/note/repeat_type 不被默认值覆盖；带 id 找不到明确失败、不静默新建换 id。
+  运行时实测：只传 title，group 仍 study、note 仍「带课本」、repeat_type 仍 none、id 不变。
+- **R1/R2 别处旧口径**：`CompanionService.performAction` 旧标量日历死路径改为明确拒绝
+  `calendar_command_requires_payload_use_handleCommandBody`，不再构造缺 id 的 cmd。
+- **P2-14 / #69** `bannerText(title,d,group)` 按 study/festival/project/user 分模板，课表不再「小仪式」；
+  `banner_enabled=false` 时 `banner_text=""` 不生成。
+- **P2-15** `collect()` 的 `nearest` 与 `summaryLine()` 只收启用横幅的日子，关掉的课表不再占据醒目位。
+- **#70/#71** `events`=全部定义（自定义+内置节日），`custom_events`=仅自定义；两数组不再同文重复，
+  `event_count`/`custom_event_count` 口径分开，附 `event_fields_note`。
+- **#72** 新增 `upcoming_total` / `upcoming_has_more`，不再静默截断 12 条。
+- **P2-20** `DEFAULT_CARE_POLICY.allowed_actions` 补齐 7 个专注模式动作。
+- **P2-17** `gateCommand` 的 note 改为按 `command_status` 动态生成，不再与 `status=completed` 矛盾。
+- **#65** `create_diary_book`/`list_diary_books` 文案不再预设「TA 的日记」，与本机「祁晏的日记本」不再冲突。
+- **#44** Python `tour_step_check_in`：配置了 `alert_tone` 就以它为准，强情绪 angry 不再覆盖 gentle。
+  运行时实测 `tones=['gentle']`。
+
+**查证**：javac 全量 45 文件 0 error + APK v1/v2/v3 签名通过；`node --check`(server.js/worker.js)、
+`py_compile` 通过；**Java 真跑 CalendarState 24/24 PASS**（官方 org.json + stub）、
+**Python 真跑 7 项 + HTTP 实测训诫归一** 全通过。逐条回执/复测清单见 `BUG_RECEIPT.md`、`RETEST.md`。
+
+---
+
+## 第四轮：交付格式重排 + R3 状态一致性专项（Commit A / Commit B）
 
 > 按交付要求拆成**两版可独立推送/回滚的提交**：
 > - **Commit A（R1/R2/R4 根因版）**：见上一节「Bug 清单全量版本轮已处理项」+ 33–72 补充项。

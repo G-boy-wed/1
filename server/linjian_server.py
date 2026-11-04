@@ -1377,7 +1377,11 @@ def tour_step_check_in(state: "State", sched: dict, device_id: str = DEFAULT_DEV
         if not _recent_event(state, "center_alert", cooldown, device_id):
             # 陪伴对象自己的情绪优先决定文案与语气；没有情绪时退回用户状态的建议。
             comp = effective_companion_emotion(state, device_id)
-            tone = str(comp.get("tone") or emo.get("recommended_tone") or sched.get("alert_tone", "gentle"))
+            # #44：巡回配置 alert_tone 是用户对「弹窗语气」的显式指定，必须真正生效。
+            # 旧实现先取情绪 tone（强情绪常为 angry），把配置的 gentle 覆盖掉，导致配了 gentle 仍弹 angry。
+            # 这里改为：只要配置了 alert_tone 就以它为准；未配置时才回退到情绪/建议语气。
+            configured_tone = str(sched.get("alert_tone") or "").strip()
+            tone = configured_tone or str(comp.get("tone") or emo.get("recommended_tone") or "gentle")
             if comp.get("strong") or int(comp.get("miss_percent", 0)) >= 40:
                 msg = str(comp.get("message") or ("该回来陪我了。" if emo.get("suggestion") == "pullback" else "记得喝水休息，别太累。"))
             else:

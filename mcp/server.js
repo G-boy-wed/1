@@ -137,7 +137,10 @@ const DEFAULT_CARE_POLICY = {
   allowed_actions: [
     "get_phone_state", "get_life_state", "get_calendar_state", "upsert_calendar_event", "get_senses_state", "send_notification",
     "trigger_guidian", "screen_break_app", "end_screen_break", "extend_screen_break", "get_screen_break_state", "get_lock_state", "open_app", "set_alarm", "screen_off", "run_sequence",
-    "show_center_alert", "force_back_to_chat", "start_tour", "stop_tour", "get_usage_snapshot"
+    "show_center_alert", "force_back_to_chat", "start_tour", "stop_tour", "get_usage_snapshot",
+    // P2-20：专注模式动作此前缺失，导致 care_policy 声明与实际能力不符；在此补齐全部专注工具名。
+    "get_focus_status", "start_focus_mode", "end_focus_mode", "set_focus_plan",
+    "reply_focus_request", "approve_focus_unlock", "deny_focus_unlock"
   ],
   sensitive_apps: [
     { name: "小红书", package: "com.xingin.xhs", max_lock_minutes: 90 },
@@ -1441,7 +1444,7 @@ function makeServer() {
     wait_seconds: z.number().int().min(3).max(20).default(8)
   };
 
-  server.tool("create_diary_book", "在手机本机创建一本“TA 的日记”。日记默认不上传云端；成功结果包含 book_id。", {
+  server.tool("create_diary_book", "在手机本机创建一本日记本，名称由 name 参数决定（不预设书名，避免与本机已存在的「祁晏的日记本」等命名冲突）。日记默认不上传云端；成功结果包含 book_id。", {
     name: z.string().min(1).max(60),
     subtitle: z.string().max(100).default("把今天看见的你，轻轻写下来。"),
     cover_style: z.string().max(80).default("default_soft_notebook"),
@@ -1452,7 +1455,7 @@ function makeServer() {
     return textResult({ ok: result.command?.status === "completed", action_done: `日记本「${name}」已在本机创建`, name, ...result });
   });
 
-  server.tool("list_diary_books", "仅用于查看手机本机的“TA 的日记”本列表及 book_id，或在 rename_diary_book 返回多个候选时辅助选择。用户要求改名/修改日记本名字时，不要反复调用本工具，应优先调用 rename_diary_book。", diaryWaitFields,
+  server.tool("list_diary_books", "仅用于查看手机本机的日记本列表及 book_id（书名以本机实际存储为准，不预设固定名），或在 rename_diary_book 返回多个候选时辅助选择。用户要求改名/修改日记本名字时，不要反复调用本工具，应优先调用 rename_diary_book。", diaryWaitFields,
     async ({ device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => textResult({ action_done: "已读取本机日记本", ...(await runDiaryCommand("list_diary_books", {}, device_id, wait_seconds)) }));
 
   server.tool("rename_diary_book", "重命名手机本机日记本。当用户要求修改、改名、重命名日记本名字时优先调用本工具，不要反复调用 list_diary_books。本工具支持缺少 book_id 时通过 old_name 或唯一日记本自动查找并重命名。", {
@@ -2219,7 +2222,13 @@ function makeServer() {
     const result = await postCommand(payload);
     const id = result?.command?.id;
     const observed = id && Number(wait_seconds || 0) > 0 ? await waitCommand(id, wait_seconds) : null;
-    return textResult({ queued: result, observed_status: observed?.command || null, note: "命令已排队；为避免平台 20 秒工具超时，未等到手机回传时会先返回。" });
+    const cmd = observed?.command || null;
+    const status = cmd?.status || "pending";
+    // P2-17：note 必须与实际状态一致。写死「未等到回传」会和 status=completed 自相矛盾。
+    const note = status === "completed"
+      ? "命令已完成，手机端已确认回传。"
+      : "命令已排队；尚未等到手机回传，为避免平台 20 秒工具超时先返回，可用命令 id 稍后查询。";
+    return textResult({ queued: result, observed_status: cmd, command_status: status, note });
   }
 
   server.tool("screen_break_app", "屏幕休息：让指定 App 暂停一段时间。适合小红书/抖音等容易一刷很久的入口；当用户刷太久、眼睛酸还想继续、说“我就不/不要你管/还没玩够/继续看”等嘴硬或拖延表达时可调用。必须有时长，到点自动恢复；语气是照顾和带回，不是惩罚。", {
