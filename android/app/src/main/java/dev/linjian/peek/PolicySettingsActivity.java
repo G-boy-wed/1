@@ -146,8 +146,8 @@ public class PolicySettingsActivity extends Activity {
         g5.addView(rowNumber("分心来回次数", "几个「切出→切回」来回算一次分心查岗。默认 2。", PolicyStore.distractionLoopTimes(this), 1, 99, v -> PolicyStore.setDistractionLoopTimes(this, v)));
         g5.addView(rowNumber("来回时间窗口（秒）", "两次切换间隔超过它就不算「立马切回」。默认 90。", PolicyStore.distractionLoopWindowSec(this), 5, 600, v -> PolicyStore.setDistractionLoopWindowSec(this, v)));
         g5.addView(rowSwitch("每次切屏都拉回", "关闭时仅按分心查岗/累计触发；打开则每次切屏都拉回（可拒绝）。默认关闭。", PolicyStore.distractionEveryTime(this), (v, c) -> PolicyStore.setDistractionEveryTime(this, c)));
-        g5.addView(rowNumber("累计分心阈值（次）", "连续分心达到该次数弹一次可实行拉回弹窗。默认 5。", PolicyStore.distractionThreshold(this), 1, 999, v -> PolicyStore.setDistractionThreshold(this, v)));
-        g5.addView(rowSwitch("超阈值自动提醒", "分心累计达到阈值时弹一次可实行拉回弹窗（不再无理由强制）。默认开启。", PolicyStore.distractionAutoPullback(this), (v, c) -> PolicyStore.setDistractionAutoPullback(this, c)));
+        g5.addView(rowNumber("累计分心阈值（次）", "连续分心达到该次数弹一次分级拉回弹窗。默认 5。", PolicyStore.distractionThreshold(this), 1, 999, v -> PolicyStore.setDistractionThreshold(this, v)));
+        g5.addView(rowSwitch("超阈值自动提醒", "分心累计达到阈值时弹一次分级拉回弹窗（是否强制由拉回阈值决定）。默认开启。", PolicyStore.distractionAutoPullback(this), (v, c) -> PolicyStore.setDistractionAutoPullback(this, c)));
 
         LinearLayout g6 = card(container, "权限开关", "逐项管理 App 的各种守护功能。");
         addPerm(g6, PolicyStore.KEY_PERM_SCREEN_TIME, "屏幕时长上限", "限制每天可用屏幕总时长（填分钟，0=不限）。");

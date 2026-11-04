@@ -16,7 +16,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 拉回弹窗的悬浮窗通道：真正的「盖在其它 App 之上」的一层，
+ * 拉回弹窗的悬浮窗通道：真正的「盖在其他 App 之上」的一层，
  * 位置跟随归电设置里的弹窗位置（顶部 / 居中 / 底部）。
  * 锁屏状态下系统会挡住悬浮窗，此时由 PullBackActivity 接手，两边显示的是同一张卡片。
  */

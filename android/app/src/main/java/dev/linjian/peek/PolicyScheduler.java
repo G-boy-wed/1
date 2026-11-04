@@ -266,7 +266,7 @@ public final class PolicyScheduler {
                 if (PolicyStore.disciplineEnabled(appCtx)) discipline("distraction", "切到" + app);
             }
 
-            // 兼容旧逻辑：每次切屏都拉回 / 累计超阈值也弹一次「可实行」拉回弹窗（不再无理由强制）。
+            // 兼容旧逻辑：每次切屏都拉回 / 累计超阈值也弹一次分级拉回弹窗（是否强制统一由拉回阈值与强情绪决定）。
             // 限定在「确实处于其它 App」（!excluded）时才触发，避免用户在目标 App / 掌心窗内被误拉回。
             boolean every = PolicyStore.distractionEveryTime(appCtx);
             boolean byAccumulated = PolicyStore.distractionAutoPullback(appCtx)
@@ -274,7 +274,10 @@ public final class PolicyScheduler {
             if ((every || byAccumulated)
                     && !PolicyStore.isInCooldown(appCtx) && !PolicyStore.isQuietNow(appCtx)
                     && !ClassScheduleState.isInClassNow(appCtx)) {
-                boolean strong = byAccumulated; // 仅用于配色提示，依旧给两选项
+                // 与查岗 / 分心来回统一：是否强制只由「想她百分比是否达到拉回阈值」和强情绪决定，
+                // 不因触发来源（累计次数）而改变，避免没达到拉回阈值就被强制。
+                boolean strong = CompanionEmotionState.effectiveMissPercent(appCtx) >= PolicyStore.forceBackThreshold(appCtx)
+                        || CompanionEmotionState.isStrong(appCtx);
                 String msg = byAccumulated
                         ? ("已经分心 " + PolicyStore.distractionCount(appCtx) + " 次了，先回来陪" + AppPrefs.companionName(appCtx) + "。")
                         : CompanionEmotionState.message(appCtx);
