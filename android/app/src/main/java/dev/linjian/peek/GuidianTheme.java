@@ -74,8 +74,8 @@ public class GuidianTheme {
                 0xFF78AE90, 0x550E0508, 0xFFC62828, .24f, .10f, false);
     }
 
-    /** 按语气（温柔 / 生气）取强调色：生气时用 danger 色，其余用 primary。 */
+    /** 按语气取强调色：生气 / 训诫严厉都用 danger 色（更硬的视觉语气），其余用 primary。 */
     public int accentFor(String tone) {
-        return "angry".equalsIgnoreCase(tone) ? danger : primary;
+        return ("angry".equalsIgnoreCase(tone) || "strict".equalsIgnoreCase(tone)) ? danger : primary;
     }
 }

@@ -54,6 +54,7 @@ public class AppGate {
     private static volatile WindowManager overlayWindowManager = null;
     private static volatile String visibleLockActivityPackage = "";
     private static volatile long visibleLockActivityAt = 0;
+    private static volatile String visibleLockOverlayPackage = "";
 
     public static boolean enabled(Context ctx) { return AppPrefs.get(ctx).getBoolean(KEY_ENABLED, true); }
 
@@ -313,6 +314,11 @@ public class AppGate {
             JSONObject lock = activeLockFor(ctx, pkg, now);
             if (lock == null) return;
             if (isTemporarilyAllowed(ctx, lock, now, true)) return;
+            // 调度器每个 tick 也会调用本方法做周期性监测：若锁定界面（全屏页或悬浮遮罩）已在显示，
+            // 不再重复弹一次，避免每 20 秒闪烁；同时刷新时间戳维持「正在拦截」状态。
+            if (isLockActivityVisibleFor(pkg) || (overlayView != null && pkg.equals(visibleLockOverlayPackage))) {
+                lastGateAt = now; lastGatePackage = pkg; return;
+            }
             if (pkg.equals(lastGatePackage) && now - lastGateAt < 1800) return;
             lastGatePackage = pkg; lastGateAt = now;
             showGateByPriority(ctx, pkg, lock);
@@ -493,6 +499,7 @@ public class AppGate {
                 wm.addView(root, lp);
                 overlayView = root;
                 overlayWindowManager = wm;
+                visibleLockOverlayPackage = pkg;
                 DebugState.append(app, "门禁悬浮层已启动：touch_blocking=true；目标=" + pkg);
             } catch (Exception e) {
                 DebugState.append(ctx, "门禁悬浮层失败，回到桌面兜底：" + ScreenshotService.shortMsg(e));
@@ -522,6 +529,7 @@ public class AppGate {
         } catch (Exception ignored) { }
         overlayView = null;
         overlayWindowManager = null;
+        visibleLockOverlayPackage = "";
     }
 
     private static void accountUsageSwitch(Context ctx, String nextPkg, long now) throws Exception {

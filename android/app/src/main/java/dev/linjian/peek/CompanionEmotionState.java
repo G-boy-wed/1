@@ -182,9 +182,15 @@ public class CompanionEmotionState {
         return baselineIntensity(ctx) >= 70 ? "angry" : "gentle";
     }
 
-    /** 对外生效语气：优先用底层感知结果。 */
+    /** 对外生效语气：底层感知优先；训诫开启且为「严厉」模式时，强制把语气升级为 harsh（更硬的弹窗语气）。 */
     public static String tone(Context ctx) {
-        return EmotionPerception.activeTone(ctx);
+        String base = EmotionPerception.activeTone(ctx);
+        if (PolicyStore.disciplineEnabled(ctx) && "strict".equals(PolicyStore.disciplineMode(ctx))) {
+            // 严厉模式：原本温柔的语气升级为 strict（渲染为 danger 色 + 更硬的话术），人设与弹窗语气都更严厉。
+            if (base == null || base.trim().isEmpty() || "gentle".equalsIgnoreCase(base)) return "strict";
+            return base; // 已经是 angry/strong 则保持不变
+        }
+        return base;
     }
 
     /**
@@ -257,7 +263,11 @@ public class CompanionEmotionState {
      */
     public static String messageForDisplay(Context ctx) {
         String companion = AppPrefs.companionName(ctx);
-        if (!PolicyStore.emotionDriveText(ctx)) return "有空的话，回来陪" + companion + "说句话。";
+        if (!PolicyStore.emotionDriveText(ctx)) {
+            // 即使不驱动情绪文案，训诫开启时人设语气也应带上管束意味（供界面 / 服务端镜像读取）。
+            String base = "有空的话，回来陪" + companion + "说句话。";
+            return withDisciplineTone(ctx, base);
+        }
         String tag = emotionTag(ctx);
         int miss = effectiveMissPercent(ctx);
         if (TAG_ANGRY.equals(tag) || tag.contains("生气")) return "别躲了，" + companion + "在等你。";
@@ -265,8 +275,8 @@ public class CompanionEmotionState {
         if (TAG_WORRY.equals(tag) || tag.contains("担心")) return "外面太晚了，" + companion + "有点担心你。";
         if (TAG_LOVE.equals(tag) || tag.contains("爱恋")) return "想你了，" + companion + "想抱着你。";
         if (miss >= 70) return "已经很想你了，" + companion + "不想再等。";
-        if (miss >= 40) return "有点想你了，" + companion + "问一句在不在。";
-        return "有空的话，回来陪" + companion + "说句话。";
+        if (miss >= 40) return withDisciplineTone(ctx, "有点想你了，" + companion + "问一句在不在。");
+        return withDisciplineTone(ctx, "有空的话，回来陪" + companion + "说句话。");
     }
 
     /** 从候选文案里随机挑一句（每次调用结果可能不同，仅用于实际发送的弹窗/通知）。 */

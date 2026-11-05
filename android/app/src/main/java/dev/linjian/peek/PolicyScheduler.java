@@ -228,6 +228,11 @@ public final class PolicyScheduler {
         evaluateUsageLock(now, current);
         evaluateClassSchedule();
         evaluatePermissions(now, current);
+
+        // 应用门禁：除无障碍前台事件外，调度器每个 tick 也主动把当前前台 App 喂给门禁检查，
+        // 真正「写入即监测」——避免无障碍事件被节流/丢失、或写入锁定时用户已在该 App 上而始终不拦截。
+        // 锁定界面已显示时 onForegroundPackage 内部去重，不会每 20 秒重新闪一次。
+        try { AppGate.onForegroundPackage(appCtx, current); } catch (Exception ignored) { }
     }
 
     // ============ 查岗与分级拉回 ============
