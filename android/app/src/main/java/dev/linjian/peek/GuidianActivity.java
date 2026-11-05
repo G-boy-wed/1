@@ -63,6 +63,9 @@ public class GuidianActivity extends Activity {
         getWindow().setNavigationBarColor(theme.background);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             int flags = getWindow().getDecorView().getSystemUiVisibility();
+            // Bug 4.1：允许内容布局延伸到导航栏之下，再用底部内边距避让，避免全面屏手势导航下
+            // 底部「× 稍后 / ⌁ 接通」按钮与理由抽屉被系统导航条遮挡。
+            flags |= View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
             if (theme.dark) flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
             else flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
             getWindow().getDecorView().setSystemUiVisibility(flags);
@@ -83,7 +86,7 @@ public class GuidianActivity extends Activity {
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setGravity(Gravity.CENTER_HORIZONTAL);
-        body.setPadding(dp(30), dp(34), dp(30), dp(24));
+        body.setPadding(dp(30), dp(34), dp(30), dp(24) + navBarHeight());
         root.addView(body, new FrameLayout.LayoutParams(-1, -1));
 
         String companion = AppPrefs.companionName(this);
@@ -299,7 +302,7 @@ public class GuidianActivity extends Activity {
         FrameLayout.LayoutParams drawerLp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
         drawerLp.leftMargin = dp(14);
         drawerLp.rightMargin = dp(14);
-        drawerLp.bottomMargin = dp(14);
+        drawerLp.bottomMargin = dp(14) + navBarHeight();
         root.addView(reasonDrawer, drawerLp);
 
         TextView title = text("晚一点，也没关系。", 19, theme.text, true);
@@ -428,6 +431,15 @@ public class GuidianActivity extends Activity {
 
     private int dp(float value) {
         return (int) (value * getResources().getDisplayMetrics().density + .5f);
+    }
+
+    /** Bug 4.1：取系统导航栏高度，用于底部内容避让手势导航条。 */
+    private int navBarHeight() {
+        int resId = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
+        if (resId > 0) {
+            try { return getResources().getDimensionPixelSize(resId); } catch (Exception ignored) { }
+        }
+        return 0;
     }
 
     private class WaveLineView extends View {

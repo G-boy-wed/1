@@ -21,9 +21,24 @@ import java.nio.charset.StandardCharsets;
 /** 守护日历：纪念日、节日、倒数日、提前三天横幅提醒，并接入生活状态层。 */
 public class CalendarState {
     public static final String VERSION = "0.3.9.0";
+    // Bug 3.2：编辑单调版本号（随每次增删事件自增），替代静态 VERSION 用作 calendar_state.version，
+    // 使服务端/前端能据此判断缓存是否过期、多端是否需刷新横幅。
+    private static final String KEY_CAL_VERSION = "calendar_state_version";
     public static final String KEY_EVENTS = "guard_calendar_events_json";
     public static final String THEME_COLOR = "#B8A8D8";
     public static final int DEFAULT_REMIND_DAYS = 3;
+
+    private static int calendarVersion(Context ctx) {
+        try { return AppPrefs.get(ctx).getInt(KEY_CAL_VERSION, 0); } catch (Exception e) { return 0; }
+    }
+    private static int bumpCalendarVersion(Context ctx) {
+        try {
+            SharedPreferences p = AppPrefs.get(ctx);
+            int v = p.getInt(KEY_CAL_VERSION, 0) + 1;
+            p.edit().putInt(KEY_CAL_VERSION, v).apply();
+            return v;
+        } catch (Exception e) { return 1; }
+    }
 
     private static final String TYPE_SOLAR = "solar";
     private static final String TYPE_LUNAR = "lunar";
@@ -76,7 +91,7 @@ public class CalendarState {
             for (int i = 0; i < customEvents.length(); i++) allRawEvents.put(customEvents.opt(i));
             for (JSONObject be : builtinEvents()) allRawEvents.put(be);
             o.put("enabled", true);
-            o.put("version", VERSION);
+            o.put("version", calendarVersion(ctx));
             o.put("theme_color", THEME_COLOR);
             o.put("default_remind_days_before", DEFAULT_REMIND_DAYS);
             o.put("event_count", allRawEvents.length());
@@ -350,6 +365,7 @@ public class CalendarState {
             }
             if (!replaced) arr.put(e);
             if (!saveEvents(ctx, arr)) return out.put("ok", false).put("error", "save_failed");
+            bumpCalendarVersion(ctx);
             out.put("ok", true).put("event", e).put("calendar_state", collect(ctx));
         } catch (Exception ex) {
             try { out.put("ok", false).put("error", ScreenshotService.shortMsg(ex)); } catch (Exception ignored) { }
@@ -367,7 +383,7 @@ public class CalendarState {
                 if (e != null && id != null && id.equals(e.optString("id", ""))) { found = true; continue; }
                 if (e != null) next.put(e);
             }
-            if (found) return saveEvents(ctx, next);
+            if (found) { boolean ok = saveEvents(ctx, next); if (ok) bumpCalendarVersion(ctx); return ok; }
             return false;
         } catch (Exception e) { return false; }
     }
@@ -602,15 +618,23 @@ public class CalendarState {
 
     private static Calendar lunarToSolar(int year, int month, int day, boolean leap) {
         try {
-            if (year < 1900 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 30) return null;
+            if (year < 1900 || year > 2100 || month < 1 || month > 12 || day < 1) return null;
+            int lm = leapMonth(year);
+            // Bug 3.1 容错：请求的闰月在该年并不存在时直接判无效，避免被当成普通月算出错位日期。
+            if (leap && lm != month) return null;
+            // Bug 3.1 容错：闰月/当月实际天数校验。农历月只有 29 或 30 天，超出实际天数按无效处理，
+            // 而不是返回一个偏移日期（原代码用 day>30 兜底，会放过 29 天月的第 30 天）。
+            int maxDay = leap ? leapDays(year) : monthDays(year, month);
+            if (day > maxDay) return null;
             int offset = 0;
             for (int y = 1900; y < year; y++) offset += yearDays(y);
-            int leapMonth = leapMonth(year);
+            int leapMonth = lm;
             for (int m = 1; m < month; m++) {
                 offset += monthDays(year, m);
                 if (m == leapMonth) offset += leapDays(year);
             }
-            if (leap && leapMonth == month) offset += monthDays(year, month);
+            // 闰月排在同名普通月之后：闰月目标需先跳过同名普通月，落到闰月起点。
+            if (leap) offset += monthDays(year, month);
             offset += day - 1;
             Calendar base = Calendar.getInstance();
             base.set(1900, Calendar.JANUARY, 31, 0, 0, 0); base.set(Calendar.MILLISECOND, 0);

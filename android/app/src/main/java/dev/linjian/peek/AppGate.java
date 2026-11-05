@@ -68,6 +68,8 @@ public class AppGate {
     }
 
     private static void save(Context ctx, JSONObject s) { AppPrefs.get(ctx).edit().putString(KEY_STATE, s.toString()).apply(); }
+    /** Bug 2.2：关键状态翻转（到期自动解除等）用同步 commit，避免 apply 异步落盘造成的跨进程读取滞后（get_screen_break_state 短暂返回旧状态）。 */
+    private static void saveNow(Context ctx, JSONObject s) { try { AppPrefs.get(ctx).edit().putString(KEY_STATE, s.toString()).commit(); } catch (Exception ignored) { } }
 
     private static JSONObject locks(JSONObject s) {
         JSONObject locks = s.optJSONObject("locks");
@@ -413,7 +415,7 @@ public class AppGate {
                 root.setPadding(dp(ctx, 22), dp(ctx, 22), dp(ctx, 22), dp(ctx, 22));
                 root.setClickable(true);
                 root.setFocusable(true);
-                root.setBackgroundColor(0x88F2EAFB);
+                root.setBackgroundColor(0xFFF2EAFB);
                 root.setOnClickListener(v -> { /* 空白遮罩吃掉点击，不关闭也不透传 */ });
 
                 LinearLayout card = new LinearLayout(app);
@@ -477,7 +479,7 @@ public class AppGate {
                         WindowManager.LayoutParams.MATCH_PARENT,
                         WindowManager.LayoutParams.MATCH_PARENT,
                         type,
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_FULLSCREEN,
                         PixelFormat.TRANSLUCENT);
                 lp.gravity = Gravity.CENTER;
                 wm.addView(root, lp);
@@ -533,7 +535,7 @@ public class AppGate {
     public static JSONObject activeLockFor(Context ctx, String pkg, long now) throws Exception {
         JSONObject s = state(ctx); JSONObject l = locks(s).optJSONObject(pkg);
         if (l == null || !l.optBoolean("active", false)) return null;
-        if (now >= l.optLong("locked_until_ms", 0)) { l.put("active", false); save(ctx, s); log(ctx, "门禁到时自动解除：" + pkg); return null; }
+        if (now >= l.optLong("locked_until_ms", 0)) { l.put("active", false); saveNow(ctx, s); log(ctx, "门禁到时自动解除：" + pkg); return null; }
         return l;
     }
 
@@ -648,6 +650,11 @@ public class AppGate {
                     if (l == null) { drop.add(key); continue; }
                     boolean active = l.optBoolean("active", false);
                     long until = l.optLong("locked_until_ms", 0L);
+                    // Bug 2.2：读路径兜底——已到期但仍标记为 active 的锁，在此纠正为失活，
+                    // 保证 get_lock_state / config 返回的 active 永远新鲜，不再依赖 activeLockFor 何时被前台包触发。
+                    if (active && until > 0 && now >= until) {
+                        l.put("active", false); changed = true; log(ctx, "门禁到期自动解除（读路径校验）：" + key);
+                    }
                     if ((!active && until > 0 && (now - until) > 24L * 3600 * 1000) || (!active && until <= 0)) {
                         drop.add(key); continue;
                     }

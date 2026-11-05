@@ -110,11 +110,18 @@ public class PullBackOverlay {
             final View view = current;
             current = null;
             if (wm == null || view == null) return;
-            main.post(new Runnable() {
-                @Override public void run() {
-                    try { wm.removeView(view); } catch (Exception ignored) { }
-                }
-            });
+            // Bug 1.2 修复：主线程上同步移除旧视图，避免旧弹窗尚未移除时又叠加新弹窗，
+            // 造成软/强级别按钮在同帧共存、点击穿透。doAdd 在主线调用 dismiss 后即 addView，
+            // 因此必须同步移除才能消除重叠窗口。
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                try { wm.removeViewImmediate(view); } catch (Exception ignored) { }
+            } else {
+                main.post(new Runnable() {
+                    @Override public void run() {
+                        try { wm.removeView(view); } catch (Exception ignored) { }
+                    }
+                });
+            }
         } catch (Exception ignored) { }
     }
 

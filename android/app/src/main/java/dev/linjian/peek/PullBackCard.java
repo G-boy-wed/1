@@ -291,6 +291,7 @@ public class PullBackCard {
         tv.setBackground(rounded(primary ? accent : withAlpha(accent, .12f), 23, primary ? accent : withAlpha(accent, .45f), 1));
         tv.setClickable(true);
         tv.setFocusable(true);
+        tv.setEnabled(true);
         return tv;
     }
 

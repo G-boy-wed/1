@@ -953,7 +953,13 @@ def _hm_to_minutes(hm: str) -> int:
 
 
 def in_quiet_hours(qh: dict, hm: str) -> bool:
-    """判断 hm(HH:MM) 是否落在安静时段内，支持跨午夜。"""
+    """判断 hm(HH:MM) 是否落在安静时段内，支持跨午夜。
+
+    Bug 1.1 修复：边界统一采用「左闭右开」[start, end)，即结束时刻不算在窗口内。
+    与 Android 端 PolicyStore.inWindow / GuidianState.inQuietTime 的约定一致
+    （两端都按 cur < end 判定），避免落在 06:00 这一分钟时服务端认为「仍安静」、
+    Android 认为「已结束」而决策相反的时间戳对齐问题。
+    """
     if not isinstance(qh, dict):
         return False
     start = _hm_to_minutes(qh.get("start", ""))
@@ -964,8 +970,8 @@ def in_quiet_hours(qh: dict, hm: str) -> bool:
     if cur < 0:
         return False
     if start <= end:
-        return start <= cur <= end
-    return cur >= start or cur <= end
+        return start <= cur < end
+    return cur >= start or cur < end
 
 
 def _device_local_hm(state: "State", device_id: str) -> str:
@@ -1453,7 +1459,11 @@ def tour_scheduler_loop(state: "State") -> None:
             comp = effective_companion_emotion(state, DEFAULT_DEVICE)
             fb = max(30, int(fb_base * float(comp.get("pull_back_interval_scale", 1.0))))
             hm = _device_local_hm(state, DEFAULT_DEVICE)
-            quiet = in_quiet_hours(sched.get("quiet_hours") or {}, hm)
+            # Bug 1.1 修复：安静判定同时尊重 quiet_hours 与 night_hours。
+            # 默认配置下 quiet_hours 为 None，服务端定时任务此前永远判定「非安静」，
+            # 与 Android 端夜间 23:30–08:00 静默窗口对不齐；此处合并两者，使服务端
+            # 调度与 Android 前台通知的安静窗口一致。
+            quiet = in_quiet_hours(sched.get("quiet_hours") or {}, hm) or in_quiet_hours(sched.get("night_hours") or {}, hm)
             if now - last_check_in >= ci:
                 last_check_in = now
                 try:

@@ -15,6 +15,10 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.provider.AlarmClock;
 
 import org.json.JSONArray;
@@ -42,6 +46,8 @@ public class CompanionService extends Service {
     private Handler pollHandler;
     private HandlerThread pollThread;
     private long rateLimitedUntilMs = 0L;
+    private ConnectivityManager.NetworkCallback netCallback;
+    private boolean netWasLost = false;
     private static long lastStateUploadMs = 0L;
 
     public static boolean isRunning() { return running; }
@@ -72,6 +78,7 @@ public class CompanionService extends Service {
             startPolling();
         } else DebugState.append(this, "服务已在运行，继续轮询");
         PolicyScheduler.start(this);
+        registerNetworkRecovery();
         return START_STICKY;
     }
 
@@ -176,7 +183,7 @@ public class CompanionService extends Service {
                 boolean ok = rr.optBoolean("ok", false);
                 String result = rr.optString("result", rr.toString());
                 DebugState.append(ctx, "执行守护日历命令 " + action + "：" + result);
-                try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, false); } catch (Exception ignored) { }
+                try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, true); } catch (Exception ignored) { }
                 return;
             }
             if (action.contains("diary")) {
@@ -728,5 +735,43 @@ public class CompanionService extends Service {
 
     private void createNotificationChannel() { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { NotificationManager nm = getSystemService(NotificationManager.class); NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "掌心窗", NotificationManager.IMPORTANCE_LOW); channel.setDescription("掌心窗正在等待你授权的截图与手机动作请求"); nm.createNotificationChannel(channel); NotificationChannel reminder = new NotificationChannel(REMINDER_CHANNEL_ID, "掌心窗悬浮横幅提醒", NotificationManager.IMPORTANCE_HIGH); reminder.setDescription("来自掌心窗的悬浮横幅、生活提醒与回家模式"); reminder.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC); reminder.enableVibration(true); nm.createNotificationChannel(reminder); } }
     private Notification buildNotification(String text) { Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this); return builder.setContentTitle("掌心窗运行中").setContentText(text).setSmallIcon(android.R.drawable.ic_menu_view).setOngoing(true).build(); }
-    @Override public void onDestroy() { running = false; DebugState.append(this, "服务已销毁/停止"); PolicyScheduler.stop(this); if (pollThread != null) pollThread.quitSafely(); super.onDestroy(); }
+    /** Bug 4.2：监听网络恢复，断网重连后立刻重算情绪并强制上报，消除「一次 Tick 滞后」。 */
+    private void registerNetworkRecovery() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return;
+            NetworkRequest req = new NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build();
+            netCallback = new ConnectivityManager.NetworkCallback() {
+                @Override public void onLost(Network network) { netWasLost = true; }
+                @Override public void onAvailable(Network network) {
+                    if (!netWasLost) return;
+                    netWasLost = false;
+                    onNetworkReconnected();
+                }
+            };
+            cm.registerNetworkCallback(req, netCallback);
+        } catch (Exception ignored) { }
+    }
+
+    private void onNetworkReconnected() {
+        try {
+            DebugState.append(this, "网络恢复：立即重算情绪并强制上报");
+            EmotionPerception.perceive(this, new EmotionPerception.Signals());
+            if (serverUrl != null && token != null && !serverUrl.isEmpty() && !token.isEmpty()) {
+                uploadStateThrottled(serverUrl, token, this, true);
+            }
+        } catch (Exception ignored) { }
+    }
+
+    @Override public void onDestroy() {
+        running = false;
+        DebugState.append(this, "服务已销毁/停止");
+        if (netCallback != null) {
+            try { ((ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE)).unregisterNetworkCallback(netCallback); } catch (Exception ignored) { }
+        }
+        PolicyScheduler.stop(this);
+        if (pollThread != null) pollThread.quitSafely();
+        super.onDestroy();
+    }
 }
