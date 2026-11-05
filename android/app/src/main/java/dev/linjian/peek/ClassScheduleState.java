@@ -92,6 +92,15 @@ public final class ClassScheduleState {
         }
     }
 
+    /** 清空全部课表（手机端「清空课表」按钮用）。返回是否写入成功。 */
+    public static boolean clearAll(Context ctx) {
+        try {
+            boolean ok = sp(ctx).edit().putString(KEY_ENTRIES, "[]").commit();
+            DebugState.append(ctx, ok ? "课表已清空" : "课表清空失败");
+            return ok;
+        } catch (Exception e) { return false; }
+    }
+
     /** 当前是否处于上课状态（今天、当前时间在某一节课 [start, end) 内）。 */
     public static boolean isInClassNow(Context ctx) {
         return currentClass(ctx) != null;

@@ -115,7 +115,7 @@ public class MainActivity extends Activity {
     private TextView companionPresenceText, sharedWhisperText, sharedWhisperMetaText, companionActionsPreview, todayJourneyText, guardOverviewText;
     private TextView todayNextTitle, todayNextDetail, companionDaysText, companionSinceText, companionAnniversaryText, guardDeviceStatusText, guardRecordText;
     private TextView calendarHeroTitle, calendarHeroDetail, calendarMonthTitle, calendarSelectedTitle, calendarSelectedDetail;
-    private LinearLayout calendarGrid, calendarSelectedEventsContainer;
+    private LinearLayout calendarGrid, calendarSelectedEventsContainer, calendarAllEventsList;
     private Calendar calendarVisibleMonth = Calendar.getInstance();
     private int calendarSelectedDay = Calendar.getInstance().get(Calendar.DAY_OF_MONTH);
     private boolean guardianCalendarDetailOpen = false;
@@ -1362,7 +1362,75 @@ public class MainActivity extends Activity {
         top.addView(add, new LinearLayout.LayoutParams(dp(36), dp(32)));
         root.addView(top, marginBottom(6));
         LinearLayout.LayoutParams calendarPageLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT); calendarPageLp.topMargin = dp(22); calendarPageLp.bottomMargin = dp(12); root.addView(buildGuardianCalendarPage(), calendarPageLp);
+        // 修复「日历写入后无法进行删除更改取消」：在日历详情页底部常驻
+        // 「全部日子管理」面板，所有自定义日子逐条列出，每条带编辑/删除，
+        // 不再依赖"点中具体某天"才能看到操作入口。
+        LinearLayout manager = editorialCard();
+        manager.setPadding(dp(14), dp(12), dp(14), dp(12));
+        manager.addView(title("全部日子管理", 13));
+        manager.addView(body("所有你添加的日子都在这里，点「修改」或「删除」即可调整。", 9), matchWrapTop(5));
+        calendarAllEventsList = new LinearLayout(this);
+        calendarAllEventsList.setOrientation(LinearLayout.VERTICAL);
+        calendarAllEventsList.setPadding(0, dp(6), 0, 0);
+        manager.addView(calendarAllEventsList);
+        root.addView(manager, marginBottom(12));
         return root;
+    }
+
+    /** 「全部日子管理」数据行：全量自定义日子，每条带编辑/删除。 */
+    private void fillAllEventsList() {
+        if (calendarAllEventsList == null) return;
+        calendarAllEventsList.removeAllViews();
+        try {
+            JSONArray all = CalendarState.events(this);
+            int count = 0;
+            for (int i = 0; i < all.length(); i++) {
+                final JSONObject e = all.optJSONObject(i);
+                if (e == null || e.optBoolean("archived", false)) continue;
+                if (count > 0) calendarAllEventsList.addView(divider(), matchWrapTop(8));
+                count++;
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(0, dp(6), 0, dp(2));
+                LinearLayout info = new LinearLayout(this);
+                info.setOrientation(LinearLayout.VERTICAL);
+                info.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+                String date = e.optString("solar_date", e.optString("date", ""));
+                String lunarMark = "lunar".equals(e.optString("date_type", "solar")) ? "农历" : "";
+                info.addView(title(calendarMark(e) + "  " + e.optString("title", ""), 12));
+                String meta = lunarMark + date + " · " + groupCn(e.optString("group", "our_days"))
+                        + ("yearly".equals(e.optString("repeat_type", "yearly")) ? " · 每年" : "");
+                if (!e.optString("note", "").isEmpty()) meta += " · " + e.optString("note", "");
+                info.addView(body(meta, 8), matchWrapTop(3));
+                row.addView(info);
+                Button edit = actionButton("修改", false);
+                edit.setOnClickListener(v -> showCalendarEventDialog(e));
+                row.addView(edit, new LinearLayout.LayoutParams(dp(58), dp(30)));
+                Button delete = actionButton("删除", false);
+                delete.setTextColor(Color.parseColor("#B56F78"));
+                delete.setOnClickListener(v -> confirmDeleteCalendarEvent(e));
+                LinearLayout.LayoutParams deleteLp = new LinearLayout.LayoutParams(dp(58), dp(30));
+                deleteLp.leftMargin = dp(6);
+                row.addView(delete, deleteLp);
+                calendarAllEventsList.addView(row);
+            }
+            if (count == 0) calendarAllEventsList.addView(body("还没有添加日子。点右上角「＋」记下第一个。", 9));
+        } catch (Exception ex) {
+            calendarAllEventsList.addView(body("日子列表读取失败：" + ScreenshotService.shortMsg(ex), 9));
+        }
+    }
+
+    /** 分组英文 key -> 中文名（与 CalendarState.groupLabel 一致的本地映射）。 */
+    private String groupCn(String g) {
+        if ("our_days".equals(g)) return "我们的日子";
+        if ("user".equals(g)) return "我的日子";
+        if ("companion".equals(g)) return "陪伴对象";
+        if ("festival".equals(g)) return "节日";
+        if ("study".equals(g)) return "考试学习";
+        if ("project".equals(g)) return "项目";
+        if ("life".equals(g)) return "生活";
+        return g == null || g.isEmpty() ? "我们的日子" : g;
     }
 
     private View buildGuardianCalendarPage() {
@@ -1502,6 +1570,8 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             calendarGrid.addView(body("守护日历读取失败：" + ScreenshotService.shortMsg(e), 10));
         }
+        // 「全部日子管理」面板与月历同源刷新：增/改/删后两个视图都保持最新
+        fillAllEventsList();
     }
 
     private View calendarDayCell(int year, int monthIndex, int day, JSONArray upcoming) {
