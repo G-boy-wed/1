@@ -159,8 +159,8 @@ public class PolicySettingsActivity extends Activity {
         g4.addView(rowSwitch("强视觉警示标志", "打开后界面明确显示「训诫已开启」警示，让你随时知道状态。", PolicyStore.disciplineBadge(this), (v, c) -> PolicyStore.setDisciplineBadge(this, c)));
         g4.addView(rowText("说明", "SM 小圈训诫管束风格：仅本人可开、不设安全词、不写日志，但界面必须有明确开启标志。", "仅本人可开", s -> { }));
 
-        LinearLayout g5 = card(container, "分心查岗（常开）", "分心检测始终开启，不只在聊天时。定义：聊天中切出去到其它 App，又立马切回来，来回几次算分心；未达拉回阈值给两选项，达到阈值只能回到软件。", "distraction");
-        g5.addView(rowSwitch("切屏算分心", "常开检测：聊天中切到其它 App 标记为分心。默认开启。", PolicyStore.distractionEnabled(this), (v, c) -> PolicyStore.setDistractionEnabled(this, c)));
+        LinearLayout g5 = card(container, "分心查岗（常开）", "分心检测始终开启，不只在聊天时。定义：真正开始聊天（在聊天界面停留约 20 秒以上）后切出去到其它 App，又立马切回来，来回几次算分心；只是点进聊天看一眼、没开始聊天就切出，不计分心。未达拉回阈值给两选项，达到阈值只能回到软件。弹窗在当前正在使用的 App 上悬浮显示，并标注「分心查岗」。", "distraction");
+        g5.addView(rowSwitch("切屏算分心", "常开检测：开始聊天后切到其它 App 才标记为分心。默认开启。", PolicyStore.distractionEnabled(this), (v, c) -> PolicyStore.setDistractionEnabled(this, c)));
         g5.addView(rowSwitch("切出切回算分心", "按「切出去 → 立马切回来」的来回次数判定分心。默认开启。", PolicyStore.distractionLoopEnabled(this), (v, c) -> PolicyStore.setDistractionLoopEnabled(this, c)));
         g5.addView(rowNumber("分心来回次数", "切出切回累计达到该次数弹一次拉回弹窗。默认 2。", PolicyStore.distractionLoopTimes(this), 1, 99, v -> PolicyStore.setDistractionLoopTimes(this, v)));
         g5.addView(rowNumber("来回时间窗口（秒）", "切出后多少秒内切回来才算一次来回，超时重新计。默认 90。", PolicyStore.distractionLoopWindowSec(this), 5, 3600, v -> PolicyStore.setDistractionLoopWindowSec(this, v)));

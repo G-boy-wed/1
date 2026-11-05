@@ -45,17 +45,24 @@ public class AlertCenterActivity extends Activity {
         String message = getIntent().getStringExtra("message");
         String tone = getIntent().getStringExtra("tone");
         String buttonText = getIntent().getStringExtra("button_text");
+        String kind = getIntent().getStringExtra("kind");
         if (title == null || title.isEmpty()) title = "掌心窗";
         if (message == null || message.isEmpty()) message = AppPrefs.userName(this) + "，看一眼这里。";
         if (buttonText == null || buttonText.isEmpty()) buttonText = "知道啦";
+        if (kind == null || kind.trim().isEmpty()) kind = "陪伴消息";
 
-        bind(findViewById(R.id.root), title, message, tone, buttonText, new Runnable() {
+        bind(findViewById(R.id.root), kind, title, message, tone, buttonText, new Runnable() {
             @Override public void run() { finish(); }
         });
     }
 
-    /** 卡片绑定：Activity 与悬浮窗两条通道共用同一份样式与位置逻辑。 */
+    /** 兼容旧调用：不带类型标识时默认「陪伴消息」。 */
     public static void bind(View root, String title, String message, String tone, String buttonText, final Runnable onDismiss) {
+        bind(root, "陪伴消息", title, message, tone, buttonText, onDismiss);
+    }
+
+    /** 卡片绑定：Activity 与悬浮窗两条通道共用同一份样式与位置逻辑；kindLabel 标明这是什么弹窗。 */
+    public static void bind(View root, String kindLabel, String title, String message, String tone, String buttonText, final Runnable onDismiss) {
         if (root == null) return;
         Context ctx = root.getContext();
         boolean angry = "angry".equalsIgnoreCase(tone);
@@ -67,6 +74,26 @@ public class AlertCenterActivity extends Activity {
         Button b = root.findViewById(R.id.btn);
         LinearLayout card = root.findViewById(R.id.card);
         FrameLayout rootFrame = root.findViewById(R.id.root);
+
+        // 弹窗类型徽标：插到卡片最上方，标明这是什么弹窗（陪伴消息 / 主动聊天 / 提醒…）。
+        if (card != null && kindLabel != null && !kindLabel.trim().isEmpty()) {
+            android.widget.TextView badge = new android.widget.TextView(ctx);
+            badge.setText(kindLabel.trim());
+            badge.setTextSize(10);
+            badge.setTextColor(accent);
+            badge.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+            badge.setLetterSpacing(0.12f);
+            int pad = Math.round(10 * ctx.getResources().getDisplayMetrics().density);
+            badge.setPadding(pad / 2, pad / 4, pad / 2, pad / 4);
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setCornerRadius(12 * ctx.getResources().getDisplayMetrics().density);
+            bg.setColor(alterAlpha(accent, .14f));
+            bg.setStroke(Math.max(1, Math.round(ctx.getResources().getDisplayMetrics().density)), alterAlpha(accent, .5f));
+            badge.setBackground(bg);
+            LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(-2, -2);
+            badgeLp.bottomMargin = Math.round(6 * ctx.getResources().getDisplayMetrics().density);
+            card.addView(badge, 0, badgeLp);
+        }
 
         if (t != null) { t.setText(title); t.setTextColor(accent); }
         if (m != null) { m.setText(message); m.setTextColor(theme.text); }
@@ -106,5 +133,11 @@ public class AlertCenterActivity extends Activity {
                 Math.round(Color.red(from) * (1f - x) + Color.red(to) * x),
                 Math.round(Color.green(from) * (1f - x) + Color.green(to) * x),
                 Math.round(Color.blue(from) * (1f - x) + Color.blue(to) * x));
+    }
+
+    /** 同色换透明度（弹窗类型徽标用）。 */
+    private static int alterAlpha(int color, float alpha) {
+        return Color.argb(Math.round(255 * Math.max(0f, Math.min(1f, alpha))),
+                Color.red(color), Color.green(color), Color.blue(color));
     }
 }

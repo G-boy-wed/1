@@ -270,7 +270,10 @@ public class CompanionService extends Service {
             if ("show_center_alert".equals(action)) {
                 String tone = cmd.optString("tone", "gentle");
                 String buttonText = cmd.optString("button_text", "知道啦");
-                CompanionService.showCenterAlert(ctx, title, message, tone, buttonText);
+                // 弹窗类型标识：服务端/MCP 可用 kind 或 alert_kind 标明这是什么弹窗，默认「陪伴消息」。
+                String kind = cmd.optString("kind", cmd.optString("alert_kind", "陪伴消息"));
+                if (kind.trim().isEmpty()) kind = "陪伴消息";
+                CompanionService.showCenterAlert(ctx, title, message, tone, buttonText, kind);
                 try { reportCommand(ctx, serverUrl, token, id, true, "center_alert_shown"); } catch (Exception ignored) { }
                 return;
             }
@@ -527,9 +530,13 @@ public class CompanionService extends Service {
 
     /** 屏幕正中弹窗：优先用悬浮窗直接盖在当前 App 之上；没有悬浮窗权限或失败时退回 Activity 兜底。 */
     public static void showCenterAlert(Context ctx, String title, String message, String tone, String buttonText) {
+        showCenterAlert(ctx, title, message, tone, buttonText, "陪伴消息");
+    }
+
+    public static void showCenterAlert(Context ctx, String title, String message, String tone, String buttonText, String kindLabel) {
         try {
-            if (AlertCenterOverlay.canShow(ctx) && AlertCenterOverlay.show(ctx, title, message, tone, buttonText)) {
-                DebugState.append(ctx, "屏幕居中弹窗已下发（悬浮窗）：" + (title == null ? "" : title));
+            if (AlertCenterOverlay.canShow(ctx) && AlertCenterOverlay.show(ctx, title, message, tone, buttonText, kindLabel)) {
+                DebugState.append(ctx, "屏幕居中弹窗已下发（悬浮窗，类型=" + kindLabel + "）：" + (title == null ? "" : title));
                 return;
             }
             // 没有悬浮窗权限或悬浮失败：退回 Activity 兜底，仍然弹得出。
@@ -538,9 +545,10 @@ public class CompanionService extends Service {
             i.putExtra("message", message == null ? "" : message);
             i.putExtra("tone", tone == null ? "gentle" : tone);
             i.putExtra("button_text", buttonText == null ? "知道啦" : buttonText);
+            i.putExtra("kind", kindLabel == null ? "陪伴消息" : kindLabel);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             ctx.startActivity(i);
-            DebugState.append(ctx, "屏幕居中弹窗已下发（Activity 兜底）：" + (title == null ? "" : title));
+            DebugState.append(ctx, "屏幕居中弹窗已下发（Activity 兜底，类型=" + kindLabel + "）：" + (title == null ? "" : title));
         } catch (Exception e) { DebugState.append(ctx, "居中弹窗异常：" + ScreenshotService.shortMsg(e)); }
     }
 
@@ -615,6 +623,11 @@ public class CompanionService extends Service {
             cfg.put("title", title);
             cfg.put("message", message);
             cfg.put("tone", strong ? "angry" : CompanionEmotionState.tone(ctx));
+            // 弹窗类型标识：服务端下发 / MCP 触发的远程查岗拉回（payload 可用 kind_label 覆盖）。
+            cfg.put("kind", "remote_checkin");
+            cfg.put("kind_label", payload != null && payload.has("kind_label")
+                    ? payload.optString("kind_label", "查岗拉回") : "查岗拉回");
+            if (cmd.has("kind_label")) cfg.put("kind_label", cmd.optString("kind_label", "查岗拉回"));
         } catch (Exception e) {
             DebugState.append(ctx, "拉回配置组装异常：" + ScreenshotService.shortMsg(e));
         }

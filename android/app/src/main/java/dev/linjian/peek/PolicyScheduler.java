@@ -89,6 +89,12 @@ public final class PolicyScheduler {
     private String lastDistractionPkg = "";
     private long lastDistractSwitchAt = 0;   // 最近一次「切出」时刻，用于和「切回」配对
     private int distractLoopCount = 0;        // 切出→切回 的连续来回次数
+    // 修复「点进聊天没有开始聊天、切出又开始计分心」：
+    // 只有真正开始聊天（在聊天界面连续停留达到 MIN_CHAT_STAY_MS）后，切出才计入分心。
+    private static final long MIN_CHAT_STAY_MS = 20_000L; // 在聊天界面停留 ≥20 秒视为「开始聊天」
+    private boolean inChatNow = false;        // 上一 tick 是否在聊天界面
+    private long chatEnterAt = 0;             // 本次进入聊天的时刻
+    private boolean chatArmed = false;        // 最近一次聊天会话是否算「真正开始聊天」
     private long screenOnSince = 0;
     private long lastDrinkAt = 0;
     private long lastSitAt = 0;
@@ -269,6 +275,9 @@ public final class PolicyScheduler {
             cfg.put("message", CompanionEmotionState.message(appCtx));
             cfg.put("tone", strong ? "angry" : CompanionEmotionState.tone(appCtx));
             cfg.put("from", "local_checkin");
+            // 弹窗类型标识：查岗拉回
+            cfg.put("kind", "checkin");
+            cfg.put("kind_label", "查岗拉回");
         } catch (Exception ignored) { }
 
         PullBackActivity.show(appCtx, cfg);
@@ -322,6 +331,9 @@ public final class PolicyScheduler {
             cfg.put("message", CompanionEmotionState.message(appCtx)); // 随机文案，每次不同
             cfg.put("tone", strong ? "angry" : CompanionEmotionState.tone(appCtx));
             cfg.put("from", "emotion_popup");
+            // 弹窗类型标识：情绪感知
+            cfg.put("kind", "emotion");
+            cfg.put("kind_label", "情绪感知");
         } catch (Exception ignored) { }
 
         lastEmotionPopupAt = now;
@@ -346,10 +358,30 @@ public final class PolicyScheduler {
         if (limit > 0 && initiativeTodayCount >= limit) return;    // 当天已到上限
 
         String message = composeInitiative();
-        // 主动到 Kelivo（本机目标 App），并把这条主动消息写进日志。
-        CompanionService.openPackageResult(appCtx, PolicyStore.targetPackage(appCtx));
-        ActivityEventStore.recordForced(appCtx, "initiative_send", "主动找" + AppPrefs.companionName(appCtx), message);
-        DebugState.append(appCtx, "主动找她已发送（本机）：" + message);
+        // 主动聊天弹窗：不再静默跳走，改为在当前正在使用的 App 之上弹「主动聊天」弹窗；
+        // 用户点「去找 TA」才跳到目标 App，不跳掌心窗、不打断当前界面。
+        JSONObject cfg = new JSONObject();
+        try {
+            String companion = AppPrefs.companionName(appCtx);
+            cfg.put("level", "soft");
+            cfg.put("strong", false);
+            cfg.put("allow_decline", true);
+            cfg.put("emotion_tag", CompanionEmotionState.popupEmotionTag(appCtx));
+            cfg.put("miss_percent", CompanionEmotionState.effectiveMissPercent(appCtx));
+            cfg.put("intensity", CompanionEmotionState.effectiveIntensity(appCtx));
+            cfg.put("threshold", PolicyStore.forceBackThreshold(appCtx));
+            cfg.put("title", companion + "主动找你");
+            cfg.put("message", message);
+            cfg.put("tone", CompanionEmotionState.tone(appCtx));
+            cfg.put("from", "initiative");
+            cfg.put("kind", "initiative");
+            cfg.put("kind_label", "主动聊天");
+            cfg.put("accept_label", "去找 " + companion);
+            cfg.put("decline_label", "晚点再说");
+        } catch (Exception ignored) { }
+        PullBackActivity.show(appCtx, cfg);
+        ActivityEventStore.recordForced(appCtx, "initiative_send", "主动聊天（弹窗）", message);
+        DebugState.append(appCtx, "主动找她弹窗已发出（主动聊天）：" + message);
 
         initiativeTodayCount++;
         lastInitiativeAt = now;
@@ -383,27 +415,54 @@ public final class PolicyScheduler {
     /**
      * 分心查岗定义：用户在聊天（掌心窗陪伴页 / 目标 App）切出去到其它 App，
      * 又「立马切回来」，来回几次就是分心。检测始终开启（常开，不只在聊天时才开）。
+     * 修复误计：只有「真正开始聊天」——在聊天界面连续停留 ≥20 秒——之后切出去，
+     * 才计一次分心/来回；只是点进聊天看一眼（未开始聊天）就切出，不计分心、不累计来回。
      * 命中后弹分级拉回：未达拉回阈值给「回到软件 / 拒绝并填写理由」两选项，
-     * 达到阈值只给「回到软件」。弹窗悬浮在当前 App 之上，不拉起掌心窗、不自动跳转。
+     * 达到阈值只给「回到软件」。弹窗悬浮在当前 App 之上，不拉起掌心窗、不自动跳转，
+     * 弹窗上明确标注类型「分心查岗」。
      */
     private void evaluateDistraction(long now, String current) {
-        if (!PolicyStore.distractionEnabled(appCtx)) return;
+        if (!PolicyStore.distractionEnabled(appCtx)) { inChatNow = false; chatArmed = false; return; }
         if (current == null || current.isEmpty()) return;
 
         boolean inChat = current.equals(SELF_PKG) || current.equals(PolicyStore.targetPackage(appCtx));
         boolean systemLayer = isSystemExemptPackage(current);
         boolean excluded = inChat || systemLayer;
 
+        // —— 聊天会话跟踪：判定「是否真正开始聊天」——
+        if (inChat) {
+            if (!inChatNow) {
+                inChatNow = true;
+                // 带着一次已计的「切出」回到聊天：本次会话延续之前已武装的聊天（切回即刻算聊天中）；
+                // 普通进入（没有待配对的切出）：从现在起重新计时，停留够 20 秒才算开始聊天。
+                boolean pairingBack = lastDistractionPkg != null && !lastDistractionPkg.isEmpty() && chatArmed;
+                chatEnterAt = pairingBack ? now - MIN_CHAT_STAY_MS : now;
+            }
+        } else if (inChatNow) {
+            inChatNow = false;
+            long dwell = chatEnterAt > 0 ? now - chatEnterAt : 0;
+            chatEnterAt = 0;
+            if (dwell >= MIN_CHAT_STAY_MS) {
+                chatArmed = true; // 真正开始聊天过：接下来切出才计分心
+            } else {
+                // 只是点进聊天看一眼就切出：不计分心，清空待配对状态与来回累计。
+                chatArmed = false;
+                distractLoopCount = 0;
+                lastDistractionPkg = "";
+                lastDistractSwitchAt = 0;
+            }
+        }
+
         if (!excluded) {
-            // 切到其它 App：记一次「切出」；同一个 App 不重复计。
-            if (!current.equals(lastDistractionPkg)) {
+            // 切到其它 App：只有聊天已武装（真正开始聊天过）才记一次「切出」；同一个 App 不重复计。
+            if (chatArmed && !current.equals(lastDistractionPkg)) {
                 lastDistractionPkg = current;
                 lastDistractSwitchAt = now;
                 String app = appLabel(current);
                 int cnt = PolicyStore.distractionCount(appCtx) + 1;
                 PolicyStore.setDistractionCount(appCtx, cnt);
                 ActivityEventStore.recordPhone(appCtx, "distraction", "分心到" + app + "（累计 " + cnt + " 次）", current);
-                DebugState.append(appCtx, "检测到切屏分心：" + app + "（累计 " + cnt + " 次）");
+                DebugState.append(appCtx, "检测到切屏分心（已开始聊天后切出）：" + app + "（累计 " + cnt + " 次）");
                 if (PolicyStore.disciplineEnabled(appCtx)) discipline("distraction", "切到" + app);
             }
         } else if (inChat) {
@@ -423,7 +482,7 @@ public final class PolicyScheduler {
                     boolean strong = strongByThreshold();
                     String msg = CompanionEmotionState.message(appCtx)
                             + "\n（刚才切出去又切回来了 " + loopTimes + " 次，是在分心吗？）";
-                    showPullBack(strong, "distraction_loop", msg);
+                    showPullBack(strong, "distraction_loop", "分心查岗", msg);
                     PolicyStore.markAction(appCtx);
                     ActivityEventStore.recordForced(appCtx, "distraction_pull_back",
                             "分心查岗拉回(" + (strong ? "强制" : "可拒绝") + ")", "切出切回 " + loopTimes + " 次");
@@ -432,8 +491,9 @@ public final class PolicyScheduler {
         }
 
         // 兼容旧逻辑：每次切屏都拉回 / 累计超阈值也弹一次。
-        // 必须限定在「确实处于其它 App」时才触发，避免用户在聊天界面内被误拉回。
-        if (!excluded) {
+        // 必须限定在「确实处于其它 App」且聊天已武装（真正开始聊天过）时才触发，
+        // 避免用户从未聊天、或只是路过聊天界面时被误拉回。
+        if (!excluded && chatArmed) {
             boolean every = PolicyStore.distractionEveryTime(appCtx);
             boolean byAccumulated = PolicyStore.distractionAutoPullback(appCtx)
                     && PolicyStore.distractionCount(appCtx) >= PolicyStore.distractionThreshold(appCtx);
@@ -445,7 +505,7 @@ public final class PolicyScheduler {
                 String msg = byAccumulated
                         ? ("已经分心 " + cnt + " 次了，先回来陪" + AppPrefs.companionName(appCtx) + "。")
                         : CompanionEmotionState.message(appCtx);
-                showPullBack(strong, byAccumulated ? "distraction_accumulated" : "distraction", msg);
+                showPullBack(strong, byAccumulated ? "distraction_accumulated" : "distraction", "分心查岗", msg);
                 PolicyStore.markAction(appCtx);
                 if (byAccumulated) PolicyStore.setDistractionCount(appCtx, 0);
                 ActivityEventStore.recordForced(appCtx, "distraction_pull_back",
@@ -459,8 +519,8 @@ public final class PolicyScheduler {
         return EmotionPerception.isStrongNow(appCtx);
     }
 
-    /** 统一组装分级拉回配置并显示：悬浮在当前 App 之上，不拉起掌心窗、不自动跳转。 */
-    private void showPullBack(boolean strong, String from, String message) {
+    /** 统一组装分级拉回配置并显示：悬浮在当前 App 之上，不拉起掌心窗、不自动跳转；kindLabel 标明弹窗类型。 */
+    private void showPullBack(boolean strong, String from, String kindLabel, String message) {
         JSONObject cfg = new JSONObject();
         try {
             cfg.put("level", strong ? "strong" : "soft");
@@ -474,6 +534,9 @@ public final class PolicyScheduler {
             cfg.put("message", (message != null && !message.trim().isEmpty()) ? message : CompanionEmotionState.message(appCtx));
             cfg.put("tone", strong ? "angry" : CompanionEmotionState.tone(appCtx));
             cfg.put("from", from);
+            // 弹窗类型标识：卡片顶部会显示这个徽标，让用户一眼知道这是什么弹窗。
+            cfg.put("kind", from);
+            cfg.put("kind_label", kindLabel == null || kindLabel.trim().isEmpty() ? "守护提醒" : kindLabel);
         } catch (Exception ignored) { }
         PullBackActivity.show(appCtx, cfg);
     }
@@ -642,8 +705,11 @@ public final class PolicyScheduler {
     // ============ 工具 ============
 
     private boolean notify(String title, String message) {
-        boolean ok = CompanionService.showReminderNotification(appCtx, title, message);
-        if (!ok) DebugState.append(appCtx, "权限提醒未发出（通知权限缺失）：" + title);
+        // 弹窗/通知类型标识：提醒类通知标题统一带「提醒 · 」前缀（本身已含“提醒”字样的不重复加）。
+        String t = title == null ? "" : title.trim();
+        if (!t.contains("提醒")) t = "提醒 · " + t;
+        boolean ok = CompanionService.showReminderNotification(appCtx, t, message);
+        if (!ok) DebugState.append(appCtx, "权限提醒未发出（通知权限缺失）：" + t);
         return ok;
     }
 

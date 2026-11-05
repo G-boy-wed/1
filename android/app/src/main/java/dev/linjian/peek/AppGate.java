@@ -57,6 +57,14 @@ public class AppGate {
 
     public static boolean enabled(Context ctx) { return AppPrefs.get(ctx).getBoolean(KEY_ENABLED, true); }
 
+    /** 守护页「应用门禁」卡片的实际开关：关闭即停止门禁判定（锁着的 App 不再拦），打开即恢复。 */
+    public static void setEnabled(Context ctx, boolean v) {
+        try {
+            AppPrefs.get(ctx).edit().putBoolean(KEY_ENABLED, v).commit();
+            DebugState.append(ctx, v ? "应用门禁已开启：锁定的 App 恢复拦截" : "应用门禁已关闭：门禁判定暂停");
+        } catch (Exception ignored) { }
+    }
+
     private static JSONObject state(Context ctx) {
         try {
             String raw = AppPrefs.get(ctx).getString(KEY_STATE, "");

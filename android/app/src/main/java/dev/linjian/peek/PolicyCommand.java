@@ -87,6 +87,15 @@ public final class PolicyCommand {
         a.put(meta("quiet_end", "string", 0, 0, "08:00", "安静时段结束 HH:mm"));
         a.put(meta("night_start", "string", 0, 0, "23:00", "深夜时段开始 HH:mm"));
         a.put(meta("night_end", "string", 0, 0, "06:00", "深夜时段结束 HH:mm"));
+
+        // —— 守护页各标签开关（与守护页卡片开关同一份底层存储）——
+        a.put(meta("app_gate_enabled", "bool", 0, 0, true, "应用门禁开关（关闭即暂停拦截）"));
+        a.put(meta("class_schedule_enabled", "bool", 0, 0, true, "课表作息开关（关闭即停判定停提醒）"));
+        a.put(meta("guard_calendar_enabled", "bool", 0, 0, true, "守护日历开关（关闭即停发横幅提醒）"));
+        a.put(meta("shared_memory_enabled", "bool", 0, 0, true, "共同记忆开关（关闭即只读保护）"));
+        a.put(meta("weather_reminder_enabled", "bool", 0, 0, true, "天气提醒开关"));
+        a.put(meta("home_mode_enabled", "bool", 0, 0, false, "回家模式开关"));
+        a.put(meta("guidian_enabled", "bool", 0, 0, true, "归电开关（关闭后归电不再敲门）"));
         return a;
     }
 
@@ -237,6 +246,14 @@ public final class PolicyCommand {
             case "quiet_end": return PolicyStore.quietEnd(ctx);
             case "night_start": return PolicyStore.nightStart(ctx);
             case "night_end": return PolicyStore.nightEnd(ctx);
+            // 守护页各标签开关
+            case "app_gate_enabled": return AppGate.enabled(ctx);
+            case "class_schedule_enabled": return ClassScheduleState.enabled(ctx);
+            case "guard_calendar_enabled": return CalendarState.enabled(ctx);
+            case "shared_memory_enabled": return SharedMemoryState.enabled(ctx);
+            case "weather_reminder_enabled": return AppPrefs.get(ctx).getBoolean(AppPrefs.KEY_RULE_WEATHER, true);
+            case "home_mode_enabled": return AppPrefs.get(ctx).getBoolean(AppPrefs.KEY_HOME_MODE_ENABLED, false);
+            case "guidian_enabled": return GuidianState.prefs(ctx).getBoolean(GuidianState.KEY_ENABLED, true);
             default: return JSONObject.NULL;
         }
     }
@@ -331,6 +348,14 @@ public final class PolicyCommand {
             case "quiet_end": PolicyStore.setQuietEnd(ctx, asString(raw)); return 0;
             case "night_start": PolicyStore.setNightStart(ctx, asString(raw)); return 0;
             case "night_end": PolicyStore.setNightEnd(ctx, asString(raw)); return 0;
+            // 守护页各标签开关
+            case "app_gate_enabled": AppGate.setEnabled(ctx, asBool(raw)); return 0;
+            case "class_schedule_enabled": ClassScheduleState.setEnabled(ctx, asBool(raw)); return 0;
+            case "guard_calendar_enabled": CalendarState.setEnabled(ctx, asBool(raw)); return 0;
+            case "shared_memory_enabled": SharedMemoryState.setEnabled(ctx, asBool(raw)); return 0;
+            case "weather_reminder_enabled": AppPrefs.get(ctx).edit().putBoolean(AppPrefs.KEY_RULE_WEATHER, asBool(raw)).commit(); return 0;
+            case "home_mode_enabled": AppPrefs.get(ctx).edit().putBoolean(AppPrefs.KEY_HOME_MODE_ENABLED, asBool(raw)).commit(); return 0;
+            case "guidian_enabled": GuidianState.prefs(ctx).edit().putBoolean(GuidianState.KEY_ENABLED, asBool(raw)).commit(); return 0;
             default: return 1;
         }
     }

@@ -84,7 +84,8 @@ public class ActiveReminder {
             }
 
             JSONObject weather = state.optJSONObject("current_weather_location");
-            if (weather != null) {
+            // 天气地区开关（守护页卡片）：关闭后不再发天气提醒。
+            if (weather != null && p.getBoolean(AppPrefs.KEY_RULE_WEATHER, true)) {
                 String note = weather.optString("note", "");
                 if (note.length() > 0 && oncePerDayDue(p, "weather_" + note.hashCode(), now)) {
                     if (note.contains("雨") || note.contains("雪") || note.contains("降温") || note.contains("冷") || note.contains("高温") || note.contains("热") || note.contains("大风") || note.contains("空气") || note.contains("霾")) {

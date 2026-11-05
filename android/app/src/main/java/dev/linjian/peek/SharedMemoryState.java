@@ -21,11 +21,26 @@ public final class SharedMemoryState {
 
     private static final String PREFS = "shared_memory_store";
     private static final String KEY_ITEMS = "items_v1";
+    private static final String KEY_ENABLED = "shared_memory_enabled";
     private static final int MAX_ITEMS = 200;
 
     private SharedMemoryState() { }
 
     private static SharedPreferences sp(Context ctx) { return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE); }
+
+    // ============ 共同记忆总开关（守护页卡片可实际操作）============
+    // 关闭后：进入只读保护——新增/编辑/删除一律拒绝（本机与 MCP 均不可写入），
+    // 已有记忆不删除、可正常查看；重新打开即恢复写入。
+    public static boolean enabled(Context ctx) {
+        try { return sp(ctx).getBoolean(KEY_ENABLED, true); } catch (Exception e) { return true; }
+    }
+
+    public static void setEnabled(Context ctx, boolean v) {
+        try {
+            sp(ctx).edit().putBoolean(KEY_ENABLED, v).commit();
+            DebugState.append(ctx, v ? "共同记忆已开启：恢复写入" : "共同记忆已关闭：只读保护（不可新增/编辑/删除）");
+        } catch (Exception ignored) { }
+    }
 
     /** 全部记忆条目（最新在前）。 */
     public static JSONArray getItems(Context ctx) {
@@ -109,7 +124,12 @@ public final class SharedMemoryState {
         try {
             String action = cmd.optString("action", "");
             if ("get_shared_memory".equals(action) || "list_shared_memory".equals(action)) {
-                return out.put("ok", true).put("result", "shared_memory").put("items", getItems(ctx));
+                return out.put("ok", true).put("result", "shared_memory").put("items", getItems(ctx))
+                        .put("enabled", enabled(ctx));
+            }
+            if (!enabled(ctx)) {
+                return out.put("ok", false).put("result", "shared_memory_disabled")
+                        .put("error", "共同记忆开关已关闭（只读保护），请在守护页打开后再写入");
             }
             if ("add_shared_memory".equals(action) || "add_memory".equals(action)) {
                 String author = cmd.optString("author", AppPrefs.userName(ctx));

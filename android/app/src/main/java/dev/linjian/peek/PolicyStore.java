@@ -363,6 +363,22 @@ public final class PolicyStore {
     public static String permValue(Context ctx, String key) { return getString(ctx, key + "_val", ""); }
     public static void setPermValue(Context ctx, String key, String v) { putString(ctx, key + "_val", v, permLabel(key) + "参数"); }
 
+    /** 守护页「主动提醒」卡片的组开关：任一提醒开着即视为开；关闭时全部停发，打开时全部恢复。 */
+    public static boolean anyPermEnabled(Context ctx) {
+        String[] keys = {KEY_PERM_SCREEN_TIME, KEY_PERM_SLEEP, KEY_PERM_CURFEW, KEY_PERM_STUDY,
+                KEY_PERM_DRINK, KEY_PERM_SIT, KEY_PERM_WEEKLY, KEY_PERM_HOME, KEY_PERM_PERIOD};
+        for (String k : keys) if (permEnabled(ctx, k)) return true;
+        return false;
+    }
+
+    /** 一键开/关全部主动提醒（逐项真实写入各自的 _on 键，逐项生效）。 */
+    public static void setAllPermEnabled(Context ctx, boolean v) {
+        String[] keys = {KEY_PERM_SCREEN_TIME, KEY_PERM_SLEEP, KEY_PERM_CURFEW, KEY_PERM_STUDY,
+                KEY_PERM_DRINK, KEY_PERM_SIT, KEY_PERM_WEEKLY, KEY_PERM_HOME, KEY_PERM_PERIOD};
+        for (String k : keys) setPermEnabled(ctx, k, v);
+        DebugState.append(ctx, v ? "主动提醒已全部开启" : "主动提醒已全部关闭");
+    }
+
     private static String permLabel(String key) {
         if (KEY_PERM_SCREEN_TIME.equals(key)) return "屏幕时长上限";
         if (KEY_PERM_SLEEP.equals(key)) return "睡前息屏";

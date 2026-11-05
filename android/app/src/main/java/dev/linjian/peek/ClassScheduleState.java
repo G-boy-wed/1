@@ -24,12 +24,26 @@ public final class ClassScheduleState {
 
     private static final String PREFS = "class_schedule_store";
     private static final String KEY_ENTRIES = "entries_v1";
+    private static final String KEY_ENABLED = "class_schedule_enabled";
     private static final long PRE_CLASS_MS = 5 * 60_000L;   // 课前 5 分钟提醒
     private static final long POST_CLASS_MS = 5 * 60_000L;  // 下课 5 分钟提醒
 
     private ClassScheduleState() { }
 
     private static SharedPreferences sp(Context ctx) { return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE); }
+
+    // ============ 课表作息总开关（守护页卡片可实际操作）============
+    // 关闭后：不再判定上课、上下课提醒停发、上课免打扰随之失效；课表数据保留，重新打开即恢复。
+    public static boolean enabled(Context ctx) {
+        try { return sp(ctx).getBoolean(KEY_ENABLED, true); } catch (Exception e) { return true; }
+    }
+
+    public static void setEnabled(Context ctx, boolean v) {
+        try {
+            sp(ctx).edit().putBoolean(KEY_ENABLED, v).commit();
+            DebugState.append(ctx, v ? "课表作息已开启：上课判定与上下课提醒恢复" : "课表作息已关闭：上课判定与上下课提醒停发");
+        } catch (Exception ignored) { }
+    }
 
     /** 全部课表条目（按 weekday、start 排序无关的 JSONArray）。 */
     public static JSONArray getEntries(Context ctx) {
@@ -103,7 +117,7 @@ public final class ClassScheduleState {
 
     /** 当前是否处于上课状态（今天、当前时间在某一节课 [start, end) 内）。 */
     public static boolean isInClassNow(Context ctx) {
-        return currentClass(ctx) != null;
+        return enabled(ctx) && currentClass(ctx) != null;
     }
 
     /** 返回当前正在上的课（不在上课返回 null）。 */
@@ -153,6 +167,7 @@ public final class ClassScheduleState {
 
     /** 调度器每个 Tick 调用：上课期间提醒调用方静默；并触发课前/下课联动提醒。返回是否处于上课（供调度器免打扰）。 */
     public static boolean evaluate(Context ctx) {
+        if (!enabled(ctx)) { lastPreNotifyKey = 0; lastPostNotifyAt = 0; return false; }
         JSONObject cur = currentClass(ctx);
         if (cur != null) {
             // 上课中：静默守护（调度器据此不主动打扰）。

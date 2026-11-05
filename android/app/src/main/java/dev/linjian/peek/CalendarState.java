@@ -31,6 +31,20 @@ public class CalendarState {
     private static int calendarVersion(Context ctx) {
         try { return AppPrefs.get(ctx).getInt(KEY_CAL_VERSION, 0); } catch (Exception e) { return 0; }
     }
+
+    // ============ 守护日历总开关（守护页卡片可实际操作）============
+    // 关闭后：横幅/临近提醒一律停发（collect 的 nearest/active_banners 为空、summary 标注已关闭）；
+    // 数据不删除，重新打开即恢复。
+    public static boolean enabled(Context ctx) {
+        try { return AppPrefs.get(ctx).getBoolean(AppPrefs.KEY_GUARD_CALENDAR_ENABLED, true); } catch (Exception e) { return true; }
+    }
+
+    public static void setEnabled(Context ctx, boolean v) {
+        try {
+            AppPrefs.get(ctx).edit().putBoolean(AppPrefs.KEY_GUARD_CALENDAR_ENABLED, v).commit();
+            DebugState.append(ctx, v ? "守护日历已开启：横幅与临近提醒恢复" : "守护日历已关闭：横幅与临近提醒停发");
+        } catch (Exception ignored) { }
+    }
     private static int bumpCalendarVersion(Context ctx) {
         try {
             SharedPreferences p = AppPrefs.get(ctx);
@@ -73,6 +87,7 @@ public class CalendarState {
     public static JSONObject collect(Context ctx) {
         JSONObject o = new JSONObject();
         try {
+            boolean on = enabled(ctx);
             List<Occurrence> occ = occurrences(ctx, false);
             JSONArray nearest = new JSONArray();
             JSONArray upcoming = new JSONArray();
@@ -80,9 +95,10 @@ public class CalendarState {
             for (Occurrence x : occ) {
                 JSONObject item = x.toJson();
                 // P2-15：已关横幅的课表/日子不再占据 nearest 与摘要的醒目位置
-                if (x.bannerEnabled && nearest.length() < 3) nearest.put(item);
+                if (on && x.bannerEnabled && nearest.length() < 3) nearest.put(item);
                 if (upcoming.length() < 12) upcoming.put(item);
-                if (x.bannerEnabled && x.daysLeft >= 0 && x.daysLeft <= Math.max(0, x.remindDays)) banners.put(item);
+                // 守护日历总开关：关闭后不再产生任何横幅提醒（数据仍在，可随时打开恢复）。
+                if (on && x.bannerEnabled && x.daysLeft >= 0 && x.daysLeft <= Math.max(0, x.remindDays)) banners.put(item);
             }
             JSONArray customEvents = events(ctx);
             // #70/#71：events 与 custom_events 不再同文重复。events=全部定义(自定义+内置节日)，
@@ -90,7 +106,7 @@ public class CalendarState {
             JSONArray allRawEvents = new JSONArray();
             for (int i = 0; i < customEvents.length(); i++) allRawEvents.put(customEvents.opt(i));
             for (JSONObject be : builtinEvents()) allRawEvents.put(be);
-            o.put("enabled", true);
+            o.put("enabled", on);
             o.put("version", calendarVersion(ctx));
             o.put("theme_color", THEME_COLOR);
             o.put("default_remind_days_before", DEFAULT_REMIND_DAYS);
@@ -145,6 +161,7 @@ public class CalendarState {
 
     public static String summaryLine(Context ctx) {
         try {
+            if (!enabled(ctx)) return "守护日历 · 已关闭（横幅提醒停发）";
             List<Occurrence> list = occurrences(ctx, false);
             // P2-15：跳过已关闭横幅的项，避免关掉的课表占据摘要首位
             Occurrence x = null;

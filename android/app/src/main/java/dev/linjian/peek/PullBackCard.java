@@ -53,6 +53,24 @@ public class PullBackCard {
         return base + tails[i];
     }
 
+    /**
+     * 弹窗类型标识：优先取调用方写入的 kind_label；
+     * 没给时按 kind / from 推断（查岗拉回 / 分心查岗 / 情绪感知 / 主动聊天），
+     * 都认不出就显示「守护提醒」。返回空串表示不显示徽标。
+     */
+    private static String kindLabelOf(JSONObject cfg) {
+        String label = cfg == null ? "" : cfg.optString("kind_label", "").trim();
+        if (!label.isEmpty()) return label;
+        String kind = (cfg == null ? "" : cfg.optString("kind", "") + " " + cfg.optString("from", "")).trim();
+        if (kind.isEmpty()) return "守护提醒";
+        if (kind.contains("distraction")) return "分心查岗";
+        if (kind.contains("checkin") || kind.contains("force_back")) return "查岗拉回";
+        if (kind.contains("emotion")) return "情绪感知";
+        if (kind.contains("initiative")) return "主动聊天";
+        if (kind.contains("reminder")) return "提醒";
+        return "守护提醒";
+    }
+
     /** 构建卡片视图；调用方负责把它放到屏幕的合适位置。 */
     public static View build(final Context ctx, final JSONObject cfg, final Listener listener) {
         // 弹窗配色：设置页若单独覆盖了就用覆盖值，否则跟随归电主题。
@@ -80,6 +98,23 @@ public class PullBackCard {
         card.setPadding(dp(ctx, 22), dp(ctx, 20), dp(ctx, 22), dp(ctx, 18));
         card.setBackground(rounded(theme.panel, 26, theme.line, 1));
         card.setElevation(dp(ctx, 10));
+
+        // 弹窗类型徽标：每个弹窗发出必须标明是什么弹窗（查岗拉回 / 分心查岗 / 情绪感知 /
+        // 主动聊天 / 提醒…）。优先读调用方给的 kind_label，否则按 from/kind 推断。
+        String kindLabel = kindLabelOf(cfg);
+        if (!kindLabel.isEmpty()) {
+            TextView kindBadge = text(ctx, kindLabel, 10, accent, true);
+            kindBadge.setLetterSpacing(.12f);
+            kindBadge.setGravity(Gravity.CENTER);
+            kindBadge.setBackground(rounded(withAlpha(accent, .14f), 12, withAlpha(accent, .5f), 1));
+            kindBadge.setPadding(dp(ctx, 10), dp(ctx, 4), dp(ctx, 10), dp(ctx, 4));
+            LinearLayout.LayoutParams kindLp = new LinearLayout.LayoutParams(-2, -2);
+            card.addView(kindBadge, kindLp);
+            TextView spacer = new TextView(ctx);
+            spacer.setIncludeFontPadding(false);
+            LinearLayout.LayoutParams spacerLp = new LinearLayout.LayoutParams(1, dp(ctx, 8));
+            card.addView(spacer, spacerLp);
+        }
 
         TextView eyebrow = text(ctx, "来自 " + companion + " 的情绪", 10, theme.subtext, false);
         card.addView(eyebrow, new LinearLayout.LayoutParams(-1, -2));

@@ -35,6 +35,8 @@ public class AppPrefs {
     public static final String KEY_WATER_INTERVAL_MIN = "rule_water_interval_min";
     public static final String KEY_RULE_REST = "rule_rest_enabled";
     public static final String KEY_REST_INTERVAL_MIN = "rule_rest_interval_min";
+    public static final String KEY_RULE_WEATHER = "rule_weather_enabled";          // 天气提醒开关（守护页「天气地区」卡片）
+    public static final String KEY_GUARD_CALENDAR_ENABLED = "guard_calendar_enabled"; // 守护日历总开关（关闭即停发横幅/提醒）
     public static final String KEY_CYCLE_ENABLED = "cycle_enabled";
     public static final String KEY_LAST_PERIOD_START = "cycle_last_period_start";
     public static final String KEY_CYCLE_LENGTH = "cycle_length_days";

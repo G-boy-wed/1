@@ -244,6 +244,33 @@ public class FocusMode {
         } catch (Exception e) { return false; }
     }
 
+    /** 专注模式是否处于「已开启」状态（守护页开关读取值；active 或 enabled 任一为真即视为开）。 */
+    public static boolean isOn(Context ctx) {
+        try { return isActive(ctx) || state(ctx).optBoolean("enabled", false); } catch (Exception e) { return false; }
+    }
+
+    /**
+     * 守护页「专注模式」卡片的实际开关：
+     * 关 → 解除全机锁定并置 enabled=false；开 → 按默认 30 分钟开始一次专注托管。
+     */
+    public static JSONObject toggleFromGuard(Context ctx, boolean on) {
+        if (on) {
+            try {
+                JSONObject cmd = new JSONObject().put("action", "start_focus_mode").put("duration_minutes", 30);
+                return start(ctx, cmd);
+            } catch (Exception e) { return put(new JSONObject(), false, ScreenshotService.shortMsg(e)); }
+        }
+        JSONObject r;
+        try {
+            r = end(ctx, "守护页开关关闭");
+            JSONObject s = state(ctx);
+            s.put("enabled", false);
+            s.put("active", false);
+            save(ctx, s);
+        } catch (Exception e) { return put(new JSONObject(), false, ScreenshotService.shortMsg(e)); }
+        return r;
+    }
+
     private static boolean isActiveRaw(JSONObject s, long now) throws Exception {
         if (s == null || !s.optBoolean("active", false)) return false;
         long until = s.optLong("until_ms", 0L);

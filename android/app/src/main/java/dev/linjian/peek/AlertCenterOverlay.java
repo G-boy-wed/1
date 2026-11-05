@@ -37,6 +37,10 @@ public class AlertCenterOverlay {
 
     /** 显示居中弹窗；返回 false 表示没能用悬浮窗展示（调用方应改用 Activity）。 */
     public static boolean show(final Context ctx, final String title, final String message, final String tone, final String buttonText) {
+        return show(ctx, title, message, tone, buttonText, "陪伴消息");
+    }
+
+    public static boolean show(final Context ctx, final String title, final String message, final String tone, final String buttonText, final String kindLabel) {
         final Context appCtx = ctx.getApplicationContext();
         try {
             if (!canShow(appCtx)) return false;
@@ -53,7 +57,8 @@ public class AlertCenterOverlay {
                         String t = (title == null || title.trim().isEmpty()) ? "掌心窗" : title;
                         String m = (message == null || message.trim().isEmpty()) ? AppPrefs.userName(appCtx) + "，看一眼这里。" : message;
                         String b = (buttonText == null || buttonText.trim().isEmpty()) ? "知道啦" : buttonText;
-                        AlertCenterActivity.bind(root, t, m, tone, b, new Runnable() {
+                        String k = (kindLabel == null || kindLabel.trim().isEmpty()) ? "陪伴消息" : kindLabel;
+                        AlertCenterActivity.bind(root, k, t, m, tone, b, new Runnable() {
                             @Override public void run() { dismiss(); }
                         });
                         WindowManager.LayoutParams params = new WindowManager.LayoutParams(

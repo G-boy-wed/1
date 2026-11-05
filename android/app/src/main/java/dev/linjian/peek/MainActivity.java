@@ -41,6 +41,7 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.RadioButton;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.LinearLayout;
 import android.widget.ImageView;
@@ -1120,31 +1121,63 @@ public class MainActivity extends Activity {
 
         root.addView(sectionHeading("守护功能"), marginBottom(8));
 
+        // 每张守护卡片右侧都带一个真实生效的开关：关掉即停用该能力，打开即恢复；
+        // 开关写入的是各能力底层存储（与设置页、MCP 同一份数据），点卡片本体仍可进详细设置。
         root.addView(label("查岗与管束", 9), marginBottom(6));
-        root.addView(actionSettingBlock("查岗拉回", "查岗周期、拉回用户的分级与弹窗", R.drawable.ic_shield, () -> openPolicySettings("checkin")), marginBottom(7));
-        root.addView(actionSettingBlock("分心强拉回", "切出去又立马切回来，来回几次算分心；按拉回阈值分级弹窗", R.drawable.ic_shield, () -> openPolicySettings("distraction")), marginBottom(7));
-        root.addView(actionSettingBlock("训诫", "小圈管束设定与话语，温柔 / 严厉两种语气", R.drawable.ic_shield, () -> openPolicySettings("discipline")), marginBottom(11));
+        root.addView(actionSettingBlockWithSwitch("查岗拉回", "查岗周期、拉回用户的分级与弹窗", R.drawable.ic_shield,
+                PolicyStore.checkinEnabled(this), (c) -> PolicyStore.setCheckinEnabled(this, c),
+                () -> openPolicySettings("checkin")), marginBottom(7));
+        root.addView(actionSettingBlockWithSwitch("分心强拉回", "开始聊天后切出去又立马切回来，来回几次算分心；按拉回阈值分级弹窗", R.drawable.ic_shield,
+                PolicyStore.distractionEnabled(this), (c) -> PolicyStore.setDistractionEnabled(this, c),
+                () -> openPolicySettings("distraction")), marginBottom(7));
+        root.addView(actionSettingBlockWithSwitch("训诫", "小圈管束设定与话语，温柔 / 严厉两种语气", R.drawable.ic_shield,
+                PolicyStore.disciplineEnabled(this), (c) -> PolicyStore.setDisciplineEnabled(this, c),
+                () -> openPolicySettings("discipline")), marginBottom(11));
 
         root.addView(label("情绪与陪伴", 9), marginBottom(6));
-        root.addView(actionSettingBlock("情绪感知", "你对用户的情绪：达标自动弹窗、情绪标签与想你程度", R.drawable.ic_heart_wave, () -> openPolicySettings("emotion")), marginBottom(7));
-        root.addView(actionSettingBlock("主动找用户", "太久没发消息就主动找你", R.drawable.ic_heart_wave, () -> openPolicySettings("initiative")), marginBottom(11));
+        root.addView(actionSettingBlockWithSwitch("情绪感知", "你对用户的情绪：达标自动弹窗、情绪标签与想你程度", R.drawable.ic_heart_wave,
+                PolicyStore.emotionPopupEnabled(this), (c) -> PolicyStore.setEmotionPopupEnabled(this, c),
+                () -> openPolicySettings("emotion")), marginBottom(7));
+        root.addView(actionSettingBlockWithSwitch("主动找用户", "太久没发消息就在当前 App 上弹「主动聊天」弹窗", R.drawable.ic_heart_wave,
+                PolicyStore.initiativeEnabled(this), (c) -> PolicyStore.setInitiativeEnabled(this, c),
+                () -> openPolicySettings("initiative")), marginBottom(11));
 
         root.addView(label("管束与提醒", 9), marginBottom(6));
-        root.addView(actionSettingBlock("应用门禁", "锁 App 时长、自主添加受限应用", R.drawable.ic_shield, () -> openPolicySettings("appgate")), marginBottom(7));
-        root.addView(actionSettingBlock("主动提醒", "电量、屏幕、喝水、休息、周期", R.drawable.ic_clock, () -> openPolicySettings("reminder")), marginBottom(7));
-        root.addView(actionSettingBlock("专注模式", "全机专注、应急放行与留言", R.drawable.ic_shield, this::showFocusModePanel), marginBottom(11));
+        root.addView(actionSettingBlockWithSwitch("应用门禁", "锁 App 时长、自主添加受限应用；关闭即暂停拦截", R.drawable.ic_shield,
+                AppGate.enabled(this), (c) -> AppGate.setEnabled(this, c),
+                () -> openPolicySettings("appgate")), marginBottom(7));
+        root.addView(actionSettingBlockWithSwitch("主动提醒", "电量、屏幕、喝水、休息、周期；一键开关全部提醒", R.drawable.ic_clock,
+                PolicyStore.anyPermEnabled(this), (c) -> PolicyStore.setAllPermEnabled(this, c),
+                () -> openPolicySettings("reminder")), marginBottom(7));
+        root.addView(actionSettingBlockWithSwitch("专注模式", "全机专注、应急放行与留言；关闭即解除全机锁定", R.drawable.ic_shield,
+                FocusMode.isOn(this), (c) -> FocusMode.toggleFromGuard(this, c),
+                this::showFocusModePanel), marginBottom(11));
 
         root.addView(label("日子与作息", 9), marginBottom(6));
-        root.addView(actionSettingBlock("守护日历", "纪念日、节日和倒数日", R.drawable.ic_clock, this::showGuardianCalendarDetailPage), marginBottom(7));
-        root.addView(actionSettingBlock("课表作息", "上课静默守护与提醒", R.drawable.ic_clock, () -> openPolicySettings("schedule")), marginBottom(7));
-        root.addView(actionSettingBlock("共同记忆", "双方可改的共享记忆", R.drawable.ic_heart_wave, () -> openPolicySettings("memory")), marginBottom(7));
-        root.addView(actionSettingBlock("识图感知", "从当前屏幕读取文字", R.drawable.ic_eye, () -> openPolicySettings("ocr")), marginBottom(7));
+        root.addView(actionSettingBlockWithSwitch("守护日历", "纪念日、节日和倒数日；关闭即停发横幅提醒", R.drawable.ic_clock,
+                CalendarState.enabled(this), (c) -> CalendarState.setEnabled(this, c),
+                this::showGuardianCalendarDetailPage), marginBottom(7));
+        root.addView(actionSettingBlockWithSwitch("课表作息", "上课静默守护与提醒；关闭即停判定、停提醒", R.drawable.ic_clock,
+                ClassScheduleState.enabled(this), (c) -> ClassScheduleState.setEnabled(this, c),
+                () -> openPolicySettings("schedule")), marginBottom(7));
+        root.addView(actionSettingBlockWithSwitch("共同记忆", "双方可改的共享记忆；关闭后进入只读保护", R.drawable.ic_heart_wave,
+                SharedMemoryState.enabled(this), (c) -> SharedMemoryState.setEnabled(this, c),
+                () -> openPolicySettings("memory")), marginBottom(7));
+        root.addView(actionSettingBlockWithSwitch("识图感知", "从当前屏幕读取文字", R.drawable.ic_eye,
+                PolicyStore.ocrEnabled(this), (c) -> PolicyStore.setOcrEnabled(this, c),
+                () -> openPolicySettings("ocr")), marginBottom(7));
         root.addView(actionSettingBlock("插件分类", "全部扩展能力归类总览", R.drawable.ic_shield, this::showPluginRegistryFromGuard), marginBottom(11));
 
         root.addView(label("地点与设备", 9), marginBottom(6));
-        root.addView(actionSettingBlock("天气地区", "家与常用地点", R.drawable.ic_cloud, () -> openPolicySettings("weather")), marginBottom(7));
-        root.addView(actionSettingBlock("回家模式", "回来时打开熟悉的窗", R.drawable.ic_home, () -> openPolicySettings("homemode")), marginBottom(7));
-        root.addView(actionSettingBlock("归电设置", "间隔 / 冷却 / 安静时段等时间项，可点开设置、保存后立即生效", R.drawable.ic_clock, this::openGuidianSettingsFromGuard), marginBottom(10));
+        root.addView(actionSettingBlockWithSwitch("天气地区", "家与常用地点；关闭即停发天气提醒", R.drawable.ic_cloud,
+                AppPrefs.get(this).getBoolean(AppPrefs.KEY_RULE_WEATHER, true), (c) -> AppPrefs.get(this).edit().putBoolean(AppPrefs.KEY_RULE_WEATHER, c).commit(),
+                () -> openPolicySettings("weather")), marginBottom(7));
+        root.addView(actionSettingBlockWithSwitch("回家模式", "回来时打开熟悉的窗", R.drawable.ic_home,
+                AppPrefs.get(this).getBoolean(AppPrefs.KEY_HOME_MODE_ENABLED, false), (c) -> AppPrefs.get(this).edit().putBoolean(AppPrefs.KEY_HOME_MODE_ENABLED, c).commit(),
+                () -> openPolicySettings("homemode")), marginBottom(7));
+        root.addView(actionSettingBlockWithSwitch("归电设置", "间隔 / 冷却 / 安静时段等时间项；关闭后归电不再敲门", R.drawable.ic_clock,
+                GuidianState.prefs(this).getBoolean(GuidianState.KEY_ENABLED, true), (c) -> GuidianState.prefs(this).edit().putBoolean(GuidianState.KEY_ENABLED, c).commit(),
+                this::openGuidianSettingsFromGuard), marginBottom(10));
 
         root.addView(buildEmotionCard(), marginBottom(11));
 
@@ -1819,6 +1852,46 @@ public class MainActivity extends Activity {
     private View featureRow(String name, String detail, int icon, Runnable click) { LinearLayout row = horizontal(); row.setPadding(dp(3), dp(10), dp(3), dp(10)); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); row.addView(iv, new LinearLayout.LayoutParams(dp(28), dp(28))); LinearLayout text = new LinearLayout(this); text.setOrientation(LinearLayout.VERTICAL); text.addView(title(name, 13)); text.addView(body(detail, 9), matchWrapTop(2)); row.addView(text, weightedWrap(1f, 10)); TextView arrow = label("›", 18); row.addView(arrow); row.setOnClickListener(v -> click.run()); row.setClickable(true); row.setFocusable(true); return row; }
     private View guardSettingBlock(String name, String detail, int icon, View panel) { LinearLayout card = editorialCard(); card.setPadding(dp(14), dp(12), dp(14), dp(12)); LinearLayout row = horizontal(); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); iv.setBackground(UITheme.current(this).soft(18)); iv.setPadding(dp(8), dp(8), dp(8), dp(8)); iv.setTag("theme_icon"); row.addView(iv, new LinearLayout.LayoutParams(dp(38), dp(38))); LinearLayout copy = new LinearLayout(this); copy.setOrientation(LinearLayout.VERTICAL); copy.addView(title(name, 13)); copy.addView(body(detail, 8), matchWrapTop(2)); row.addView(copy, weightedWrap(1f, 11)); row.addView(label("›", 18)); card.addView(row); card.setOnClickListener(v -> showFeaturePanel(name, panel)); card.setClickable(true); card.setFocusable(true); return card; }
     private View actionSettingBlock(String name, String detail, int icon, Runnable click) { LinearLayout card = editorialCard(); card.setPadding(dp(14), dp(12), dp(14), dp(12)); LinearLayout row = horizontal(); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); iv.setBackground(UITheme.current(this).soft(18)); iv.setPadding(dp(8), dp(8), dp(8), dp(8)); iv.setTag("theme_icon"); row.addView(iv, new LinearLayout.LayoutParams(dp(38), dp(38))); LinearLayout copy = new LinearLayout(this); copy.setOrientation(LinearLayout.VERTICAL); copy.addView(title(name, 13)); copy.addView(body(detail, 8), matchWrapTop(2)); row.addView(copy, weightedWrap(1f, 11)); row.addView(label("›", 18)); card.addView(row); card.setOnClickListener(v -> click.run()); card.setClickable(true); card.setFocusable(true); return card; }
+
+    /**
+     * 守护页卡片 + 真实生效的开关：右侧 Switch 直接写入该能力底层存储（与设置页/MCP 同一份），
+     * 切换即时生效；点卡片本体仍进入对应设置。开关点击事件被消费，不会触发卡片的进入跳转。
+     */
+    private View actionSettingBlockWithSwitch(String name, String detail, int icon, boolean checked, java.util.function.Consumer<Boolean> onToggle, Runnable click) {
+        LinearLayout card = editorialCard();
+        card.setPadding(dp(14), dp(12), dp(14), dp(12));
+        LinearLayout row = horizontal();
+        ImageView iv = new ImageView(this);
+        iv.setImageResource(icon);
+        iv.setColorFilter(UITheme.current(this).primary);
+        iv.setBackground(UITheme.current(this).soft(18));
+        iv.setPadding(dp(8), dp(8), dp(8), dp(8));
+        iv.setTag("theme_icon");
+        row.addView(iv, new LinearLayout.LayoutParams(dp(38), dp(38)));
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.addView(title(name, 13));
+        copy.addView(body(detail, 8), matchWrapTop(2));
+        row.addView(copy, weightedWrap(1f, 11));
+        row.addView(label("›", 18));
+        Switch sw = new Switch(this);
+        sw.setChecked(checked);
+        sw.setTag("guard_switch");
+        sw.setOnClickListener(v -> {
+            boolean on = sw.isChecked();
+            try { onToggle.accept(on); } catch (Exception e) { sw.setChecked(!on); Toast.makeText(this, "开关写入失败：" + ScreenshotService.shortMsg(e), Toast.LENGTH_SHORT).show(); return; }
+            Toast.makeText(this, name + (on ? " 已开启" : " 已关闭"), Toast.LENGTH_SHORT).show();
+        });
+        LinearLayout.LayoutParams swLp = new LinearLayout.LayoutParams(-2, -2);
+        swLp.leftMargin = dp(8);
+        row.addView(sw, swLp);
+        card.addView(row);
+        // 点开关本身不触发进设置；点卡片其余区域进入设置。
+        card.setOnClickListener(v -> click.run());
+        card.setClickable(true);
+        card.setFocusable(true);
+        return card;
+    }
     private View quickAction(String name, String detail, int icon, Runnable click) { LinearLayout card = editorialCard(); card.setGravity(Gravity.CENTER); card.setPadding(dp(8), dp(11), dp(8), dp(9)); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); card.addView(iv, new LinearLayout.LayoutParams(dp(28), dp(28))); TextView n = title(name, 12); n.setGravity(Gravity.CENTER); card.addView(n, matchWrapTop(5)); TextView d = body(detail, 8); d.setGravity(Gravity.CENTER); card.addView(d, matchWrapTop(2)); card.setOnClickListener(v -> click.run()); card.setClickable(true); return card; }
     private Button actionButton(String text, boolean primary) { Button b = new Button(this); b.setText(text); b.setTextSize(10); b.setAllCaps(false); b.setMinHeight(dp(29)); UITheme t = UITheme.current(this); b.setBackground(primary ? t.pill(true) : t.chip(false)); b.setTextColor(primary ? Color.WHITE : t.text); return b; }
     private Button iconButton(String text, String description) { Button b = actionButton(text, false); b.setContentDescription(description); b.setTextSize(16); b.setPadding(0, 0, 0, 0); return b; }
