@@ -77,8 +77,11 @@ public class CompanionService extends Service {
             running = true;
             startPolling();
         } else DebugState.append(this, "服务已在运行，继续轮询");
-        PolicyScheduler.start(this);
+        PolicyScheduler.start(this, "companion");
         registerNetworkRecovery();
+        // 服务拉起即对齐一次：把本机最后写入的管理配置推给服务器（内部 15 分钟节流），
+        // 保证保存设置那一刻没网也不会永久失联；此后每次轮询周期内自动重试对齐。
+        PolicySync.pushAll(this, false);
         return START_STICKY;
     }
 
@@ -96,6 +99,7 @@ public class CompanionService extends Service {
         long delay = AppPrefs.interval(this);
         try {
             uploadStateThrottled(serverUrl, token, this, false);
+            PolicySync.pushAll(this, false);   // 运行期周期对齐管理配置（内部 15 分钟节流，best-effort）
             if (rateLimitedUntilMs > now) {
                 delay = Math.max(delay, rateLimitedUntilMs - now);
             } else {
@@ -770,7 +774,7 @@ public class CompanionService extends Service {
         if (netCallback != null) {
             try { ((ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE)).unregisterNetworkCallback(netCallback); } catch (Exception ignored) { }
         }
-        PolicyScheduler.stop(this);
+        PolicyScheduler.stop(this, "companion");
         if (pollThread != null) pollThread.quitSafely();
         super.onDestroy();
     }

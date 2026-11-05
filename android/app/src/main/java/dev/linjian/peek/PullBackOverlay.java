@@ -94,11 +94,14 @@ public class PullBackOverlay {
     private static boolean doAdd(WindowManager wm, View view, WindowManager.LayoutParams params, Context ctx) {
         try {
             dismiss();
+            // 弹窗互斥：先移除居中弹窗通道的悬浮窗，保证同一时刻只有一个弹窗在屏
+            PopupMutex.beforeShow(PopupMutex.PULL_BACK);
             wm.addView(view, params);
             current = view;
             DebugState.append(ctx, "拉回弹窗已悬浮显示");
             return true;
         } catch (Exception e) {
+            PopupMutex.onDismissed(PopupMutex.PULL_BACK);
             DebugState.append(ctx, "拉回悬浮窗失败：" + ScreenshotService.shortMsg(e));
             return false;
         }
@@ -110,6 +113,7 @@ public class PullBackOverlay {
             final View view = current;
             current = null;
             if (wm == null || view == null) return;
+            PopupMutex.onDismissed(PopupMutex.PULL_BACK);
             // Bug 1.2 修复：主线程上同步移除旧视图，避免旧弹窗尚未移除时又叠加新弹窗，
             // 造成软/强级别按钮在同帧共存、点击穿透。doAdd 在主线调用 dismiss 后即 addView，
             // 因此必须同步移除才能消除重叠窗口。

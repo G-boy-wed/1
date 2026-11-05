@@ -26,6 +26,12 @@ public class PullBackActivity extends Activity {
     private boolean handled;
 
     @Override
+    protected void onDestroy() {
+        PopupMutex.onDismissed(PopupMutex.PULL_BACK);
+        super.onDestroy();
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -43,6 +49,10 @@ public class PullBackActivity extends Activity {
             String raw = getIntent() == null ? "" : getIntent().getStringExtra(EXTRA_CFG);
             if (raw != null && !raw.trim().isEmpty()) cfg = new JSONObject(raw);
         } catch (Exception ignored) { }
+
+        // 弹窗互斥：悬浮窗层级高于 Activity，启动本兜底 Activity 前必须移除两个通道的
+        // 悬浮弹窗，否则会出现「悬浮窗 + Activity」双重展示。
+        PopupMutex.beforeShow(PopupMutex.PULL_BACK);
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(0x00000000);

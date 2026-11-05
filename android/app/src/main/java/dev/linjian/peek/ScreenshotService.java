@@ -92,7 +92,7 @@ public class ScreenshotService extends AccessibilityService {
         super.onServiceConnected();
         instance = this;
         NowState.start(this);
-        PolicyScheduler.start(this);
+        PolicyScheduler.start(this, "accessibility");
         DebugState.append(this, "无障碍服务已连接：截图/读屏/节点坐标/活动轨迹/远程息屏/专注模式可用 v0.3.9.0");
         watchdog = new Handler(Looper.getMainLooper());
         watchdog.postDelayed(watchdogTick, 15000);
@@ -131,7 +131,7 @@ public class ScreenshotService extends AccessibilityService {
     }
 
     @Override public void onDestroy() {
-        PolicyScheduler.stop(this);
+        PolicyScheduler.stop(this, "accessibility");
         markDisconnected("无障碍服务已销毁");
         super.onDestroy();
     }

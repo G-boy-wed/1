@@ -108,10 +108,15 @@ public final class PolicyScheduler {
         this.appCtx = ctx.getApplicationContext();
     }
 
-    /** 幂等启动：全局只有一个实例在跑。 */
-    public static synchronized void start(Context ctx) {
+    /** 幂等启动：全局只有一个实例在跑。host 为宿主标识（accessibility/companion/activity/boot/watchdog）。 */
+    public static synchronized void start(Context ctx) { start(ctx, "default"); }
+
+    public static synchronized void start(Context ctx, String host) {
         if (ctx == null) return;
-        if (instance != null && instance.running) return;
+        // 看门狗只负责拉活，不注册为常驻宿主：宿主计数归零时调度器仍可正常停止，
+        // 15 分钟内看门狗会再把它拉起（总开关关闭时 evaluate 直接返回，不会打扰）。
+        if (host != null && !host.isEmpty() && !"watchdog".equals(host)) aliveHosts.add(host);
+        if (instance != null && instance.running) { scheduleWatchdog(ctx); return; }
         if (instance == null) instance = new PolicyScheduler(ctx);
         instance.running = true;
         if (instance.thread == null) {
@@ -125,16 +130,53 @@ public final class PolicyScheduler {
         CompanionEmotionState.ensureFirstSeen(ctx);
         instance.handler.removeCallbacks(instance.tick);
         instance.handler.post(instance.tick);
-        DebugState.append(ctx, "查岗与管束本地调度器已启动（离线可跑）");
+        scheduleWatchdog(ctx);
+        DebugState.append(ctx, "查岗与管束本地调度器已启动（离线可跑，宿主=" + host + "）");
     }
 
-    /** 停止（宿主销毁时调用）。 */
-    public static synchronized void stop(Context ctx) {
+    /** 停止（宿主销毁时调用）——按宿主引用计数：还有任一宿主存活就继续跑。 */
+    public static synchronized void stop(Context ctx) { stop(ctx, "default"); }
+
+    public static synchronized void stop(Context ctx, String host) {
+        if (host != null && !host.isEmpty()) aliveHosts.remove(host);
+        // 修复「插件挂后台不稳」：无障碍服务与陪伴服务互为宿主，任何一个销毁
+        // （如用户重开无障碍、系统回收陪伴服务）都不再连坐停掉调度器；
+        // 只有全部宿主都退出才真正停止。看门狗闹钟会在 15 分钟内把误杀的调度器拉活。
+        if (!aliveHosts.isEmpty() && instance != null && instance.running) {
+            DebugState.append(ctx, "调度器宿主 " + host + " 退出，其余宿主仍在，继续运行");
+            return;
+        }
         if (instance == null) return;
         instance.running = false;
         if (instance.handler != null) instance.handler.removeCallbacks(instance.tick);
         if (instance.thread != null) { instance.thread.quitSafely(); instance.thread = null; }
         DebugState.append(ctx, "查岗与管束本地调度器已停止");
+    }
+
+    // ============ AlarmManager 看门狗 ============
+    // HandlerThread 在 Doze/深睡或进程被杀后会停摆；用 setAndAllowWhileIdle
+    // 的周期闹钟（约 15 分钟一次）把调度器重新拉起（start 幂等，已在跑则无副作用）。
+    private static final long WATCHDOG_INTERVAL_MS = 15 * 60_000L;
+    private static final String WATCHDOG_ACTION = "dev.linjian.peek.POLICY_SCHEDULER_WATCHDOG";
+    private static final java.util.Set<String> aliveHosts = new HashSet<>();
+    private static android.app.PendingIntent watchdogPi;
+
+    private static void scheduleWatchdog(Context ctx) {
+        try {
+            android.app.AlarmManager am = (android.app.AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
+            if (am == null) return;
+            if (watchdogPi == null) {
+                android.content.Intent i = new android.content.Intent(WATCHDOG_ACTION);
+                i.setClass(ctx, SchedulerWatchdogReceiver.class);
+                watchdogPi = android.app.PendingIntent.getBroadcast(ctx, 1001, i,
+                        android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+            }
+            long triggerAt = System.currentTimeMillis() + WATCHDOG_INTERVAL_MS;
+            if (android.os.Build.VERSION.SDK_INT >= 23) am.setAndAllowWhileIdle(android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP, android.os.SystemClock.elapsedRealtime() + WATCHDOG_INTERVAL_MS, watchdogPi);
+            else am.setInexactRepeating(android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, WATCHDOG_INTERVAL_MS, watchdogPi);
+        } catch (Exception e) {
+            DebugState.append(ctx, "调度器看门狗注册失败：" + ScreenshotService.shortMsg(e));
+        }
     }
 
     private final Runnable tick = new Runnable() {

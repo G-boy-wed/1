@@ -66,11 +66,14 @@ public class AlertCenterOverlay {
                         params.x = 0;
                         params.y = 0;
                         dismiss();
+                        // 弹窗互斥：先移除拉回弹窗通道的悬浮窗，保证同一时刻只有一个弹窗在屏
+                        PopupMutex.beforeShow(PopupMutex.CENTER_ALERT);
                         wm.addView(root, params);
                         current = root;
                         DebugState.append(appCtx, "居中弹窗已悬浮显示");
                         ok[0] = true;
                     } catch (Exception e) {
+                        PopupMutex.onDismissed(PopupMutex.CENTER_ALERT);
                         DebugState.append(appCtx, "居中悬浮窗失败：" + ScreenshotService.shortMsg(e));
                         ok[0] = false;
                     } finally {
@@ -94,6 +97,7 @@ public class AlertCenterOverlay {
             final View view = current;
             current = null;
             if (wm == null || view == null) return;
+            PopupMutex.onDismissed(PopupMutex.CENTER_ALERT);
             main.post(new Runnable() {
                 @Override public void run() {
                     try { wm.removeView(view); } catch (Exception ignored) { }

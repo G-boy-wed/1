@@ -21,6 +21,12 @@ import android.widget.TextView;
 public class AlertCenterActivity extends Activity {
 
     @Override
+    protected void onDestroy() {
+        PopupMutex.onDismissed(PopupMutex.CENTER_ALERT);
+        super.onDestroy();
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -31,6 +37,9 @@ public class AlertCenterActivity extends Activity {
             setTurnScreenOn(true);
         }
         setContentView(R.layout.activity_alert_center);
+        // 弹窗互斥：悬浮窗层级高于 Activity，启动本兜底 Activity 前必须移除两个通道的
+        // 悬浮弹窗，否则会出现「悬浮窗 + Activity」双重展示。
+        PopupMutex.beforeShow(PopupMutex.CENTER_ALERT);
 
         String title = getIntent().getStringExtra("title");
         String message = getIntent().getStringExtra("message");

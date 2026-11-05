@@ -100,10 +100,10 @@ public class PolicySettingsActivity extends Activity {
         if (activeSection != null && !activeSection.isEmpty()) buildSectionBanner(activeSection);
 
         LinearLayout top = card(container, "全局", "总开关与配置管理", "global");
-        top.addView(rowButton("保存设置", "把本页所有改动确认写入本机底层存储，并让守护调度器立即按新配置运行；训诫开关与语气模式同步给服务端，陪伴对象读到的与本机一致。点保存后设置持久生效、不会丢失。", "保存设置", v -> {
+        top.addView(rowButton("保存设置", "把本页所有改动确认写入本机底层存储，并让守护调度器立即按新配置运行；巡回与训诫配置同步给服务端，陪伴对象（MCP）读到的与本机一致。点保存后设置持久生效、不会丢失。", "保存设置", v -> {
             PolicyStore.flush(this);        // 同步落盘，确认改动都在底层配置里
-            PolicyScheduler.start(this);    // 幂等：已在跑则无副作用，未跑则按新配置启动
-            syncDisciplineToServer();       // 让 get_discipline_mode 与 App 里的严厉 / 温柔保持一致
+            PolicyScheduler.start(this, "settings");    // 幂等：已在跑则无副作用，未跑则按新配置启动
+            PolicySync.pushAll(this);       // 最后写入的管理要求（巡回+训诫）推给服务器，MCP 据此行动
             Toast.makeText(this, "设置已保存并生效", Toast.LENGTH_SHORT).show();
         }));
         top.addView(rowSwitch("一键全部关闭（拿回手机）", "关掉后所有查岗、拉回、主动找用户、训诫全部暂停。",
@@ -368,8 +368,8 @@ public class PolicySettingsActivity extends Activity {
         save.setBackgroundResource(R.drawable.pill_soft);
         save.setOnClickListener(v -> {
             PolicyStore.flush(this);        // 同步落盘
-            PolicyScheduler.start(this);    // 幂等重启调度器，新配置立即生效
-            syncDisciplineToServer();       // 训诫开关/语气同步给服务端
+            PolicyScheduler.start(this, "settings");    // 幂等重启调度器，新配置立即生效
+            PolicySync.pushAll(this);       // 最后写入的管理要求（巡回+训诫）推给服务器，MCP 据此行动
             Toast.makeText(this, "设置已保存并生效", Toast.LENGTH_SHORT).show();
         });
         bar.addView(save);
