@@ -83,6 +83,8 @@ public class MainActivity extends Activity {
     private Button testGuidianButton, saveGuidianSettingsButton, chooseGuidianAvatarButton, guidianThemeDuskButton, guidianThemeCloudButton, guidianThemeBerryButton;
     private Button themeCreamButton, themeBlueButton, themePeachButton, themeNightButton, themeMintButton, themePurpleButton, drawerThemeButton, drawerNowStateButton, locationPermissionButton, overlayPermissionButton, notificationListenerButton;
     private Button drawerConnectionButton, drawerPermissionButton, drawerControlTestButton, drawerKnownAppsButton, drawerHomeModeButton, drawerGateAddButton, drawerReminderButton, drawerCycleButton, drawerDebugButton, drawerLifeDetailsButton, drawerAppGateButton, drawerWeatherButton, drawerVersionButton, checkUpdateButton, downloadUpdateButton;
+    // P0 设置页边界：以下抽屉原先无显式「保存」按钮（部分甚至没有任何落盘时机），补齐。
+    private Button saveReminderButton, saveCycleButton, saveHomeModeButton, saveConnectionButton, savePermissionButton, saveDebugFieldsButton;
     private Button drawerGuidianButton, drawerGuidianSettingsButton, drawerCalendarButton, saveCalendarEventButton;
     private CheckBox remindersEnabled, batteryRuleEnabled, screenRuleEnabled, waterRuleEnabled, restRuleEnabled, cycleEnabled, foregroundPopupEnabled, homeModeEnabled, homeModeForceEnabled, appGateEnabled;
     private CheckBox guidianEnabled, guidianRemoteEnabled, guidianFullscreenEnabled, guidianQuietEnabled, calendarLunarEnabled, calendarRepeatEnabled, calendarBannerEnabled;
@@ -178,6 +180,8 @@ public class MainActivity extends Activity {
         if (targetAppsInput != null) targetAppsInput.setOnFocusChangeListener((v, focused) -> { if (!focused) { saveSettings(); updateUI(); } });
         bindHomeModeAutoSave();
         bindConnectionAutoSave();
+        bindExplicitSaveButtons();
+        bindInstantPersistToggles();
 
         bindThemeButton(themeCreamButton, "奶油绿"); bindThemeButton(themeBlueButton, "雾蓝白"); bindThemeButton(themePeachButton, "白桃粉"); bindThemeButton(themeNightButton, "夜航黑"); bindThemeButton(themeMintButton, "薄荷透明"); bindThemeButton(themePurpleButton, "星云紫");
 
@@ -225,6 +229,7 @@ public class MainActivity extends Activity {
         testGuidianButton = findViewById(R.id.testGuidianButton); saveGuidianSettingsButton = findViewById(R.id.saveGuidianSettingsButton); chooseGuidianAvatarButton = findViewById(R.id.chooseGuidianAvatarButton); guidianThemeDuskButton = findViewById(R.id.guidianThemeDuskButton); guidianThemeCloudButton = findViewById(R.id.guidianThemeCloudButton); guidianThemeBerryButton = findViewById(R.id.guidianThemeBerryButton);
         themeCreamButton = findViewById(R.id.themeCreamButton); themeBlueButton = findViewById(R.id.themeBlueButton); themePeachButton = findViewById(R.id.themePeachButton); themeNightButton = findViewById(R.id.themeNightButton); themeMintButton = findViewById(R.id.themeMintButton); themePurpleButton = findViewById(R.id.themePurpleButton); drawerThemeButton = findViewById(R.id.drawerThemeButton); drawerNowStateButton = findViewById(R.id.drawerNowStateButton); locationPermissionButton = findViewById(R.id.locationPermissionButton); overlayPermissionButton = findViewById(R.id.overlayPermissionButton); notificationListenerButton = findViewById(R.id.notificationListenerButton);
         drawerConnectionButton = findViewById(R.id.drawerConnectionButton); drawerPermissionButton = findViewById(R.id.drawerPermissionButton); drawerControlTestButton = findViewById(R.id.drawerControlTestButton); drawerKnownAppsButton = findViewById(R.id.drawerKnownAppsButton); drawerHomeModeButton = findViewById(R.id.drawerHomeModeButton); drawerGateAddButton = findViewById(R.id.drawerGateAddButton); drawerReminderButton = findViewById(R.id.drawerReminderButton); drawerCycleButton = findViewById(R.id.drawerCycleButton); drawerDebugButton = findViewById(R.id.drawerDebugButton); drawerLifeDetailsButton = findViewById(R.id.drawerLifeDetailsButton); drawerAppGateButton = findViewById(R.id.drawerAppGateButton); drawerWeatherButton = findViewById(R.id.drawerWeatherButton); drawerVersionButton = findViewById(R.id.drawerVersionButton); checkUpdateButton = findViewById(R.id.checkUpdateButton); downloadUpdateButton = findViewById(R.id.downloadUpdateButton);
+        saveReminderButton = findViewById(R.id.saveReminderButton); saveCycleButton = findViewById(R.id.saveCycleButton); saveHomeModeButton = findViewById(R.id.saveHomeModeButton); saveConnectionButton = findViewById(R.id.saveConnectionButton); savePermissionButton = findViewById(R.id.savePermissionButton); saveDebugFieldsButton = findViewById(R.id.saveDebugFieldsButton);
         drawerGuidianButton = findViewById(R.id.drawerGuidianButton); drawerGuidianSettingsButton = findViewById(R.id.drawerGuidianSettingsButton); drawerCalendarButton = findViewById(R.id.drawerCalendarButton); saveCalendarEventButton = findViewById(R.id.saveCalendarEventButton);
         remindersEnabled = findViewById(R.id.remindersEnabled); batteryRuleEnabled = findViewById(R.id.batteryRuleEnabled); screenRuleEnabled = findViewById(R.id.screenRuleEnabled); waterRuleEnabled = findViewById(R.id.waterRuleEnabled); restRuleEnabled = findViewById(R.id.restRuleEnabled); cycleEnabled = findViewById(R.id.cycleEnabled); foregroundPopupEnabled = findViewById(R.id.foregroundPopupEnabled); homeModeEnabled = findViewById(R.id.homeModeEnabled); homeModeForceEnabled = findViewById(R.id.homeModeForceEnabled); appGateEnabled = findViewById(R.id.appGateEnabled);
         guidianEnabled = findViewById(R.id.guidianEnabled); guidianRemoteEnabled = findViewById(R.id.guidianRemoteEnabled); guidianFullscreenEnabled = findViewById(R.id.guidianFullscreenEnabled); guidianQuietEnabled = findViewById(R.id.guidianQuietEnabled); calendarLunarEnabled = findViewById(R.id.calendarLunarEnabled); calendarRepeatEnabled = findViewById(R.id.calendarRepeatEnabled); calendarBannerEnabled = findViewById(R.id.calendarBannerEnabled);
@@ -2012,6 +2017,70 @@ public class MainActivity extends Activity {
             e.putString(AppPrefs.KEY_DEVICE, device.isEmpty() ? "android-phone" : device);
         }
         if (intervalInput != null) e.putInt(AppPrefs.KEY_INTERVAL, parseInterval(intervalInput.getText().toString().trim()));
+        if (blocking) e.commit(); else e.apply();
+    }
+
+    /** P0 设置页边界：为原先没有显式「保存」按钮的抽屉补齐保存入口，点击即同步落盘。 */
+    private void bindExplicitSaveButtons() {
+        if (saveReminderButton != null) saveReminderButton.setOnClickListener(v -> { saveReminderSettingsOnly(true); Toast.makeText(this, "提醒规则已保存，重启后仍生效", Toast.LENGTH_SHORT).show(); });
+        if (saveCycleButton != null) saveCycleButton.setOnClickListener(v -> { saveCycleSettingsOnly(true); Toast.makeText(this, "周期提醒已保存，重启后仍生效", Toast.LENGTH_SHORT).show(); });
+        if (saveHomeModeButton != null) saveHomeModeButton.setOnClickListener(v -> { saveHomeModeSettingsOnly(true); Toast.makeText(this, "回家模式已保存，重启后仍生效", Toast.LENGTH_SHORT).show(); });
+        if (saveConnectionButton != null) saveConnectionButton.setOnClickListener(v -> { saveConnectionSettingsOnly(true); saveSettings(); Toast.makeText(this, "连接设置已保存，重启后仍生效", Toast.LENGTH_SHORT).show(); updateUI(); });
+        if (savePermissionButton != null) savePermissionButton.setOnClickListener(v -> { savePermissionSettingsOnly(true); Toast.makeText(this, "权限设置已保存，重启后仍生效", Toast.LENGTH_SHORT).show(); });
+        if (saveDebugFieldsButton != null) saveDebugFieldsButton.setOnClickListener(v -> { saveDebugFieldsOnly(true); Toast.makeText(this, "调试字段已保存，重启后仍生效", Toast.LENGTH_SHORT).show(); });
+    }
+
+    /** P0：勾选类开关「点选即落盘」（行级即时写），与抽屉里的显式保存按钮双保险，杜绝重启丢配置。 */
+    private void bindInstantPersistToggles() {
+        SharedPreferences prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE);
+        if (remindersEnabled != null) remindersEnabled.setOnCheckedChangeListener((b, c) -> prefs.edit().putBoolean(AppPrefs.KEY_ACTIVE_REMINDERS, c).apply());
+        if (batteryRuleEnabled != null) batteryRuleEnabled.setOnCheckedChangeListener((b, c) -> prefs.edit().putBoolean(AppPrefs.KEY_RULE_BATTERY, c).apply());
+        if (screenRuleEnabled != null) screenRuleEnabled.setOnCheckedChangeListener((b, c) -> prefs.edit().putBoolean(AppPrefs.KEY_RULE_SCREEN, c).apply());
+        if (waterRuleEnabled != null) waterRuleEnabled.setOnCheckedChangeListener((b, c) -> prefs.edit().putBoolean(AppPrefs.KEY_RULE_WATER, c).apply());
+        if (restRuleEnabled != null) restRuleEnabled.setOnCheckedChangeListener((b, c) -> prefs.edit().putBoolean(AppPrefs.KEY_RULE_REST, c).apply());
+        if (cycleEnabled != null) cycleEnabled.setOnCheckedChangeListener((b, c) -> prefs.edit().putBoolean(AppPrefs.KEY_CYCLE_ENABLED, c).apply());
+        if (foregroundPopupEnabled != null) foregroundPopupEnabled.setOnCheckedChangeListener((b, c) -> prefs.edit().putBoolean(AppPrefs.KEY_FOREGROUND_POPUP, c).apply());
+        if (appGateEnabled != null) appGateEnabled.setOnCheckedChangeListener((b, c) -> prefs.edit().putBoolean(AppGate.KEY_ENABLED, c).apply());
+    }
+
+    /** P0：主动提醒规则抽屉的显式保存（不再依赖刷新生活总览等无关动作顺带写入）。 */
+    private void saveReminderSettingsOnly(boolean blocking) {
+        SharedPreferences.Editor e = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).edit();
+        if (remindersEnabled != null) e.putBoolean(AppPrefs.KEY_ACTIVE_REMINDERS, remindersEnabled.isChecked());
+        if (batteryRuleEnabled != null) e.putBoolean(AppPrefs.KEY_RULE_BATTERY, batteryRuleEnabled.isChecked());
+        if (batteryThresholdInput != null) e.putInt(AppPrefs.KEY_BATTERY_THRESHOLD, parseInt(batteryThresholdInput.getText().toString().trim(), 20, 5, 80));
+        if (screenRuleEnabled != null) e.putBoolean(AppPrefs.KEY_RULE_SCREEN, screenRuleEnabled.isChecked());
+        if (screenThresholdInput != null) e.putInt(AppPrefs.KEY_SCREEN_THRESHOLD_MIN, parseInt(screenThresholdInput.getText().toString().trim(), 240, 30, 1440));
+        if (waterRuleEnabled != null) e.putBoolean(AppPrefs.KEY_RULE_WATER, waterRuleEnabled.isChecked());
+        if (waterIntervalInput != null) e.putInt(AppPrefs.KEY_WATER_INTERVAL_MIN, parseInt(waterIntervalInput.getText().toString().trim(), 120, 30, 720));
+        if (restRuleEnabled != null) e.putBoolean(AppPrefs.KEY_RULE_REST, restRuleEnabled.isChecked());
+        if (restIntervalInput != null) e.putInt(AppPrefs.KEY_REST_INTERVAL_MIN, parseInt(restIntervalInput.getText().toString().trim(), 90, 30, 720));
+        if (blocking) e.commit(); else e.apply();
+    }
+
+    /** P0：周期提醒抽屉的显式保存。 */
+    private void saveCycleSettingsOnly(boolean blocking) {
+        SharedPreferences.Editor e = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).edit();
+        if (cycleEnabled != null) e.putBoolean(AppPrefs.KEY_CYCLE_ENABLED, cycleEnabled.isChecked());
+        if (lastPeriodStartInput != null) e.putString(AppPrefs.KEY_LAST_PERIOD_START, lastPeriodStartInput.getText().toString().trim());
+        if (cycleLengthInput != null) e.putInt(AppPrefs.KEY_CYCLE_LENGTH, parseInt(cycleLengthInput.getText().toString().trim(), 30, 15, 60));
+        if (periodLengthInput != null) e.putInt(AppPrefs.KEY_PERIOD_LENGTH, parseInt(periodLengthInput.getText().toString().trim(), 6, 1, 14));
+        if (cycleRemindBeforeInput != null) e.putInt(AppPrefs.KEY_CYCLE_REMIND_BEFORE, parseInt(cycleRemindBeforeInput.getText().toString().trim(), 3, 0, 14));
+        if (blocking) e.commit(); else e.apply();
+    }
+
+    /** P0：权限与运行抽屉（横幅通知开关）的显式保存。 */
+    private void savePermissionSettingsOnly(boolean blocking) {
+        SharedPreferences.Editor e = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).edit();
+        if (foregroundPopupEnabled != null) e.putBoolean(AppPrefs.KEY_FOREGROUND_POPUP, foregroundPopupEnabled.isChecked());
+        if (blocking) e.commit(); else e.apply();
+    }
+
+    /** P0：高级调试抽屉遗留字段（城市/天气备注）的显式保存。 */
+    private void saveDebugFieldsOnly(boolean blocking) {
+        SharedPreferences.Editor e = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).edit();
+        if (cityInput != null) e.putString(AppPrefs.KEY_CITY, cityInput.getText().toString().trim());
+        if (weatherInput != null) e.putString(AppPrefs.KEY_WEATHER_NOTE, weatherInput.getText().toString().trim());
         if (blocking) e.commit(); else e.apply();
     }
 

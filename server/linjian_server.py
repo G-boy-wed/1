@@ -29,6 +29,9 @@ MAX_UPLOAD_BYTES = 24 * 1024 * 1024
 VERSION = "0.3.9.0-public-diary-annotations"
 DEFAULT_DEVICE = os.environ.get("LINJIAN_DEFAULT_DEVICE", "android-phone")
 ACTIVITY_EVENT_LIMIT = 500
+# Bug #3：/api/companion/state 过滤陪伴/指令事件用的扫描窗口，需大于活动事件总量上限，
+# 避免被无障碍事件刷满后陪伴动作记录被挤出窗口。
+COMPANION_ACTION_SCAN_LIMIT = 2000
 
 ERR_BAD_TOKEN = "LINJIAN_ERR_BAD_TOKEN"
 ERR_NO_IMAGE = "LINJIAN_ERR_NO_IMAGE"
@@ -510,7 +513,10 @@ class Handler(BaseHTTPRequestHandler):
             with self.state.companion_lock:
                 whisper = dict(self.state.companion_state.get("whisper") or {})
                 actions = list(self.state.companion_state.get("actions") or [])[:limit]
-            unified = [e for e in self.state.list_activity_events("", "", "", ACTIVITY_EVENT_LIMIT)
+            # Bug #3：扫描窗口不能只取最近 500 条——被无障碍/前台事件刷满时，
+            # 陪伴与指令类事件会被整体挤出窗口，导致 get_companion_actions 恒为空。
+            # 这里按来源/类型过滤前先扫更大的窗口（2000 条），再截断到 limit。
+            unified = [e for e in self.state.list_activity_events("", "", "", COMPANION_ACTION_SCAN_LIMIT)
                        if e.get("source") in ("companion", "assistant") or e.get("type") in ("command", "notification", "weather", "calendar", "status_check")][:limit]
             if unified:
                 actions = [{"id": e.get("id"), "at": e.get("created_at"), "created_at": e.get("created_at"), "kind": e.get("type"), "type": e.get("type"), "title": e.get("title"), "summary": e.get("subtitle"), "subtitle": e.get("subtitle"), "status": e.get("status"), "source": "companion"} for e in unified]

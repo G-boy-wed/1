@@ -7,6 +7,44 @@ import fs from "fs";
 import path from "path";
 
 const PORT = Number(process.env.PORT || 8787);
+
+// Bug #1 (MCP 可用性)：很多部署环境（Render 面板、本地 npx、部分 MCP 客户端）没法方便地设置
+// 环境变量，导致 LINJIAN_URL / LINJIAN_TOKEN 缺失、所有后端读取工具全部失效。
+// 兜底方案：进程启动时若环境变量缺失，自动从 server.js 同目录（或 LINJIAN_ENV_FILE 指定路径）
+// 的 .env 文件加载缺的键。已存在的环境变量优先，文件只补缺；不覆盖、不外泄。
+function loadEnvFileFallback() {
+  const need = ["LINJIAN_URL", "LINJIAN_TOKEN", "LINJIAN_DEFAULT_DEVICE"].filter((k) => !(process.env[k] || "").trim());
+  if (!need.length) return { loaded: [], file: null };
+  const candidates = [
+    process.env.LINJIAN_ENV_FILE || "",
+    path.join(path.dirname(new URL(import.meta.url).pathname), ".env"),
+    path.join(process.cwd(), ".env"),
+  ].filter(Boolean);
+  for (const file of candidates) {
+    try {
+      if (!fs.existsSync(file)) continue;
+      const text = fs.readFileSync(file, "utf-8");
+      const loaded = [];
+      for (const rawLine of text.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith("#")) continue;
+        const eq = line.indexOf("=");
+        if (eq <= 0) continue;
+        const key = line.slice(0, eq).trim();
+        if (!need.includes(key)) continue;
+        let value = line.slice(eq + 1).trim();
+        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
+        if (!value) continue;
+        process.env[key] = value;
+        loaded.push(key);
+      }
+      if (loaded.length) return { loaded, file };
+    } catch { /* .env 读取失败按未配置处理，不阻断启动 */ }
+  }
+  return { loaded: [], file: null };
+}
+const ENV_FALLBACK = loadEnvFileFallback();
+
 const RAW_LINJIAN_URL = (process.env.LINJIAN_URL || "").trim();
 
 function normalizeBaseUrl(value = "") {
@@ -63,6 +101,16 @@ function maskUrlHost(url = "") {
 }
 const LINJIAN_TOKEN = process.env.LINJIAN_TOKEN || "";
 const DEFAULT_DEVICE = process.env.LINJIAN_DEFAULT_DEVICE || "android-phone";
+
+// linjian_status 的可执行修复提示：配置缺失时告诉陪伴对象具体怎么补，而不是只报错。
+function configFixHint(missing) {
+  const items = [];
+  if (missing.includes("url")) items.push("在 MCP 服务部署面板（如 Render → Environment）设置 LINJIAN_URL=你的掌心窗 server 服务地址，例如 https://zhangxinchuang-server-xxxx.onrender.com");
+  if (missing.includes("token")) items.push("在同一面板设置 LINJIAN_TOKEN=与掌心窗 server 一致的访问令牌（App「连接设置」里填的那个）");
+  items.push("无法设置环境变量时，也可以在 mcp 目录放一个 .env 文件，每行 KEY=VALUE（支持 LINJIAN_URL / LINJIAN_TOKEN / LINJIAN_DEFAULT_DEVICE），重启 MCP 服务生效");
+  items.push("改完后重启 MCP 服务，再调用一次 linjian_status 确认 config_errors 为空");
+  return items;
+}
 
 // Bug #3 (隐私)：手机端 screen_text / 无障碍节点可能包含聊天全文、口令、Token 等敏感内容。
 // 只读接口返回前必须脱敏：截断长文本 + 过滤敏感词 + 抹掉凭据类片段，只保留脱敏摘要。
@@ -1143,8 +1191,9 @@ function makeServer() {
 
   server.tool("linjian_status", "检查掌心窗后端是否在线，以及 MCP 是否配置了 LINJIAN_URL 和 LINJIAN_TOKEN。当用户在聊天里提到掌心窗报错、出错、有点问题、连接不上、没反应、配置异常、Render/MCP/Token/URL 相关问题时，陪伴对象应主动调用。", {}, async () => {
     const configErrors = [];
-    if (!LINJIAN_URL_CANDIDATES.length) configErrors.push("Missing env LINJIAN_URL");
-    if (!LINJIAN_TOKEN) configErrors.push("Missing env LINJIAN_TOKEN");
+    const missing = [];
+    if (!LINJIAN_URL_CANDIDATES.length) { configErrors.push("Missing env LINJIAN_URL"); missing.push("url"); }
+    if (!LINJIAN_TOKEN) { configErrors.push("Missing env LINJIAN_TOKEN"); missing.push("token"); }
     const health = configErrors.length
       ? { ok: false, error: configErrors.join("; ") }
       : await linjianFetch("/health").then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
@@ -1162,6 +1211,9 @@ function makeServer() {
       has_url: Boolean(LINJIAN_URL_CANDIDATES.length),
       has_token: Boolean(LINJIAN_TOKEN),
       config_errors: configErrors,
+      env_file_fallback_used: ENV_FALLBACK.loaded.length > 0,
+      env_file_fallback_keys: ENV_FALLBACK.loaded,
+      fix_hint: missing.length ? configFixHint(missing) : [],
       health,
       has_latest: Boolean(latest),
       latest: latestDecorated
@@ -1170,7 +1222,17 @@ function makeServer() {
 
   server.tool("get_window_whisper", "读取掌心窗陪伴页当前的共同窗语，包括内容、最后修改者、修改时间和版本。当用户问最近一句话、窗语写了什么、谁改过时使用。", {}, async () => {
     const data = await getCompanionState(1);
-    return textResult({ ok: true, whisper: data?.whisper || {} });
+    // Bug #2：后端读取失败（401/网络/服务未唤醒）时不能把失败掩蔽成空窗语，必须如实上报。
+    if (!data || data.ok === false) {
+      return textResult({ ok: false, error: "companion_state_fetch_failed", message: "读取共同窗语失败：后端未唤醒或 Token/URL 配置有误。请先调用 linjian_status 检查配置。", detail: String(data?.error || "").slice(0, 300) });
+    }
+    const whisper = data.whisper || {};
+    return textResult({
+      ok: true,
+      whisper,
+      is_default: typeof whisper.content === "string" && whisper.content.includes("收进窗里"),
+      note: "is_default=true 表示还是初始默认文案，说明从未有人修改过窗语；可用 set_window_whisper 写入新内容。"
+    });
   });
 
   server.tool("set_window_whisper", "更新掌心窗陪伴页的共同窗语。陪伴对象和用户都能修改；陪伴对象通过此工具修改时 author 默认为陪伴对象。内容应简短、适合在手机卡片中阅读。", {
@@ -1186,7 +1248,18 @@ function makeServer() {
     limit: z.number().int().min(1).max(50).default(20)
   }, async ({ limit = 20 }) => {
     const data = await getCompanionState(limit);
-    return textResult({ ok: true, actions: data?.actions || [], privacy: "仅返回脱敏的标题、分类、摘要、状态与时间。" });
+    // Bug #3：读取失败不能伪装成「没有行动记录」；空列表也要说明空的原因，不糊弄。
+    if (!data || data.ok === false) {
+      return textResult({ ok: false, error: "companion_state_fetch_failed", message: "读取行动记录失败：后端未唤醒或 Token/URL 配置有误。请先调用 linjian_status 检查配置。", detail: String(data?.error || "").slice(0, 300) });
+    }
+    const actions = data.actions || [];
+    return textResult({
+      ok: true,
+      actions,
+      count: actions.length,
+      empty_reason: actions.length ? undefined : "后端还没有可展示的行动记录：陪伴动作（如 set_alarm、查天气、守护日历操作）发生后会自动写入；刚部署或刚清库时为空属正常。可用 set_alarm / get_weather 等动作生成一条后回读验证。",
+      privacy: "仅返回脱敏的标题、分类、摘要、状态与时间。"
+    });
   });
 
   server.tool("get_activity_events", "读取掌心窗统一活动事件。可按设备、日期和来源筛选；不会因为读取本身再写一条事件。", {
@@ -2113,6 +2186,10 @@ function makeServer() {
     device_id: z.string().default(DEFAULT_DEVICE)
   }, async ({ device_id = DEFAULT_DEVICE }) => {
     const res = await linjianFetch("/api/tour/state", { method: "GET", timeout_ms: COMMAND_QUEUE_TIMEOUT_MS }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
+    // Bug #4：读取失败必须如实上报，不能让调用方把错误响应当成「默认配置」。
+    if (!res || res.ok === false) {
+      return { content: [{ type: "text", text: JSON.stringify({ ok: false, error: "tour_state_fetch_failed", message: "读取查岗配置失败：后端未唤醒或 Token/URL 配置有误。请先调用 linjian_status 检查配置。", detail: String(res?.error || "").slice(0, 300) }, null, 2) }] };
+    }
     return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
   });
 

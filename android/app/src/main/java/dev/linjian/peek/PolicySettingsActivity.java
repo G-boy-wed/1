@@ -680,11 +680,14 @@ public class PolicySettingsActivity extends Activity {
         final String base = AppPrefs.server(this), token = AppPrefs.token(this);
         try {
             JSONObject body = new JSONObject();
+            // Bug「get_tour_schedule 全为默认值/异常值」：旧代码把 force_back_interval_minutes=0、
+            // alert_tone="gentle"、exempt_packages=[] 硬编码进同步体，每次保存都会用假值覆盖
+            // 服务端已保存的巡回配置。本机没有这些项的独立配置（弹窗语气/豁免列表由服务端与
+            // 管束设定管理），因此这三项**不上送**——服务端 /api/tour/schedule 只更新 body 里
+            // 出现的键，缺省键保留原值，不会再被抹掉。
             body.put("enabled", PolicyStore.checkinEnabled(this));
             body.put("check_in_interval_minutes", PolicyStore.randomUpper(this));
-            body.put("force_back_interval_minutes", 0);
             body.put("cooldown_minutes", PolicyStore.cooldownMinutes(this));
-            body.put("alert_tone", "gentle");
             JSONObject q = new JSONObject();
             q.put("start", PolicyStore.quietStart(this)); q.put("end", PolicyStore.quietEnd(this));
             body.put("quiet_hours", q);
@@ -692,7 +695,6 @@ public class PolicySettingsActivity extends Activity {
             n.put("start", PolicyStore.nightStart(this)); n.put("end", PolicyStore.nightEnd(this));
             body.put("night_hours", n);
             body.put("force_back_miss_threshold", PolicyStore.forceBackThreshold(this));
-            body.put("exempt_packages", new JSONArray());
             final String payload = body.toString();
             status("同步中…");
             new Thread(() -> {

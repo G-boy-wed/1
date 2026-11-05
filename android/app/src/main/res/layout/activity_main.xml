@@ -407,6 +407,7 @@
                     <EditText android:id="@+id/waterIntervalInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="喝水间隔分钟，默认 120" android:textSize="11sp" android:inputType="number" android:singleLine="true" />
                     <CheckBox android:id="@+id/restRuleEnabled" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="休息提醒" android:textSize="11sp" />
                     <EditText android:id="@+id/restIntervalInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="休息间隔分钟，默认 90" android:textSize="11sp" android:inputType="number" android:singleLine="true" />
+                    <Button android:id="@+id/saveReminderButton" android:layout_width="match_parent" android:layout_height="36dp" android:text="保存提醒规则" android:textSize="12sp" android:textColor="#FFFFFFFF" android:background="@drawable/pill_primary" android:layout_marginTop="8dp" />
                 </LinearLayout>
 
                 <Button android:id="@+id/drawerCycleButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="周期提醒  ›" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginBottom="8dp" />
@@ -416,6 +417,7 @@
                     <EditText android:id="@+id/cycleLengthInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="周期长度，默认 30" android:textSize="11sp" android:inputType="number" android:singleLine="true" />
                     <EditText android:id="@+id/periodLengthInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="经期天数，默认 6" android:textSize="11sp" android:inputType="number" android:singleLine="true" />
                     <EditText android:id="@+id/cycleRemindBeforeInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="提前提醒天数，默认 3" android:textSize="11sp" android:inputType="number" android:singleLine="true" />
+                    <Button android:id="@+id/saveCycleButton" android:layout_width="match_parent" android:layout_height="36dp" android:text="保存周期提醒" android:textSize="12sp" android:textColor="#FFFFFFFF" android:background="@drawable/pill_primary" android:layout_marginTop="8dp" />
                 </LinearLayout>
 
                 <Button android:id="@+id/drawerHomeModeButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="回家模式  ›" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginBottom="8dp" />
@@ -427,6 +429,7 @@
                     <EditText android:id="@+id/homeThresholdInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="阈值分钟，默认 10" android:textSize="11sp" android:inputType="number" android:singleLine="true" />
                     <EditText android:id="@+id/homeCooldownInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="冷却分钟，默认 5" android:textSize="11sp" android:inputType="number" android:singleLine="true" />
                     <EditText android:id="@+id/homeTargetInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="返回目标，可填目标 APP 名称或包名" android:textSize="11sp" android:singleLine="true" />
+                    <Button android:id="@+id/saveHomeModeButton" android:layout_width="match_parent" android:layout_height="36dp" android:text="保存回家模式" android:textSize="12sp" android:textColor="#FFFFFFFF" android:background="@drawable/pill_primary" android:layout_marginTop="8dp" />
                 </LinearLayout>
             </LinearLayout>
         </ScrollView>
@@ -508,11 +511,13 @@
                     <EditText android:id="@+id/intervalInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="轮询间隔毫秒，默认 1500" android:textSize="11sp" android:inputType="number" android:singleLine="true" />
                     <EditText android:id="@+id/userNameInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="你的名字，默认 宝宝" android:textSize="11sp" android:singleLine="true" />
                     <EditText android:id="@+id/companionNameInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="AI / 陪伴对象名字，默认 陪伴者" android:textSize="11sp" android:singleLine="true" />
+                    <Button android:id="@+id/saveConnectionButton" android:layout_width="match_parent" android:layout_height="36dp" android:text="保存连接设置" android:textSize="12sp" android:textColor="#FFFFFFFF" android:background="@drawable/pill_primary" android:layout_marginTop="8dp" />
                 </LinearLayout>
 
                 <Button android:id="@+id/drawerPermissionButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="权限与运行  ›" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginBottom="8dp" />
                 <LinearLayout android:id="@+id/drawerPermission" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/card_bg" android:visibility="gone" android:layout_marginBottom="8dp">
                     <CheckBox android:id="@+id/foregroundPopupEnabled" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="优先用顶部横幅通知" android:textSize="11sp" />
+                    <Button android:id="@+id/savePermissionButton" android:layout_width="match_parent" android:layout_height="36dp" android:text="保存权限设置" android:textSize="12sp" android:textColor="#FFFFFFFF" android:background="@drawable/pill_primary" android:layout_marginTop="8dp" />
                     <Button android:id="@+id/accessibilityButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="打开无障碍设置" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginTop="6dp" />
                     <Button android:id="@+id/usageAccessButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="打开使用情况访问权限" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginTop="6dp" />
                     <Button android:id="@+id/toggleButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="启动服务" android:textSize="11sp" android:textColor="#FFFFFFFF" android:background="@drawable/pill_primary" android:layout_marginTop="6dp" />
@@ -551,6 +556,7 @@
                 <LinearLayout android:id="@+id/drawerDebug" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/card_bg" android:visibility="gone" android:layout_marginBottom="8dp">
                     <EditText android:id="@+id/cityInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="兼容旧字段：城市，例如 石家庄" android:textSize="11sp" android:singleLine="true" />
                     <EditText android:id="@+id/weatherInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="兼容旧字段：天气备注" android:textSize="11sp" android:singleLine="true" />
+                    <Button android:id="@+id/saveDebugFieldsButton" android:layout_width="match_parent" android:layout_height="36dp" android:text="保存调试字段" android:textSize="12sp" android:textColor="#FFFFFFFF" android:background="@drawable/pill_primary" android:layout_marginTop="8dp" />
                     <TextView android:id="@+id/debugText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="等待调试信息…" android:textSize="11sp" android:textColor="#FF596D66" android:paddingTop="8dp" android:lineSpacingExtra="3dp" />
                 </LinearLayout>
 
