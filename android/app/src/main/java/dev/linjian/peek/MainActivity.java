@@ -2289,6 +2289,10 @@ public class MainActivity extends Activity {
         if (statusText != null) { statusText.setBackground(t.soft(18)); statusText.setPadding(dp(12), dp(7), dp(12), dp(7)); }
         if (testGuidianButton != null) { testGuidianButton.setBackground(t.pill(true)); testGuidianButton.setTextColor(Color.WHITE); }
         if (saveGuidianSettingsButton != null) { saveGuidianSettingsButton.setBackground(t.pill(true)); saveGuidianSettingsButton.setTextColor(Color.WHITE); }
+        // P0 设置页新增的 6 个显式「保存」按钮：保持主色 pill + 白字，与其它主按钮一致
+        //（styleTree 的 styleButton 会把它们统一成次级 chip 样式，这里按主按钮语义覆盖回来）。
+        stylePrimaryPill(saveReminderButton, t); stylePrimaryPill(saveCycleButton, t); stylePrimaryPill(saveHomeModeButton, t);
+        stylePrimaryPill(saveConnectionButton, t); stylePrimaryPill(savePermissionButton, t); stylePrimaryPill(saveDebugFieldsButton, t);
         if (toggleButton != null) { toggleButton.setBackground(serviceRunning ? dangerPill(t) : t.pill(true)); toggleButton.setTextColor(Color.WHITE); }
         if (themeText != null) themeText.setTextColor(t.subtext);
         if (statusText != null) statusText.setTextColor(serviceRunning && isAccessibilityServiceEnabled() ? t.primary : t.subtext);
@@ -2305,6 +2309,16 @@ public class MainActivity extends Activity {
         g.setColor(t.danger);
         g.setCornerRadius(dp(15));
         return g;
+    }
+
+    /** 主色 pill 按钮（保存类）：主色背景 + 白字 + 12sp 中量字重。 */
+    private void stylePrimaryPill(Button b, UITheme t) {
+        if (b == null) return;
+        b.setBackground(t.pill(true));
+        b.setTextColor(Color.WHITE);
+        b.setTextSize(12);
+        b.setAllCaps(false);
+        b.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
     }
 
     private static final class GuardianRingView extends View {
