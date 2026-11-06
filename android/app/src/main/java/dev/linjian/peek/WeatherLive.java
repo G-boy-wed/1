@@ -103,14 +103,23 @@ public class WeatherLive {
     }
 
     private static JSONObject fetch(String city, String district) throws Exception {
-        // 精确到区县：把「区县 + 城市」一起作为地理编码查询条件，命中更具体的地点。
-        String query = clean(district).isEmpty() ? clean(city) : (clean(district) + " " + clean(city));
-        String q = URLEncoder.encode(query, "UTF-8");
-        String geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=" + q + "&count=1&language=zh&format=json";
-        JSONObject geo = new JSONObject(get(geoUrl));
-        JSONArray results = geo.optJSONArray("results");
-        if (results == null || results.length() == 0) return error("city_not_found", query);
-        JSONObject hit = results.getJSONObject(0);
+        String chosenCity = clean(city);
+        String chosenDistrict = clean(district);
+        if (chosenCity.isEmpty()) return error("missing_city", chosenDistrict);
+        // 中文「区县 + 城市」地理编码在 Open-Meteo 经常返回空结果（实测「长安区 石家庄」「徐汇区 上海」都查不到），
+        // 因此改为：先试「区县 城市」，拿不到坐标就退回「城市」单独查坐标（实测稳定可用）。
+        // 显示的区县名以用户填写的为准（权威），坐标取城市级即可——同城市内天气基本一致。
+        String[] queries = chosenDistrict.isEmpty()
+                ? new String[]{ chosenCity }
+                : new String[]{ chosenDistrict + " " + chosenCity, chosenCity };
+        JSONObject hit = null;
+        for (String q : queries) {
+            String geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=" + URLEncoder.encode(q, "UTF-8") + "&count=1&language=zh&format=json";
+            JSONObject geo = new JSONObject(get(geoUrl));
+            JSONArray results = geo.optJSONArray("results");
+            if (results != null && results.length() > 0) { hit = results.getJSONObject(0); break; }
+        }
+        if (hit == null) return error("city_not_found", chosenCity);
         double lat = hit.optDouble("latitude", 0);
         double lon = hit.optDouble("longitude", 0);
         String forecastUrl = String.format(Locale.US,
@@ -128,11 +137,12 @@ public class WeatherLive {
         JSONObject out = new JSONObject();
         out.put("ok", true);
         out.put("source", "open-meteo");
-        out.put("queried_city", city);
-        out.put("resolved_city", hit.optString("name", city));
+        out.put("queried_city", chosenCity);
+        out.put("resolved_city", hit.optString("name", chosenCity));
         out.put("admin1", hit.optString("admin1", ""));
         out.put("admin2", hit.optString("admin2", ""));
-        out.put("district", hit.optString("admin2", ""));
+        // 展示用的区县以用户填写的为准，没填才退回地理编码返回的 admin2。
+        out.put("district", chosenDistrict.isEmpty() ? hit.optString("admin2", "") : chosenDistrict);
         out.put("country", hit.optString("country", ""));
         out.put("latitude", lat);
         out.put("longitude", lon);
@@ -184,9 +194,11 @@ public class WeatherLive {
     public static String cardText(JSONObject weather, String name) {
         if (weather == null || !weather.optBoolean("ok")) return "天气\n待刷新";
         String city = weather.optString("resolved_city", weather.optString("queried_city", name));
+        String district = weather.optString("district", "");
+        String where = district.isEmpty() ? city : (district + "·" + city);
         String condition = weather.optString("condition", "天气");
         int temp = weather.optInt("temperature", 0);
-        return city + " · " + condition + "\n" + temp + "℃";
+        return where + " · " + condition + "\n" + temp + "℃";
     }
 
     public static String advice(JSONObject weather, String name) {

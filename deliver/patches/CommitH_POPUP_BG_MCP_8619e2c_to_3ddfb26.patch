@@ -1,0 +1,538 @@
+diff --git a/android/app/src/main/AndroidManifest.xml b/android/app/src/main/AndroidManifest.xml
+index 37d2d54..f523bfd 100644
+--- a/android/app/src/main/AndroidManifest.xml
++++ b/android/app/src/main/AndroidManifest.xml
+@@ -28,6 +28,7 @@
+     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
++    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+ 
+     <queries>
+@@ -154,5 +155,20 @@
+             </intent-filter>
+         </service>
+ 
++        <!-- 调度器看门狗：Doze/进程回收后把巡回归电等插件调度器拉活 -->
++        <receiver
++            android:name=".SchedulerWatchdogReceiver"
++            android:exported="false" />
++
++        <!-- 开机 / 应用更新自启：重启后自动恢复守护服务与插件调度器 -->
++        <receiver
++            android:name=".BootCompletedReceiver"
++            android:exported="false">
++            <intent-filter>
++                <action android:name="android.intent.action.BOOT_COMPLETED" />
++                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
++            </intent-filter>
++        </receiver>
++
+     </application>
+ </manifest>
+diff --git a/android/app/src/main/java/dev/linjian/peek/AlertCenterActivity.java b/android/app/src/main/java/dev/linjian/peek/AlertCenterActivity.java
+index ccc1e36..832a9cf 100644
+--- a/android/app/src/main/java/dev/linjian/peek/AlertCenterActivity.java
++++ b/android/app/src/main/java/dev/linjian/peek/AlertCenterActivity.java
+@@ -20,6 +20,12 @@ import android.widget.TextView;
+  */
+ public class AlertCenterActivity extends Activity {
+ 
++    @Override
++    protected void onDestroy() {
++        PopupMutex.onDismissed(PopupMutex.CENTER_ALERT);
++        super.onDestroy();
++    }
++
+     @Override
+     protected void onCreate(Bundle savedInstanceState) {
+         super.onCreate(savedInstanceState);
+@@ -31,6 +37,9 @@ public class AlertCenterActivity extends Activity {
+             setTurnScreenOn(true);
+         }
+         setContentView(R.layout.activity_alert_center);
++        // 弹窗互斥：悬浮窗层级高于 Activity，启动本兜底 Activity 前必须移除两个通道的
++        // 悬浮弹窗，否则会出现「悬浮窗 + Activity」双重展示。
++        PopupMutex.beforeShow(PopupMutex.CENTER_ALERT);
+ 
+         String title = getIntent().getStringExtra("title");
+         String message = getIntent().getStringExtra("message");
+diff --git a/android/app/src/main/java/dev/linjian/peek/AlertCenterOverlay.java b/android/app/src/main/java/dev/linjian/peek/AlertCenterOverlay.java
+index 50fd3d8..44790e8 100644
+--- a/android/app/src/main/java/dev/linjian/peek/AlertCenterOverlay.java
++++ b/android/app/src/main/java/dev/linjian/peek/AlertCenterOverlay.java
+@@ -66,11 +66,14 @@ public class AlertCenterOverlay {
+                         params.x = 0;
+                         params.y = 0;
+                         dismiss();
++                        // 弹窗互斥：先移除拉回弹窗通道的悬浮窗，保证同一时刻只有一个弹窗在屏
++                        PopupMutex.beforeShow(PopupMutex.CENTER_ALERT);
+                         wm.addView(root, params);
+                         current = root;
+                         DebugState.append(appCtx, "居中弹窗已悬浮显示");
+                         ok[0] = true;
+                     } catch (Exception e) {
++                        PopupMutex.onDismissed(PopupMutex.CENTER_ALERT);
+                         DebugState.append(appCtx, "居中悬浮窗失败：" + ScreenshotService.shortMsg(e));
+                         ok[0] = false;
+                     } finally {
+@@ -94,6 +97,7 @@ public class AlertCenterOverlay {
+             final View view = current;
+             current = null;
+             if (wm == null || view == null) return;
++            PopupMutex.onDismissed(PopupMutex.CENTER_ALERT);
+             main.post(new Runnable() {
+                 @Override public void run() {
+                     try { wm.removeView(view); } catch (Exception ignored) { }
+diff --git a/android/app/src/main/java/dev/linjian/peek/BootCompletedReceiver.java b/android/app/src/main/java/dev/linjian/peek/BootCompletedReceiver.java
+new file mode 100644
+index 0000000..425bef3
+--- /dev/null
++++ b/android/app/src/main/java/dev/linjian/peek/BootCompletedReceiver.java
+@@ -0,0 +1,30 @@
++package dev.linjian.peek;
++
++import android.content.BroadcastReceiver;
++import android.content.Context;
++import android.content.Intent;
++
++/**
++ * 开机 / 应用更新自启：重启后自动拉起陪伴前台服务与插件调度器，
++ * 保证巡回查岗、训诫、时间感知、门禁等守护能力不因重启而失效。
++ */
++public class BootCompletedReceiver extends BroadcastReceiver {
++    @Override public void onReceive(Context context, Intent intent) {
++        try {
++            String action = intent == null ? "" : intent.getAction();
++            if (action == null) return;
++            boolean boot = Intent.ACTION_BOOT_COMPLETED.equals(action);
++            boolean updated = Intent.ACTION_MY_PACKAGE_REPLACED.equals(action);
++            if (!boot && !updated) return;
++            PolicyScheduler.start(context, "boot");
++            if (android.os.Build.VERSION.SDK_INT >= 26) {
++                context.startForegroundService(new Intent(context, CompanionService.class));
++            } else {
++                context.startService(new Intent(context, CompanionService.class));
++            }
++            DebugState.append(context, boot ? "开机自启：守护服务与调度器已拉起" : "应用更新后自启：守护服务与调度器已拉起");
++        } catch (Exception e) {
++            DebugState.append(context, "开机自启失败：" + ScreenshotService.shortMsg(e));
++        }
++    }
++}
+diff --git a/android/app/src/main/java/dev/linjian/peek/CompanionService.java b/android/app/src/main/java/dev/linjian/peek/CompanionService.java
+index 4014679..c41f578 100644
+--- a/android/app/src/main/java/dev/linjian/peek/CompanionService.java
++++ b/android/app/src/main/java/dev/linjian/peek/CompanionService.java
+@@ -77,8 +77,11 @@ public class CompanionService extends Service {
+             running = true;
+             startPolling();
+         } else DebugState.append(this, "服务已在运行，继续轮询");
+-        PolicyScheduler.start(this);
++        PolicyScheduler.start(this, "companion");
+         registerNetworkRecovery();
++        // 服务拉起即对齐一次：把本机最后写入的管理配置推给服务器（内部 15 分钟节流），
++        // 保证保存设置那一刻没网也不会永久失联；此后每次轮询周期内自动重试对齐。
++        PolicySync.pushAll(this, false);
+         return START_STICKY;
+     }
+ 
+@@ -96,6 +99,7 @@ public class CompanionService extends Service {
+         long delay = AppPrefs.interval(this);
+         try {
+             uploadStateThrottled(serverUrl, token, this, false);
++            PolicySync.pushAll(this, false);   // 运行期周期对齐管理配置（内部 15 分钟节流，best-effort）
+             if (rateLimitedUntilMs > now) {
+                 delay = Math.max(delay, rateLimitedUntilMs - now);
+             } else {
+@@ -770,7 +774,7 @@ public class CompanionService extends Service {
+         if (netCallback != null) {
+             try { ((ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE)).unregisterNetworkCallback(netCallback); } catch (Exception ignored) { }
+         }
+-        PolicyScheduler.stop(this);
++        PolicyScheduler.stop(this, "companion");
+         if (pollThread != null) pollThread.quitSafely();
+         super.onDestroy();
+     }
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java b/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
+index eb23135..ec3a132 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
++++ b/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
+@@ -108,10 +108,15 @@ public final class PolicyScheduler {
+         this.appCtx = ctx.getApplicationContext();
+     }
+ 
+-    /** 幂等启动：全局只有一个实例在跑。 */
+-    public static synchronized void start(Context ctx) {
++    /** 幂等启动：全局只有一个实例在跑。host 为宿主标识（accessibility/companion/activity/boot/watchdog）。 */
++    public static synchronized void start(Context ctx) { start(ctx, "default"); }
++
++    public static synchronized void start(Context ctx, String host) {
+         if (ctx == null) return;
+-        if (instance != null && instance.running) return;
++        // 看门狗只负责拉活，不注册为常驻宿主：宿主计数归零时调度器仍可正常停止，
++        // 15 分钟内看门狗会再把它拉起（总开关关闭时 evaluate 直接返回，不会打扰）。
++        if (host != null && !host.isEmpty() && !"watchdog".equals(host)) aliveHosts.add(host);
++        if (instance != null && instance.running) { scheduleWatchdog(ctx); return; }
+         if (instance == null) instance = new PolicyScheduler(ctx);
+         instance.running = true;
+         if (instance.thread == null) {
+@@ -125,11 +130,22 @@ public final class PolicyScheduler {
+         CompanionEmotionState.ensureFirstSeen(ctx);
+         instance.handler.removeCallbacks(instance.tick);
+         instance.handler.post(instance.tick);
+-        DebugState.append(ctx, "查岗与管束本地调度器已启动（离线可跑）");
++        scheduleWatchdog(ctx);
++        DebugState.append(ctx, "查岗与管束本地调度器已启动（离线可跑，宿主=" + host + "）");
+     }
+ 
+-    /** 停止（宿主销毁时调用）。 */
+-    public static synchronized void stop(Context ctx) {
++    /** 停止（宿主销毁时调用）——按宿主引用计数：还有任一宿主存活就继续跑。 */
++    public static synchronized void stop(Context ctx) { stop(ctx, "default"); }
++
++    public static synchronized void stop(Context ctx, String host) {
++        if (host != null && !host.isEmpty()) aliveHosts.remove(host);
++        // 修复「插件挂后台不稳」：无障碍服务与陪伴服务互为宿主，任何一个销毁
++        // （如用户重开无障碍、系统回收陪伴服务）都不再连坐停掉调度器；
++        // 只有全部宿主都退出才真正停止。看门狗闹钟会在 15 分钟内把误杀的调度器拉活。
++        if (!aliveHosts.isEmpty() && instance != null && instance.running) {
++            DebugState.append(ctx, "调度器宿主 " + host + " 退出，其余宿主仍在，继续运行");
++            return;
++        }
+         if (instance == null) return;
+         instance.running = false;
+         if (instance.handler != null) instance.handler.removeCallbacks(instance.tick);
+@@ -137,6 +153,32 @@ public final class PolicyScheduler {
+         DebugState.append(ctx, "查岗与管束本地调度器已停止");
+     }
+ 
++    // ============ AlarmManager 看门狗 ============
++    // HandlerThread 在 Doze/深睡或进程被杀后会停摆；用 setAndAllowWhileIdle
++    // 的周期闹钟（约 15 分钟一次）把调度器重新拉起（start 幂等，已在跑则无副作用）。
++    private static final long WATCHDOG_INTERVAL_MS = 15 * 60_000L;
++    private static final String WATCHDOG_ACTION = "dev.linjian.peek.POLICY_SCHEDULER_WATCHDOG";
++    private static final java.util.Set<String> aliveHosts = new HashSet<>();
++    private static android.app.PendingIntent watchdogPi;
++
++    private static void scheduleWatchdog(Context ctx) {
++        try {
++            android.app.AlarmManager am = (android.app.AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
++            if (am == null) return;
++            if (watchdogPi == null) {
++                android.content.Intent i = new android.content.Intent(WATCHDOG_ACTION);
++                i.setClass(ctx, SchedulerWatchdogReceiver.class);
++                watchdogPi = android.app.PendingIntent.getBroadcast(ctx, 1001, i,
++                        android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
++            }
++            long triggerAt = System.currentTimeMillis() + WATCHDOG_INTERVAL_MS;
++            if (android.os.Build.VERSION.SDK_INT >= 23) am.setAndAllowWhileIdle(android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP, android.os.SystemClock.elapsedRealtime() + WATCHDOG_INTERVAL_MS, watchdogPi);
++            else am.setInexactRepeating(android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, WATCHDOG_INTERVAL_MS, watchdogPi);
++        } catch (Exception e) {
++            DebugState.append(ctx, "调度器看门狗注册失败：" + ScreenshotService.shortMsg(e));
++        }
++    }
++
+     private final Runnable tick = new Runnable() {
+         @Override public void run() {
+             try { evaluate(); } catch (Exception e) { DebugState.append(appCtx, "调度器评估异常：" + ScreenshotService.shortMsg(e)); }
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java b/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java
+index 498e236..ddd4dc0 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java
++++ b/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java
+@@ -100,10 +100,10 @@ public class PolicySettingsActivity extends Activity {
+         if (activeSection != null && !activeSection.isEmpty()) buildSectionBanner(activeSection);
+ 
+         LinearLayout top = card(container, "全局", "总开关与配置管理", "global");
+-        top.addView(rowButton("保存设置", "把本页所有改动确认写入本机底层存储，并让守护调度器立即按新配置运行；训诫开关与语气模式同步给服务端，陪伴对象读到的与本机一致。点保存后设置持久生效、不会丢失。", "保存设置", v -> {
++        top.addView(rowButton("保存设置", "把本页所有改动确认写入本机底层存储，并让守护调度器立即按新配置运行；巡回与训诫配置同步给服务端，陪伴对象（MCP）读到的与本机一致。点保存后设置持久生效、不会丢失。", "保存设置", v -> {
+             PolicyStore.flush(this);        // 同步落盘，确认改动都在底层配置里
+-            PolicyScheduler.start(this);    // 幂等：已在跑则无副作用，未跑则按新配置启动
+-            syncDisciplineToServer();       // 让 get_discipline_mode 与 App 里的严厉 / 温柔保持一致
++            PolicyScheduler.start(this, "settings");    // 幂等：已在跑则无副作用，未跑则按新配置启动
++            PolicySync.pushAll(this);       // 最后写入的管理要求（巡回+训诫）推给服务器，MCP 据此行动
+             Toast.makeText(this, "设置已保存并生效", Toast.LENGTH_SHORT).show();
+         }));
+         top.addView(rowSwitch("一键全部关闭（拿回手机）", "关掉后所有查岗、拉回、主动找用户、训诫全部暂停。",
+@@ -368,8 +368,8 @@ public class PolicySettingsActivity extends Activity {
+         save.setBackgroundResource(R.drawable.pill_soft);
+         save.setOnClickListener(v -> {
+             PolicyStore.flush(this);        // 同步落盘
+-            PolicyScheduler.start(this);    // 幂等重启调度器，新配置立即生效
+-            syncDisciplineToServer();       // 训诫开关/语气同步给服务端
++            PolicyScheduler.start(this, "settings");    // 幂等重启调度器，新配置立即生效
++            PolicySync.pushAll(this);       // 最后写入的管理要求（巡回+训诫）推给服务器，MCP 据此行动
+             Toast.makeText(this, "设置已保存并生效", Toast.LENGTH_SHORT).show();
+         });
+         bar.addView(save);
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicySync.java b/android/app/src/main/java/dev/linjian/peek/PolicySync.java
+new file mode 100644
+index 0000000..70df4b1
+--- /dev/null
++++ b/android/app/src/main/java/dev/linjian/peek/PolicySync.java
+@@ -0,0 +1,102 @@
++package dev.linjian.peek;
++
++import android.content.Context;
++
++import org.json.JSONObject;
++
++import java.io.ByteArrayOutputStream;
++import java.io.InputStream;
++import java.io.OutputStream;
++import java.net.HttpURLConnection;
++import java.net.URL;
++import java.nio.charset.StandardCharsets;
++
++/**
++ * 策略同步：把「掌心窗内最后写入的管理配置」best-effort 推给服务器，
++ * 让 MCP / 陪伴对象侧读到与手机端一致的管理要求。
++ *
++ * 推送内容（两段，各自独立成功/失败，互不影响）：
++ *  1. /api/tour/schedule：巡回查岗配置（开关、间隔、冷却、安静/深夜时段、强拉阈值）
++ *  2. /api/discipline  ：训诫配置（开关、模式、档位）
++ *
++ * 设计要点：
++ *  - 只推本机真实存在的配置，不硬编码假值（缺省键服务端保留原值，last-write-wins）；
++ *  - best-effort：无服务器地址/网络失败时静默跳过，本机始终生效；
++ *  - 保存设置时调用一次；陪伴服务启动时调用一次，运行期每 15 分钟对齐一次，
++ *    保证哪怕保存那一刻没网，最终也会同步到 MCP 读取的同一份状态。
++ */
++public final class PolicySync {
++
++    /** 距上次成功推送的最小间隔（运行期对齐频率）。 */
++    private static final long MIN_INTERVAL_MS = 15 * 60_000L;
++    private static volatile long lastPushAt = 0;
++
++    private PolicySync() { }
++
++    /** 推送全部管理配置（巡回 + 训诫）。force=true 忽略最小间隔（保存动作用）。 */
++    public static void pushAll(Context ctx, boolean force) {
++        try {
++            long now = System.currentTimeMillis();
++            if (!force && now - lastPushAt < MIN_INTERVAL_MS) return;
++            lastPushAt = now;
++            final Context app = ctx.getApplicationContext();
++            final String base = AppPrefs.server(app), token = AppPrefs.token(app);
++            if (base == null || base.trim().isEmpty()) return; // 未配置服务器：本机生效即可
++
++            new Thread(() -> {
++                try {
++                    JSONObject tour = new JSONObject();
++                    tour.put("enabled", PolicyStore.checkinEnabled(app));
++                    tour.put("check_in_interval_minutes", PolicyStore.randomUpper(app));
++                    tour.put("cooldown_minutes", PolicyStore.cooldownMinutes(app));
++                    JSONObject q = new JSONObject();
++                    q.put("start", PolicyStore.quietStart(app)); q.put("end", PolicyStore.quietEnd(app));
++                    tour.put("quiet_hours", q);
++                    JSONObject n = new JSONObject();
++                    n.put("start", PolicyStore.nightStart(app)); n.put("end", PolicyStore.nightEnd(app));
++                    tour.put("night_hours", n);
++                    tour.put("force_back_miss_threshold", PolicyStore.forceBackThreshold(app));
++                    request(base, token, "POST", "/api/tour/schedule", tour.toString());
++                } catch (Exception ignored) { }
++                try {
++                    JSONObject dis = new JSONObject();
++                    dis.put("enabled", PolicyStore.disciplineEnabled(app));
++                    dis.put("mode", PolicyStore.disciplineMode(app));
++                    dis.put("level", PolicyStore.disciplineLevel(app));
++                    request(base, token, "POST", "/api/discipline", dis.toString());
++                } catch (Exception ignored) { }
++            }, "policy-sync").start();
++        } catch (Exception ignored) { }
++    }
++
++    /** 便捷重载：默认立即推送（保存动作）。 */
++    public static void pushAll(Context ctx) { pushAll(ctx, true); }
++
++    private static String request(String base, String token, String method, String path, String body) {
++        HttpURLConnection conn = null;
++        try {
++            String urlStr = base.replaceAll("/+$", "") + path;
++            conn = (HttpURLConnection) new URL(urlStr).openConnection();
++            conn.setRequestMethod(method);
++            conn.setConnectTimeout(6000);
++            conn.setReadTimeout(8000);
++            if (token != null && !token.trim().isEmpty()) conn.setRequestProperty("Authorization", "Bearer " + token.trim());
++            conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
++            if (body != null && (method.equals("POST") || method.equals("PUT"))) {
++                conn.setDoOutput(true);
++                byte[] out = body.getBytes(StandardCharsets.UTF_8);
++                conn.setFixedLengthStreamingMode(out.length);
++                try (OutputStream os = conn.getOutputStream()) { os.write(out); }
++            }
++            int code = conn.getResponseCode();
++            InputStream is = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
++            ByteArrayOutputStream bos = new ByteArrayOutputStream();
++            if (is != null) { byte[] buf = new byte[1024]; int n; while ((n = is.read(buf)) > 0) bos.write(buf, 0, n); }
++            return "HTTP " + code + " " + bos.toString("UTF-8");
++        } catch (Exception e) {
++            return "ERROR " + ScreenshotService.shortMsg(e);
++        } finally {
++            try { if (conn != null) conn.disconnect(); } catch (Exception ignored) { }
++        }
++    }
++}
+diff --git a/android/app/src/main/java/dev/linjian/peek/PopupMutex.java b/android/app/src/main/java/dev/linjian/peek/PopupMutex.java
+new file mode 100644
+index 0000000..70b5c33
+--- /dev/null
++++ b/android/app/src/main/java/dev/linjian/peek/PopupMutex.java
+@@ -0,0 +1,55 @@
++package dev.linjian.peek;
++
++/**
++ * 弹窗互斥仲裁器：保证全 App 同一时刻只有一个弹窗（悬浮窗或弹窗 Activity）展示。
++ *
++ * 背景（修复「弹窗重复冲突」）：
++ *  - 悬浮窗通道有两条独立实现（PullBackOverlay 分级拉回 / AlertCenterOverlay 居中弹窗），
++ *    各自持有自己的视图引用，互相不知道对方存在，会同时叠在屏幕上；
++ *  - 悬浮窗 TYPE_APPLICATION_OVERLAY 层级高于 Activity：Activity 兜底通道
++ *    （PullBackActivity / AlertCenterActivity）启动时，若已有悬浮窗在屏，
++ *    会出现「悬浮窗 + Activity」双重展示。
++ *
++ * 规则（last-write-wins，永远只有一个）：
++ *  - 任何通道展示前调用 {@link #beforeShow(String)}：先移除其它通道的悬浮窗，
++ *    并登记自己为当前占用者；后到的弹窗替换先到的，不排队不叠加。
++ */
++public final class PopupMutex {
++
++    /** 分级拉回弹窗（悬浮窗 + Activity 兜底共用一个 key）。 */
++    public static final String PULL_BACK = "pull_back";
++    /** 屏幕居中弹窗（悬浮窗 + Activity 兜底共用一个 key）。 */
++    public static final String CENTER_ALERT = "center_alert";
++
++    private static volatile String owner = "";
++    private static long lastShownAt = 0;
++
++    private PopupMutex() { }
++
++    /**
++     * 展示前调用：移除其它通道的悬浮窗，把自己登记为当前占用者。
++     * 之后调用方负责真正 addView / setContentView；失败也要调 {@link #onDismissed(String)} 释放。
++     */
++    public static void beforeShow(String who) {
++        if (who == null) return;
++        try {
++            if (!PULL_BACK.equals(who)) PullBackOverlay.dismiss();
++            if (!CENTER_ALERT.equals(who)) AlertCenterOverlay.dismiss();
++        } catch (Exception ignored) { }
++        owner = who;
++        lastShownAt = System.currentTimeMillis();
++    }
++
++    /** 弹窗被用户点掉 / 移除后调用：只有当前占用者本人能清空登记。 */
++    public static void onDismissed(String who) {
++        if (who != null && who.equals(owner)) owner = "";
++    }
++
++    /** 当前占用者（诊断用）。 */
++    public static String currentOwner() { return owner; }
++
++    /** 距上次任意弹窗展示的毫秒数（诊断/限频用）。 */
++    public static long msSinceLastShown() {
++        return lastShownAt == 0 ? Long.MAX_VALUE : System.currentTimeMillis() - lastShownAt;
++    }
++}
+diff --git a/android/app/src/main/java/dev/linjian/peek/PullBackActivity.java b/android/app/src/main/java/dev/linjian/peek/PullBackActivity.java
+index 5d3e446..47a6b11 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PullBackActivity.java
++++ b/android/app/src/main/java/dev/linjian/peek/PullBackActivity.java
+@@ -25,6 +25,12 @@ public class PullBackActivity extends Activity {
+     private JSONObject cfg;
+     private boolean handled;
+ 
++    @Override
++    protected void onDestroy() {
++        PopupMutex.onDismissed(PopupMutex.PULL_BACK);
++        super.onDestroy();
++    }
++
+     @Override
+     protected void onCreate(Bundle savedInstanceState) {
+         super.onCreate(savedInstanceState);
+@@ -44,6 +50,10 @@ public class PullBackActivity extends Activity {
+             if (raw != null && !raw.trim().isEmpty()) cfg = new JSONObject(raw);
+         } catch (Exception ignored) { }
+ 
++        // 弹窗互斥：悬浮窗层级高于 Activity，启动本兜底 Activity 前必须移除两个通道的
++        // 悬浮弹窗，否则会出现「悬浮窗 + Activity」双重展示。
++        PopupMutex.beforeShow(PopupMutex.PULL_BACK);
++
+         FrameLayout root = new FrameLayout(this);
+         root.setBackgroundColor(0x00000000);
+         setContentView(root);
+diff --git a/android/app/src/main/java/dev/linjian/peek/PullBackOverlay.java b/android/app/src/main/java/dev/linjian/peek/PullBackOverlay.java
+index f2ae496..0173bdc 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PullBackOverlay.java
++++ b/android/app/src/main/java/dev/linjian/peek/PullBackOverlay.java
+@@ -94,11 +94,14 @@ public class PullBackOverlay {
+     private static boolean doAdd(WindowManager wm, View view, WindowManager.LayoutParams params, Context ctx) {
+         try {
+             dismiss();
++            // 弹窗互斥：先移除居中弹窗通道的悬浮窗，保证同一时刻只有一个弹窗在屏
++            PopupMutex.beforeShow(PopupMutex.PULL_BACK);
+             wm.addView(view, params);
+             current = view;
+             DebugState.append(ctx, "拉回弹窗已悬浮显示");
+             return true;
+         } catch (Exception e) {
++            PopupMutex.onDismissed(PopupMutex.PULL_BACK);
+             DebugState.append(ctx, "拉回悬浮窗失败：" + ScreenshotService.shortMsg(e));
+             return false;
+         }
+@@ -110,6 +113,7 @@ public class PullBackOverlay {
+             final View view = current;
+             current = null;
+             if (wm == null || view == null) return;
++            PopupMutex.onDismissed(PopupMutex.PULL_BACK);
+             // Bug 1.2 修复：主线程上同步移除旧视图，避免旧弹窗尚未移除时又叠加新弹窗，
+             // 造成软/强级别按钮在同帧共存、点击穿透。doAdd 在主线调用 dismiss 后即 addView，
+             // 因此必须同步移除才能消除重叠窗口。
+diff --git a/android/app/src/main/java/dev/linjian/peek/SchedulerWatchdogReceiver.java b/android/app/src/main/java/dev/linjian/peek/SchedulerWatchdogReceiver.java
+new file mode 100644
+index 0000000..23e27de
+--- /dev/null
++++ b/android/app/src/main/java/dev/linjian/peek/SchedulerWatchdogReceiver.java
+@@ -0,0 +1,18 @@
++package dev.linjian.peek;
++
++import android.content.BroadcastReceiver;
++import android.content.Context;
++import android.content.Intent;
++
++/**
++ * 调度器看门狗：AlarmManager 每 15 分钟触发一次，把巡回归电 / 训诫 / 时间感知
++ * 等插件的本地调度器重新拉起（start 幂等，已在跑则无副作用）。
++ * 覆盖 Doze 深睡后 HandlerThread 停摆、进程被系统回收等场景。
++ */
++public class SchedulerWatchdogReceiver extends BroadcastReceiver {
++    @Override public void onReceive(Context context, Intent intent) {
++        try {
++            PolicyScheduler.start(context, "watchdog");
++        } catch (Exception ignored) { }
++    }
++}
+diff --git a/android/app/src/main/java/dev/linjian/peek/ScreenshotService.java b/android/app/src/main/java/dev/linjian/peek/ScreenshotService.java
+index ee8aef1..1613ab0 100644
+--- a/android/app/src/main/java/dev/linjian/peek/ScreenshotService.java
++++ b/android/app/src/main/java/dev/linjian/peek/ScreenshotService.java
+@@ -92,7 +92,7 @@ public class ScreenshotService extends AccessibilityService {
+         super.onServiceConnected();
+         instance = this;
+         NowState.start(this);
+-        PolicyScheduler.start(this);
++        PolicyScheduler.start(this, "accessibility");
+         DebugState.append(this, "无障碍服务已连接：截图/读屏/节点坐标/活动轨迹/远程息屏/专注模式可用 v0.3.9.0");
+         watchdog = new Handler(Looper.getMainLooper());
+         watchdog.postDelayed(watchdogTick, 15000);
+@@ -131,7 +131,7 @@ public class ScreenshotService extends AccessibilityService {
+     }
+ 
+     @Override public void onDestroy() {
+-        PolicyScheduler.stop(this);
++        PolicyScheduler.stop(this, "accessibility");
+         markDisconnected("无障碍服务已销毁");
+         super.onDestroy();
+     }

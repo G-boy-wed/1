@@ -714,6 +714,12 @@ class Handler(BaseHTTPRequestHandler):
             companion_emotion = data.get("companion_emotion")
             if isinstance(companion_emotion, dict):
                 update_companion_emotion_from_phone(self.state, device_id, companion_emotion)
+            # 手机上报的共同记忆 → 更新服务端镜像（手机本机存储为唯一数据源，这里是只读副本）。
+            shared_memory = data.get("shared_memory")
+            if isinstance(shared_memory, list):
+                with self.state.shared_memory_lock:
+                    self.state.shared_memory = [it for it in shared_memory if isinstance(it, dict)][-200:]
+                    self.state.save_shared_memory()
             self._json(200, {"ok": True, "device_id": device_id}); return
         if path == "/api/device/report":
             if not self._require_token(): return
@@ -820,35 +826,32 @@ class Handler(BaseHTTPRequestHandler):
             if not self._require_token(): return
             data = self._read_json() or {}
             action = str(data.get("action") or "add")
+            # 共同记忆统一以手机本机存储为唯一数据源：写入/删除类操作转发为设备命令，
+            # 由手机执行并回写本机；直接命中这里的旧式调用也走这条通道，保证「AI / 网页 / API 写的记忆」都落到手机。
+            if action in ("add", "write"):
+                text = str(data.get("text") or data.get("content") or "").strip()
+                if not text:
+                    self._json(400, {"ok": False, "error": "empty_text"}); return
+                author = str(data.get("author") or "用户").strip() or "用户"
+                cmd = make_command(DEFAULT_DEVICE, "add_shared_memory", "", "",
+                                   {"text": text, "author": author, "explicit": True})
+                self._queue(cmd)
+                self._json(200, {"ok": True, "result": "memory_command_queued", "command_id": cmd.get("id"),
+                                "note": "记忆写入已下发到手机，由掌心窗本机存储执行。"}); return
+            if action in ("remove", "delete"):
+                rid = str(data.get("id") or "")
+                cmd = make_command(DEFAULT_DEVICE, "remove_shared_memory", "", "",
+                                   {"id": rid, "explicit": True})
+                self._queue(cmd)
+                self._json(200, {"ok": True, "result": "memory_command_queued", "command_id": cmd.get("id")}); return
+            # 读取类：返回服务端镜像（手机通过状态上报持续同步到这里）。
+            q = str(data.get("query") or data.get("search") or "").strip().lower()
             with self.state.shared_memory_lock:
-                if action == "add" or action == "write":
-                    text = str(data.get("text") or data.get("content") or "").strip()
-                    if not text:
-                        self._json(400, {"ok": False, "error": "empty_text"}); return
-                    author = str(data.get("author") or "用户").strip() or "用户"
-                    item = {"id": uuid.uuid4().hex[:12], "text": text, "author": author,
-                            "created_at": now_iso()}
-                    self.state.shared_memory.append(item)
-                    self.state.save_shared_memory()
-                    self._json(200, {"ok": True, "result": "memory_added", "item": item,
-                                    "count": len(self.state.shared_memory)}); return
-                if action == "remove" or action == "delete":
-                    rid = str(data.get("id") or "")
-                    before = len(self.state.shared_memory)
-                    self.state.shared_memory = [it for it in self.state.shared_memory if it.get("id") != rid]
-                    self.state.save_shared_memory()
-                    self._json(200, {"ok": True, "result": "memory_removed",
-                                    "removed": before - len(self.state.shared_memory)}); return
-                if action == "search":
-                    q = str(data.get("query") or data.get("search") or "").strip().lower()
-                    items = list(self.state.shared_memory)
-                    if q:
-                        items = [it for it in items if q in str(it.get("text", "")).lower()
-                                 or q in str(it.get("author", "")).lower()]
-                    self._json(200, {"ok": True, "result": "memory_searched", "count": len(items), "items": items}); return
-                # 默认：返回全部
-                self._json(200, {"ok": True, "result": "memory_list", "count": len(self.state.shared_memory),
-                                "items": list(self.state.shared_memory)}); return
+                items = list(self.state.shared_memory)
+            if q:
+                items = [it for it in items if q in str(it.get("text", "")).lower()
+                         or q in str(it.get("author", "")).lower()]
+            self._json(200, {"ok": True, "result": "memory_list", "count": len(items), "items": items}); return
         if path == "/api/discipline":
             if not self._require_token(): return
             data = self._read_json() or {}

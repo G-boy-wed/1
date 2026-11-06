@@ -752,6 +752,9 @@ public class CompanionService extends Service {
         // 归电自动补弹：随生活状态上传定期检查；已限频，避免公开后端被状态上报打到 429。
         GuidianState.evaluate(ctx, state);
         state = LifeState.collect(ctx);
+        // 共同记忆以手机本机存储为唯一数据源：每次状态上报把记忆镜像到服务端，
+        // 保证 /api/shared_memory 读取、网页与 MCP 检索看到的是手机上的最新记忆（可改可查）。
+        try { state.put("shared_memory", SharedMemoryState.getItems(ctx)); } catch (Exception ignored) { }
         postJson(serverUrl + "/api/device/state", token, state);
         ActiveReminder.evaluate(ctx, state);
         HomeMode.evaluate(ctx, state);

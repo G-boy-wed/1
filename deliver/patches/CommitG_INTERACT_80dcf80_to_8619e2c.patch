@@ -1,0 +1,354 @@
+diff --git a/android/app/src/main/java/dev/linjian/peek/ClassScheduleState.java b/android/app/src/main/java/dev/linjian/peek/ClassScheduleState.java
+index b481dea..649e510 100644
+--- a/android/app/src/main/java/dev/linjian/peek/ClassScheduleState.java
++++ b/android/app/src/main/java/dev/linjian/peek/ClassScheduleState.java
+@@ -92,6 +92,15 @@ public final class ClassScheduleState {
+         }
+     }
+ 
++    /** 清空全部课表（手机端「清空课表」按钮用）。返回是否写入成功。 */
++    public static boolean clearAll(Context ctx) {
++        try {
++            boolean ok = sp(ctx).edit().putString(KEY_ENTRIES, "[]").commit();
++            DebugState.append(ctx, ok ? "课表已清空" : "课表清空失败");
++            return ok;
++        } catch (Exception e) { return false; }
++    }
++
+     /** 当前是否处于上课状态（今天、当前时间在某一节课 [start, end) 内）。 */
+     public static boolean isInClassNow(Context ctx) {
+         return currentClass(ctx) != null;
+diff --git a/android/app/src/main/java/dev/linjian/peek/MainActivity.java b/android/app/src/main/java/dev/linjian/peek/MainActivity.java
+index f845728..5e5cbbb 100644
+--- a/android/app/src/main/java/dev/linjian/peek/MainActivity.java
++++ b/android/app/src/main/java/dev/linjian/peek/MainActivity.java
+@@ -115,7 +115,7 @@ public class MainActivity extends Activity {
+     private TextView companionPresenceText, sharedWhisperText, sharedWhisperMetaText, companionActionsPreview, todayJourneyText, guardOverviewText;
+     private TextView todayNextTitle, todayNextDetail, companionDaysText, companionSinceText, companionAnniversaryText, guardDeviceStatusText, guardRecordText;
+     private TextView calendarHeroTitle, calendarHeroDetail, calendarMonthTitle, calendarSelectedTitle, calendarSelectedDetail;
+-    private LinearLayout calendarGrid, calendarSelectedEventsContainer;
++    private LinearLayout calendarGrid, calendarSelectedEventsContainer, calendarAllEventsList;
+     private Calendar calendarVisibleMonth = Calendar.getInstance();
+     private int calendarSelectedDay = Calendar.getInstance().get(Calendar.DAY_OF_MONTH);
+     private boolean guardianCalendarDetailOpen = false;
+@@ -1362,9 +1362,77 @@ public class MainActivity extends Activity {
+         top.addView(add, new LinearLayout.LayoutParams(dp(36), dp(32)));
+         root.addView(top, marginBottom(6));
+         LinearLayout.LayoutParams calendarPageLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT); calendarPageLp.topMargin = dp(22); calendarPageLp.bottomMargin = dp(12); root.addView(buildGuardianCalendarPage(), calendarPageLp);
++        // 修复「日历写入后无法进行删除更改取消」：在日历详情页底部常驻
++        // 「全部日子管理」面板，所有自定义日子逐条列出，每条带编辑/删除，
++        // 不再依赖"点中具体某天"才能看到操作入口。
++        LinearLayout manager = editorialCard();
++        manager.setPadding(dp(14), dp(12), dp(14), dp(12));
++        manager.addView(title("全部日子管理", 13));
++        manager.addView(body("所有你添加的日子都在这里，点「修改」或「删除」即可调整。", 9), matchWrapTop(5));
++        calendarAllEventsList = new LinearLayout(this);
++        calendarAllEventsList.setOrientation(LinearLayout.VERTICAL);
++        calendarAllEventsList.setPadding(0, dp(6), 0, 0);
++        manager.addView(calendarAllEventsList);
++        root.addView(manager, marginBottom(12));
+         return root;
+     }
+ 
++    /** 「全部日子管理」数据行：全量自定义日子，每条带编辑/删除。 */
++    private void fillAllEventsList() {
++        if (calendarAllEventsList == null) return;
++        calendarAllEventsList.removeAllViews();
++        try {
++            JSONArray all = CalendarState.events(this);
++            int count = 0;
++            for (int i = 0; i < all.length(); i++) {
++                final JSONObject e = all.optJSONObject(i);
++                if (e == null || e.optBoolean("archived", false)) continue;
++                if (count > 0) calendarAllEventsList.addView(divider(), matchWrapTop(8));
++                count++;
++                LinearLayout row = new LinearLayout(this);
++                row.setOrientation(LinearLayout.HORIZONTAL);
++                row.setGravity(Gravity.CENTER_VERTICAL);
++                row.setPadding(0, dp(6), 0, dp(2));
++                LinearLayout info = new LinearLayout(this);
++                info.setOrientation(LinearLayout.VERTICAL);
++                info.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
++                String date = e.optString("solar_date", e.optString("date", ""));
++                String lunarMark = "lunar".equals(e.optString("date_type", "solar")) ? "农历" : "";
++                info.addView(title(calendarMark(e) + "  " + e.optString("title", ""), 12));
++                String meta = lunarMark + date + " · " + groupCn(e.optString("group", "our_days"))
++                        + ("yearly".equals(e.optString("repeat_type", "yearly")) ? " · 每年" : "");
++                if (!e.optString("note", "").isEmpty()) meta += " · " + e.optString("note", "");
++                info.addView(body(meta, 8), matchWrapTop(3));
++                row.addView(info);
++                Button edit = actionButton("修改", false);
++                edit.setOnClickListener(v -> showCalendarEventDialog(e));
++                row.addView(edit, new LinearLayout.LayoutParams(dp(58), dp(30)));
++                Button delete = actionButton("删除", false);
++                delete.setTextColor(Color.parseColor("#B56F78"));
++                delete.setOnClickListener(v -> confirmDeleteCalendarEvent(e));
++                LinearLayout.LayoutParams deleteLp = new LinearLayout.LayoutParams(dp(58), dp(30));
++                deleteLp.leftMargin = dp(6);
++                row.addView(delete, deleteLp);
++                calendarAllEventsList.addView(row);
++            }
++            if (count == 0) calendarAllEventsList.addView(body("还没有添加日子。点右上角「＋」记下第一个。", 9));
++        } catch (Exception ex) {
++            calendarAllEventsList.addView(body("日子列表读取失败：" + ScreenshotService.shortMsg(ex), 9));
++        }
++    }
++
++    /** 分组英文 key -> 中文名（与 CalendarState.groupLabel 一致的本地映射）。 */
++    private String groupCn(String g) {
++        if ("our_days".equals(g)) return "我们的日子";
++        if ("user".equals(g)) return "我的日子";
++        if ("companion".equals(g)) return "陪伴对象";
++        if ("festival".equals(g)) return "节日";
++        if ("study".equals(g)) return "考试学习";
++        if ("project".equals(g)) return "项目";
++        if ("life".equals(g)) return "生活";
++        return g == null || g.isEmpty() ? "我们的日子" : g;
++    }
++
+     private View buildGuardianCalendarPage() {
+         LinearLayout root = pageColumn();
+ 
+@@ -1502,6 +1570,8 @@ public class MainActivity extends Activity {
+         } catch (Exception e) {
+             calendarGrid.addView(body("守护日历读取失败：" + ScreenshotService.shortMsg(e), 10));
+         }
++        // 「全部日子管理」面板与月历同源刷新：增/改/删后两个视图都保持最新
++        fillAllEventsList();
+     }
+ 
+     private View calendarDayCell(int year, int monthIndex, int day, JSONArray upcoming) {
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java b/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java
+index 2442762..498e236 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java
++++ b/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java
+@@ -207,14 +207,18 @@ public class PolicySettingsActivity extends Activity {
+         addPerm(g6, PolicyStore.KEY_PERM_PERIOD, "生理期照顾", "按周期给予照顾提醒（填周期天数）。");
+ 
+         LinearLayout g11 = card(container, "课表作息", "录入课表，到点自动判定上课、上课静默守护、课前/下课提醒。", "schedule");
+-        g11.addView(rowButton("录入一节新课", "填 星期/节次/起止/科目/教室 后保存。", "录入", v -> addClassEntry()));
++        g11.addView(rowButton("录入一节新课", "填 星期/节次/起止/科目/教室 后保存。", "录入", v -> editClassEntryDialog(null)));
+         g11.addView(rowButton("导入示例课表", "写入几条示例课表用于验证。", "导入示例", v -> importSampleSchedule()));
+         g11.addView(rowButton("查看课表", "列出全部课表与当前是否上课中。", "查看", v -> showClassSchedule()));
++        // 修复「课表作息没办法删除已有信息和更改」：列出全部课程，每条可修改/删除。
++        g11.addView(buildScheduleList());
++        g11.addView(rowButton("清空全部课表", "一次删除所有课程条目（会先确认）。", "清空课表", v -> confirmClearSchedule()));
+ 
+         LinearLayout g12 = card(container, "共同记忆", "双方可增/改/删、双向修改实时生效的记忆面板。", "memory");
+         g12.addView(rowText("新增记忆", "写下一条共同记忆，点下方保存。", "", s -> memoryDraft = s));
+         g12.addView(rowButton("保存记忆", "把上面写的记忆加入共同记忆。", "保存", v -> saveMemory()));
+-        g12.addView(rowButton("查看共同记忆", "列出全部记忆条目。", "查看", v -> showSharedMemory()));
++        // 修复「共同记忆无法查看和写入和更改」：全量列出记忆，每条可编辑/删除。
++        g12.addView(buildMemoryList());
+ 
+         LinearLayout gOcr = card(container, "识图感知", "用读屏节点树从当前屏幕读取可见文字与状态；可随时关闭，关后本地与 MCP 都无法调用。", "ocr");
+         gOcr.addView(rowSwitch("开启识图感知", "关闭后不再读取屏幕文字，MCP 与本地都无法调用识图。默认开启。", PolicyStore.ocrEnabled(this), (v, c) -> PolicyStore.setOcrEnabled(this, c)));
+@@ -356,6 +360,20 @@ public class PolicySettingsActivity extends Activity {
+         all.setOnClickListener(v -> { activeSection = null; buildUI(); });
+         bar.addView(all);
+ 
++        // 修复「守护界面标签点开无保存选项」：单分区模式下原「全局」卡里的保存按钮
++        // 会被分区过滤隐藏，这里在导航条上补一个显式保存，行为与全局卡的保存完全一致。
++        Button save = new Button(this);
++        save.setText("保存设置");
++        save.setTextSize(11);
++        save.setBackgroundResource(R.drawable.pill_soft);
++        save.setOnClickListener(v -> {
++            PolicyStore.flush(this);        // 同步落盘
++            PolicyScheduler.start(this);    // 幂等重启调度器，新配置立即生效
++            syncDisciplineToServer();       // 训诫开关/语气同步给服务端
++            Toast.makeText(this, "设置已保存并生效", Toast.LENGTH_SHORT).show();
++        });
++        bar.addView(save);
++
+         Button back = new Button(this);
+         back.setText("返回守护");
+         back.setTextSize(11);
+@@ -788,12 +806,29 @@ public class PolicySettingsActivity extends Activity {
+         } catch (Exception e) { status("读取失败：" + ScreenshotService.shortMsg(e)); }
+     }
+ 
+-    private void addClassEntry() {
++    /** 录入新课（无预填）。 */
++    private void addClassEntry() { editClassEntryDialog(null); }
++
++    /**
++     * 录入/修改一节课程。original 为 null 时是新增；否则预填原值，
++     * 保存时先按旧键（星期+开始+科目）删除原条目，再写入新值，
++     * 避免改了时间或科目后旧条目残留成两条。
++     */
++    private void editClassEntryDialog(final JSONObject original) {
+         final EditText input = new EditText(this);
+         input.setHint("周几 起-止 科目@教室，如 1 09:00-09:45 高数@教三201");
+         input.setTextSize(13);
++        String prefill = "";
++        if (original != null) {
++            prefill = original.optInt("weekday", 1) + " " + original.optString("start", "")
++                    + "-" + original.optString("end", "") + " " + original.optString("subject", "");
++            String room = original.optString("room", "");
++            if (!room.isEmpty()) prefill += "@" + room;
++        }
++        input.setText(prefill);
++        input.setSelection(prefill.length());
+         AlertDialog.Builder b = new AlertDialog.Builder(this);
+-        b.setTitle("录入课表").setView(input)
++        b.setTitle(original == null ? "录入课表" : "修改课程").setView(input)
+                 .setPositiveButton("保存", (d, w) -> {
+                     try {
+                         String t = input.getText().toString().trim();
+@@ -805,14 +840,82 @@ public class PolicySettingsActivity extends Activity {
+                         e.put("end", m.group(3));
+                         e.put("subject", m.group(4).trim());
+                         e.put("room", m.group(5) == null ? "" : m.group(5).trim());
++                        if (original != null) {
++                            // 修改：先删旧键再存新值，防止改时间/科目后旧条目残留
++                            ClassScheduleState.removeEntry(this, original.optInt("weekday", 1),
++                                    original.optString("start", ""), original.optString("subject", ""));
++                        }
+                         ClassScheduleState.upsertEntry(this, e);
+-                        Toast.makeText(this, "已保存课程", Toast.LENGTH_SHORT).show();
++                        Toast.makeText(this, original == null ? "已保存课程" : "已更新课程", Toast.LENGTH_SHORT).show();
+                         buildUI();
+                     } catch (Exception ex) { status("保存失败：" + ScreenshotService.shortMsg(ex)); }
+                 })
+                 .setNegativeButton("取消", null).show();
+     }
+ 
++    /** 课表管理列表：全部课程逐条展示，每条可修改/删除。 */
++    private LinearLayout buildScheduleList() {
++        LinearLayout list = new LinearLayout(this);
++        list.setOrientation(LinearLayout.VERTICAL);
++        org.json.JSONArray arr = ClassScheduleState.getEntries(this);
++        if (arr.length() == 0) {
++            TextView empty = new TextView(this);
++            empty.setText("暂无课程。点上方「录入」添加，导入示例也可以。");
++            empty.setTextSize(11); empty.setTextColor(0xFF8B7D99);
++            list.addView(empty);
++            return list;
++        }
++        for (int i = 0; i < arr.length(); i++) {
++            final JSONObject o = arr.optJSONObject(i);
++            if (o == null) continue;
++            final int wd = o.optInt("weekday", 1);
++            final String start = o.optString("start", ""), subject = o.optString("subject", "");
++            LinearLayout row = new LinearLayout(this);
++            row.setOrientation(LinearLayout.HORIZONTAL);
++            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
++            row.setPadding(0, dp(4), 0, dp(4));
++            TextView lab = new TextView(this);
++            String txt = ClassScheduleState.weekdayName(wd) + " " + start + "-" + o.optString("end", "") + " " + subject;
++            if (!o.optString("room", "").isEmpty()) txt += " @" + o.optString("room", "");
++            lab.setText(txt);
++            lab.setTextSize(12); lab.setTextColor(0xFF2D3E39);
++            lab.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1f));
++            row.addView(lab);
++            Button edit = new Button(this);
++            edit.setText("修改"); edit.setTextSize(11); edit.setBackgroundResource(R.drawable.pill_soft);
++            edit.setOnClickListener(v -> editClassEntryDialog(o));
++            row.addView(edit);
++            Button rm = new Button(this);
++            rm.setText("删除"); rm.setTextSize(11); rm.setBackgroundResource(R.drawable.pill_danger);
++            rm.setOnClickListener(v -> new AlertDialog.Builder(this)
++                    .setTitle("删除这节课程？")
++                    .setMessage("「" + ClassScheduleState.weekdayName(wd) + " " + start + " " + subject + "」会从课表移除。")
++                    .setNegativeButton("取消", null)
++                    .setPositiveButton("删除", (d2, w2) -> {
++                        ClassScheduleState.removeEntry(this, wd, start, subject);
++                        Toast.makeText(this, "已删除课程", Toast.LENGTH_SHORT).show();
++                        buildUI();
++                    }).show());
++            row.addView(rm);
++            list.addView(row);
++        }
++        return list;
++    }
++
++    /** 清空课表（带确认）。 */
++    private void confirmClearSchedule() {
++        int count = ClassScheduleState.getEntries(this).length();
++        if (count == 0) { Toast.makeText(this, "课表本来就是空的", Toast.LENGTH_SHORT).show(); return; }
++        new AlertDialog.Builder(this)
++                .setTitle("清空全部课表？")
++                .setMessage("共 " + count + " 节课程会全部删除，此操作不可撤销。")
++                .setNegativeButton("取消", null)
++                .setPositiveButton("清空", (d, w) -> {
++                    if (ClassScheduleState.clearAll(this)) { Toast.makeText(this, "课表已清空", Toast.LENGTH_SHORT).show(); buildUI(); }
++                    else status("清空失败，请重试");
++                }).show();
++    }
++
+     private void importSampleSchedule() {
+         try {
+             org.json.JSONArray arr = new org.json.JSONArray();
+@@ -846,6 +949,71 @@ public class PolicySettingsActivity extends Activity {
+         b.setTitle("共同记忆").setMessage(SharedMemoryState.pretty(this)).setPositiveButton("知道了", null).show();
+     }
+ 
++    /** 共同记忆管理列表：全部条目逐条展示（作者+内容），每条可编辑/删除。 */
++    private LinearLayout buildMemoryList() {
++        LinearLayout list = new LinearLayout(this);
++        list.setOrientation(LinearLayout.VERTICAL);
++        org.json.JSONArray arr = SharedMemoryState.getItems(this);
++        if (arr.length() == 0) {
++            TextView empty = new TextView(this);
++            empty.setText("共同记忆为空。在上面写下第一条记忆，点「保存」即可。");
++            empty.setTextSize(11); empty.setTextColor(0xFF8B7D99);
++            list.addView(empty);
++            return list;
++        }
++        for (int i = 0; i < arr.length(); i++) {
++            final JSONObject o = arr.optJSONObject(i);
++            if (o == null) continue;
++            final String id = o.optString("id", "");
++            LinearLayout row = new LinearLayout(this);
++            row.setOrientation(LinearLayout.HORIZONTAL);
++            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
++            row.setPadding(0, dp(4), 0, dp(4));
++            TextView lab = new TextView(this);
++            String txt = "[" + o.optString("author", "") + "] " + o.optString("text", "");
++            String at = o.optString("created_at", "");
++            if (!at.isEmpty()) txt += "  (" + at + ")";
++            lab.setText(txt);
++            lab.setTextSize(12); lab.setTextColor(0xFF2D3E39);
++            lab.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1f));
++            row.addView(lab);
++            Button edit = new Button(this);
++            edit.setText("修改"); edit.setTextSize(11); edit.setBackgroundResource(R.drawable.pill_soft);
++            edit.setOnClickListener(v -> {
++                if (id.isEmpty()) { Toast.makeText(this, "这条记忆缺少 id，无法编辑", Toast.LENGTH_SHORT).show(); return; }
++                final EditText input = new EditText(this);
++                input.setText(o.optString("text", ""));
++                input.setTextSize(13);
++                new AlertDialog.Builder(this)
++                        .setTitle("修改记忆")
++                        .setView(input)
++                        .setPositiveButton("保存", (d2, w2) -> {
++                            String t = input.getText().toString().trim();
++                            if (t.isEmpty()) { Toast.makeText(this, "内容不能为空", Toast.LENGTH_SHORT).show(); return; }
++                            boolean ok = SharedMemoryState.edit(this, id, t);
++                            Toast.makeText(this, ok ? "已更新记忆" : "更新失败（未找到该条）", Toast.LENGTH_SHORT).show();
++                            if (ok) buildUI();
++                        })
++                        .setNegativeButton("取消", null).show();
++            });
++            row.addView(edit);
++            Button rm = new Button(this);
++            rm.setText("删除"); rm.setTextSize(11); rm.setBackgroundResource(R.drawable.pill_danger);
++            rm.setOnClickListener(v -> new AlertDialog.Builder(this)
++                    .setTitle("删除这条记忆？")
++                    .setMessage("「" + o.optString("text", "") + "」会从共同记忆移除。")
++                    .setNegativeButton("取消", null)
++                    .setPositiveButton("删除", (d2, w2) -> {
++                        boolean ok = SharedMemoryState.remove(this, id);
++                        Toast.makeText(this, ok ? "已删除记忆" : "删除失败（未找到该条）", Toast.LENGTH_SHORT).show();
++                        if (ok) buildUI();
++                    }).show());
++            row.addView(rm);
++            list.addView(row);
++        }
++        return list;
++    }
++
+     // ============ 工具 ============
+ 
+     private boolean ready() {

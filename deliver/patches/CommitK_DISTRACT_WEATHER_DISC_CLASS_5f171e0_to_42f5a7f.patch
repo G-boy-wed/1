@@ -1,0 +1,559 @@
+From 42f5a7fdf7117bb99de83fa7d3192dbd77c1378d Mon Sep 17 00:00:00 2001
+From: WorkBuddy Agent <agent@workbuddy.local>
+Date: Fri, 6 Nov 2026 10:58:23 +0800
+Subject: [PATCH] =?UTF-8?q?fix(=E5=88=86=E5=BF=83=E8=AF=AF=E5=BC=B9/?=
+ =?UTF-8?q?=E5=A4=A9=E6=B0=94=E5=AE=9A=E5=88=B6/=E8=AE=AD=E8=AF=AB?=
+ =?UTF-8?q?=E4=B8=A5=E5=8E=89/=E4=B8=8A=E8=AF=BE=E9=9D=99=E9=BB=98/?=
+ =?UTF-8?q?=E5=BC=B9=E7=AA=97=E6=82=AC=E6=B5=AE):=20=E5=88=86=E5=BF=83?=
+ =?UTF-8?q?=E6=9F=A5=E5=B2=97=E6=94=B9=E4=B8=BA=E6=AF=8F=E7=A6=BB=E5=BC=80?=
+ =?UTF-8?q?=E8=81=8A=E5=A4=A9=E5=8F=AA=E8=AE=A1=E4=B8=80=E6=AC=A1=E5=88=87?=
+ =?UTF-8?q?=E5=87=BA+=E5=88=87=E5=9B=9E=E6=89=8D=E7=AE=97=E5=88=86?=
+ =?UTF-8?q?=E5=BF=83(=E4=BF=AE=E5=A4=8D=E8=AF=AF=E8=AE=A1=E9=A2=91?=
+ =?UTF-8?q?=E7=B9=81=E5=BC=B9=E7=AA=97)/=E5=A4=A9=E6=B0=94=E5=9C=B0?=
+ =?UTF-8?q?=E7=82=B9=E5=86=99=E5=85=A5=E6=94=B9commit=E4=B8=94=E6=9F=A5?=
+ =?UTF-8?q?=E7=9C=8B=E5=88=97=E5=87=BA=E5=85=A8=E9=83=A8=E5=AE=9A=E5=88=B6?=
+ =?UTF-8?q?/=E8=AE=AD=E8=AF=AB=E5=BC=80=E5=90=AF(=E4=B8=A5=E5=8E=89?=
+ =?UTF-8?q?=E6=88=96=E4=B8=AD=E6=A1=A3=E5=8F=8A=E4=BB=A5=E4=B8=8A)?=
+ =?UTF-8?q?=E5=BC=B9=E7=AA=97=E8=AF=AD=E6=B0=94=E5=8D=87=E7=BA=A7strict?=
+ =?UTF-8?q?=E4=B8=94=E9=AB=98=E6=A1=A3=E4=BD=8D=E5=BC=BA=E5=88=B6=E6=8B=89?=
+ =?UTF-8?q?=E5=9B=9E/=E8=AF=BE=E5=89=8D30=E5=88=86=E9=92=9F=E5=BC=B9?=
+ =?UTF-8?q?=E7=AA=97=E6=8F=90=E9=86=92(=E5=8F=AF=E9=85=8D=E7=BD=AE)/?=
+ =?UTF-8?q?=E4=B8=8A=E8=AF=BE=E6=9C=9F=E9=97=B4=E8=87=AA=E5=8A=A8=E5=85=B3?=
+ =?UTF-8?q?=E9=97=AD=E6=89=80=E6=9C=89=E5=BC=B9=E7=AA=97=E4=B8=8B=E8=AF=BE?=
+ =?UTF-8?q?=E5=90=8E=E8=87=AA=E5=8A=A8=E6=81=A2=E5=A4=8D/=E6=8B=89?=
+ =?UTF-8?q?=E5=9B=9E=E6=82=AC=E6=B5=AE=E7=AA=97=E5=8A=A0NOT=5FTOUCH=5FMODA?=
+ =?UTF-8?q?L=E7=9C=9F=E6=AD=A3=E6=B5=AE=E4=BA=8E=E5=BD=93=E5=89=8DApp?=
+ =?UTF-8?q?=E4=B9=8B=E4=B8=8A/=E8=AE=BE=E7=BD=AE=E9=A1=B9=E6=94=B9commit?=
+ =?UTF-8?q?=E5=8D=B3=E6=97=B6=E8=90=BD=E7=9B=98=20(Commit=20K)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../dev/linjian/peek/ClassScheduleState.java  |  25 ++-
+ .../linjian/peek/CompanionEmotionState.java   |  15 +-
+ .../dev/linjian/peek/PolicyScheduler.java     | 186 ++++++++++--------
+ .../linjian/peek/PolicySettingsActivity.java  |  11 +-
+ .../java/dev/linjian/peek/PolicyStore.java    |  30 ++-
+ .../java/dev/linjian/peek/PopupMutex.java     |   7 +
+ .../dev/linjian/peek/PullBackOverlay.java     |   4 +-
+ .../java/dev/linjian/peek/WeatherState.java   |   4 +-
+ 8 files changed, 176 insertions(+), 106 deletions(-)
+
+diff --git a/android/app/src/main/java/dev/linjian/peek/ClassScheduleState.java b/android/app/src/main/java/dev/linjian/peek/ClassScheduleState.java
+index c60287d..36e4ffb 100644
+--- a/android/app/src/main/java/dev/linjian/peek/ClassScheduleState.java
++++ b/android/app/src/main/java/dev/linjian/peek/ClassScheduleState.java
+@@ -25,8 +25,11 @@ public final class ClassScheduleState {
+     private static final String PREFS = "class_schedule_store";
+     private static final String KEY_ENTRIES = "entries_v1";
+     private static final String KEY_ENABLED = "class_schedule_enabled";
+-    private static final long PRE_CLASS_MS = 5 * 60_000L;   // 课前 5 分钟提醒
+     private static final long POST_CLASS_MS = 5 * 60_000L;  // 下课 5 分钟提醒
++    // 课前提醒提前量改为读取底层配置 PolicyStore.classRemindMin（默认 30 分钟），手机端 / MCP 可改立即生效。
++    private static long preRemindMs(Context ctx) {
++        try { return Math.max(5, PolicyStore.classRemindMin(ctx)) * 60_000L; } catch (Exception e) { return 30L * 60_000L; }
++    }
+ 
+     private ClassScheduleState() { }
+ 
+@@ -174,13 +177,21 @@ public final class ClassScheduleState {
+             DebugState.append(ctx, "课表：上课中 " + cur.optString("subject", "") + " @ " + cur.optString("room", ""));
+             return true;
+         }
+-        long toNext = msToNextClassToday(ctx);
+-        if (toNext >= 0 && toNext <= PRE_CLASS_MS) {
+-            long key = System.currentTimeMillis() / (PRE_CLASS_MS); // 每个窗口只提醒一次
+-            if (key != lastPreNotifyKey) {
+-                lastPreNotifyKey = key;
+-                CompanionService.showReminderNotification(ctx, "课前提醒", "快上课了，准备好课本，掌心窗会帮你安静守护。");
++        long lead = preRemindMs(ctx);
++        if (PolicyStore.classRemindEnabled(ctx)) {
++            long toNext = msToNextClassToday(ctx);
++            if (toNext >= 0 && toNext <= lead) {
++                long key = System.currentTimeMillis() / lead; // 每个窗口只提醒一次
++                if (key != lastPreNotifyKey) {
++                    lastPreNotifyKey = key;
++                    // 课前提醒改为「弹窗」：悬浮在当前 App 之上，明确标注「课前提醒」，不打断当前界面。
++                    CompanionService.showCenterAlert(ctx, "课前提醒",
++                            "快上课了（提前 " + PolicyStore.classRemindMin(ctx) + " 分钟），准备好课本，掌心窗会帮你安静守护。",
++                            "gentle", "知道啦", "课前提醒");
++                }
+             }
++        } else {
++            lastPreNotifyKey = 0;
+         }
+         // 下课提醒：上一节课的 end 在过去 5 分钟内
+         try {
+diff --git a/android/app/src/main/java/dev/linjian/peek/CompanionEmotionState.java b/android/app/src/main/java/dev/linjian/peek/CompanionEmotionState.java
+index 80705ca..5098d26 100644
+--- a/android/app/src/main/java/dev/linjian/peek/CompanionEmotionState.java
++++ b/android/app/src/main/java/dev/linjian/peek/CompanionEmotionState.java
+@@ -182,13 +182,18 @@ public class CompanionEmotionState {
+         return baselineIntensity(ctx) >= 70 ? "angry" : "gentle";
+     }
+ 
+-    /** 对外生效语气：底层感知优先；训诫开启且为「严厉」模式时，强制把语气升级为 harsh（更硬的弹窗语气）。 */
++    /** 对外生效语气：底层感知优先；训诫开启且（语气=严厉 或 档位≥中）时，强制把语气升级为 harsh（更硬的弹窗语气）。 */
+     public static String tone(Context ctx) {
+         String base = EmotionPerception.activeTone(ctx);
+-        if (PolicyStore.disciplineEnabled(ctx) && "strict".equals(PolicyStore.disciplineMode(ctx))) {
+-            // 严厉模式：原本温柔的语气升级为 strict（渲染为 danger 色 + 更硬的话术），人设与弹窗语气都更严厉。
+-            if (base == null || base.trim().isEmpty() || "gentle".equalsIgnoreCase(base)) return "strict";
+-            return base; // 已经是 angry/strong 则保持不变
++        if (PolicyStore.disciplineEnabled(ctx)) {
++            boolean strictMode = "strict".equals(PolicyStore.disciplineMode(ctx));
++            boolean highLevel = PolicyStore.disciplineLevel(ctx) >= 2;
++            if (strictMode || highLevel) {
++                // 训诫开启（严厉 / 中档及以上）：原本温柔的语气升级为 strict（渲染为 danger 红 + 更硬话术），
++                // 手机端弹窗语气与陪伴人设同步变严厉，加强管控。
++                if (base == null || base.trim().isEmpty() || "gentle".equalsIgnoreCase(base)) return "strict";
++                return base; // 已经是 angry/strong 则保持不变
++            }
+         }
+         return base;
+     }
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java b/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
+index 57cfa74..b6c38d0 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
++++ b/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
+@@ -86,8 +86,6 @@ public final class PolicyScheduler {
+     private long lastInitiativeAt = 0;
+     private int initiativeTodayCount = 0;
+     private String initiativeToday = "";
+-    private String lastDistractionPkg = "";
+-    private long lastDistractSwitchAt = 0;   // 最近一次「切出」时刻，用于和「切回」配对
+     private int distractLoopCount = 0;        // 切出→切回 的连续来回次数
+     // 修复「点进聊天没有开始聊天、切出又开始计分心」：
+     // 只有真正开始聊天（在聊天界面连续停留达到 MIN_CHAT_STAY_MS）后，切出才计入分心。
+@@ -95,6 +93,10 @@ public final class PolicyScheduler {
+     private boolean inChatNow = false;        // 上一 tick 是否在聊天界面
+     private long chatEnterAt = 0;             // 本次进入聊天的时刻
+     private boolean chatArmed = false;        // 最近一次聊天会话是否算「真正开始聊天」
++    private boolean leftChat = false;         // 已离开一个「真正聊过」的会话，等待切回（每次离场只计一次切出）
++    private String lastSwitchOutPkg = "";     // 切出时所在的 App
++    private long lastSwitchOutAt = 0;         // 切出时刻（用于和「切回」配对）
++    private boolean wasInClass = false;       // 上一 tick 是否处于上课（用于检测「进入上课」以自动关闭弹窗）
+     private long screenOnSince = 0;
+     private long lastDrinkAt = 0;
+     private long lastSitAt = 0;
+@@ -221,13 +223,27 @@ public final class PolicyScheduler {
+             EmotionPerception.perceive(appCtx, sig);
+         } catch (Exception ignored) { }
+ 
+-        evaluateCheckIn(now, current);
+-        evaluateEmotionPopup(now);
+-        evaluateInitiative(now, current);
+-        evaluateDistraction(now, current);
+-        evaluateUsageLock(now, current);
++        boolean inClass = ClassScheduleState.isInClassNow(appCtx);
++
++        // 上课期间「自动关闭」所有可能引起弹窗的评估：查岗拉回 / 情绪感知 / 主动聊天 /
++        // 分心查岗 / 使用时长自动锁 / 权限提醒，全部跳过；课表评估始终运行（含上课检测与课前/下课提醒）。
++        // 课程结束后 inClass 置否，上述评估自动恢复（「课程结束后自动开启」）。
++        if (!inClass) {
++            evaluateCheckIn(now, current);
++            evaluateEmotionPopup(now);
++            evaluateInitiative(now, current);
++            evaluateDistraction(now, current);
++            evaluateUsageLock(now, current);
++            evaluatePermissions(now, current);
++        }
+         evaluateClassSchedule();
+-        evaluatePermissions(now, current);
++
++        // 检测到「刚进入上课」：立即关闭当前任何正在显示的弹窗，落实上课静默。
++        if (inClass && !wasInClass) {
++            try { PopupMutex.dismissAll(); } catch (Exception ignored) { }
++            DebugState.append(appCtx, "检测到进入上课：自动关闭所有弹窗（查岗/情绪/分心等静默）");
++        }
++        wasInClass = inClass;
+ 
+         // 应用门禁：除无障碍前台事件外，调度器每个 tick 也主动把当前前台 App 喂给门禁检查，
+         // 真正「写入即监测」——避免无障碍事件被节流/丢失、或写入锁定时用户已在该 App 上而始终不拦截。
+@@ -354,6 +370,7 @@ public final class PolicyScheduler {
+ 
+     private void evaluateInitiative(long now, String current) {
+         if (!PolicyStore.initiativeEnabled(appCtx)) return;
++        if (ClassScheduleState.isInClassNow(appCtx)) return;   // 上课期间不主动找用户
+ 
+         long silence = PolicyStore.initiativeSilenceMinutes(appCtx) * 60_000L;
+         long minInterval = PolicyStore.initiativeMinInterval(appCtx) * 60_000L;
+@@ -418,109 +435,108 @@ public final class PolicyScheduler {
+     // ============ 分心判定 ============
+ 
+     /**
+-     * 分心查岗定义：用户在聊天（掌心窗陪伴页 / 目标 App）切出去到其它 App，
++     * 分心查岗定义：用户在聊天（掌心窗陪伴页 / 目标 App）真正开始聊过后切出去到其它 App，
+      * 又「立马切回来」，来回几次就是分心。检测始终开启（常开，不只在聊天时才开）。
+-     * 修复误计：只有「真正开始聊天」——在聊天界面连续停留 ≥20 秒——之后切出去，
+-     * 才计一次分心/来回；只是点进聊天看一眼（未开始聊天）就切出，不计分心、不累计来回。
+-     * 命中后弹分级拉回：未达拉回阈值给「回到软件 / 拒绝并填写理由」两选项，
+-     * 达到阈值只给「回到软件」。弹窗悬浮在当前 App 之上，不拉起掌心窗、不自动跳转，
+-     * 弹窗上明确标注类型「分心查岗」。
++     * 修复误计 / 频繁弹窗（历史 bug）：
++     *  - 只有「真正开始聊天」（在聊天界面连续停留 ≥20 秒）之后切出去，才计一次分心；
++     *  - 每次离开聊天只记一次「切出」（leftChat 去重），不会因在多个 App 间来回切换而反复累加；
++     *  - 「切回」聊天才累计一次来回；只有真正完成「切出→切回」回路才计入分心，避免误计；
++     *  - 弹窗（分心查岗）悬浮在当前 App 之上、标注类型，并受冷却 / 安静时段 / 上课静默约束。
+      */
+     private void evaluateDistraction(long now, String current) {
+-        if (!PolicyStore.distractionEnabled(appCtx)) { inChatNow = false; chatArmed = false; return; }
++        if (!PolicyStore.distractionEnabled(appCtx)) {
++            inChatNow = false; chatArmed = false; leftChat = false; distractLoopCount = 0;
++            lastSwitchOutPkg = ""; lastSwitchOutAt = 0;
++            return;
++        }
+         if (current == null || current.isEmpty()) return;
+ 
+         boolean inChat = current.equals(SELF_PKG) || current.equals(PolicyStore.targetPackage(appCtx));
+         boolean systemLayer = isSystemExemptPackage(current);
+         boolean excluded = inChat || systemLayer;
+ 
+-        // —— 聊天会话跟踪：判定「是否真正开始聊天」——
+         if (inChat) {
+             if (!inChatNow) {
+                 inChatNow = true;
+-                // 带着一次已计的「切出」回到聊天：本次会话延续之前已武装的聊天（切回即刻算聊天中）；
+-                // 普通进入（没有待配对的切出）：从现在起重新计时，停留够 20 秒才算开始聊天。
+-                boolean pairingBack = lastDistractionPkg != null && !lastDistractionPkg.isEmpty() && chatArmed;
+-                chatEnterAt = pairingBack ? now - MIN_CHAT_STAY_MS : now;
+-            }
+-        } else if (inChatNow) {
+-            inChatNow = false;
+-            long dwell = chatEnterAt > 0 ? now - chatEnterAt : 0;
+-            chatEnterAt = 0;
+-            if (dwell >= MIN_CHAT_STAY_MS) {
+-                chatArmed = true; // 真正开始聊天过：接下来切出才计分心
+-            } else {
+-                // 只是点进聊天看一眼就切出：不计分心，清空待配对状态与来回累计。
++                boolean returning = leftChat;          // 是否从「分心在外」切回聊天
++                if (returning) {
++                    // 切回：与上次切出配对，计一个完整来回。
++                    long windowMs = (long) PolicyStore.distractionLoopWindowSec(appCtx) * 1000L;
++                    if (now - lastSwitchOutAt <= windowMs) distractLoopCount++;
++                    else distractLoopCount = 0;
++                    leftChat = false;
++                    lastSwitchOutPkg = "";
++                    lastSwitchOutAt = 0;
++
++                    int loopTimes = PolicyStore.distractionLoopTimes(appCtx);
++                    if (PolicyStore.distractionLoopEnabled(appCtx) && distractLoopCount >= loopTimes
++                            && !PolicyStore.isInCooldown(appCtx) && !PolicyStore.isQuietNow(appCtx)
++                            && !ClassScheduleState.isInClassNow(appCtx)) {
++                        distractLoopCount = 0;
++                        boolean strong = strongByThreshold();
++                        String msg = CompanionEmotionState.message(appCtx)
++                                + "\n（刚才切出去又切回来了 " + loopTimes + " 次，是在分心吗？）";
++                        showPullBack(strong, "distraction_loop", "分心查岗", msg);
++                        PolicyStore.markAction(appCtx);
++                        ActivityEventStore.recordForced(appCtx, "distraction_pull_back",
++                                "分心查岗拉回(" + (strong ? "强制" : "可拒绝") + ")", "切出切回 " + loopTimes + " 次");
++                    }
++                }
++                // 新聊天会话：重新计时，未停留够久不算「真正开始聊天」。
+                 chatArmed = false;
+-                distractLoopCount = 0;
+-                lastDistractionPkg = "";
+-                lastDistractSwitchAt = 0;
++                chatEnterAt = now;
+             }
+-        }
+-
+-        if (!excluded) {
+-            // 切到其它 App：只有聊天已武装（真正开始聊天过）才记一次「切出」；同一个 App 不重复计。
+-            if (chatArmed && !current.equals(lastDistractionPkg)) {
+-                lastDistractionPkg = current;
+-                lastDistractSwitchAt = now;
+-                String app = appLabel(current);
++        } else {
++            if (inChatNow) {
++                inChatNow = false;
++                long dwell = chatEnterAt > 0 ? now - chatEnterAt : 0;
++                chatEnterAt = 0;
++                if (dwell >= MIN_CHAT_STAY_MS) {
++                    chatArmed = true;   // 本次会话真的聊够了：武装
++                } else {
++                    // 看一眼就走：不算分心，清空待配对与来回累计。
++                    chatArmed = false;
++                    distractLoopCount = 0;
++                    leftChat = false;
++                    lastSwitchOutPkg = "";
++                    lastSwitchOutAt = 0;
++                }
++            }
++            // 在别的 App：若刚离开一个「真正聊过」的会话，记一次「切出」（每次离场只计一次，不去重则会反复弹窗）。
++            if (chatArmed && !leftChat) {
++                leftChat = true;
++                lastSwitchOutPkg = current;
++                lastSwitchOutAt = now;
+                 int cnt = PolicyStore.distractionCount(appCtx) + 1;
+                 PolicyStore.setDistractionCount(appCtx, cnt);
+-                ActivityEventStore.recordPhone(appCtx, "distraction", "分心到" + app + "（累计 " + cnt + " 次）", current);
+-                DebugState.append(appCtx, "检测到切屏分心（已开始聊天后切出）：" + app + "（累计 " + cnt + " 次）");
+-                if (PolicyStore.disciplineEnabled(appCtx)) discipline("distraction", "切到" + app);
+-            }
+-        } else if (inChat) {
+-            // 回到聊天：一次「切回」。若距上次切出在窗口内，记一个完整来回。
+-            if (lastDistractionPkg != null && !lastDistractionPkg.isEmpty() && lastDistractSwitchAt > 0) {
+-                long windowMs = (long) PolicyStore.distractionLoopWindowSec(appCtx) * 1000L;
+-                if (now - lastDistractSwitchAt <= windowMs) distractLoopCount++;
+-                else distractLoopCount = 0;
+-                lastDistractionPkg = "";
+-                lastDistractSwitchAt = 0;
+-
+-                int loopTimes = PolicyStore.distractionLoopTimes(appCtx);
+-                if (PolicyStore.distractionLoopEnabled(appCtx) && distractLoopCount >= loopTimes
++                ActivityEventStore.recordPhone(appCtx, "distraction", "分心到" + appLabel(current) + "（累计 " + cnt + " 次）", current);
++                DebugState.append(appCtx, "检测到切屏分心（已开始聊天后切出）：" + appLabel(current) + "（累计 " + cnt + " 次）");
++                if (PolicyStore.disciplineEnabled(appCtx)) discipline("distraction", "切到" + appLabel(current));
++
++                // 兼容「每次切屏都拉回 / 累计超阈值」逻辑：仅在真正切出时触发一次，受冷却/安静/上课约束。
++                boolean every = PolicyStore.distractionEveryTime(appCtx);
++                boolean byAccum = PolicyStore.distractionAutoPullback(appCtx)
++                        && cnt >= PolicyStore.distractionThreshold(appCtx);
++                if ((every || byAccum)
+                         && !PolicyStore.isInCooldown(appCtx) && !PolicyStore.isQuietNow(appCtx)
+                         && !ClassScheduleState.isInClassNow(appCtx)) {
+-                    distractLoopCount = 0;
+                     boolean strong = strongByThreshold();
+-                    String msg = CompanionEmotionState.message(appCtx)
+-                            + "\n（刚才切出去又切回来了 " + loopTimes + " 次，是在分心吗？）";
+-                    showPullBack(strong, "distraction_loop", "分心查岗", msg);
++                    String msg = byAccum
++                            ? ("已经分心 " + cnt + " 次了，先回来陪" + AppPrefs.companionName(appCtx) + "。")
++                            : CompanionEmotionState.message(appCtx);
++                    showPullBack(strong, byAccum ? "distraction_accumulated" : "distraction", "分心查岗", msg);
+                     PolicyStore.markAction(appCtx);
++                    if (byAccum) PolicyStore.setDistractionCount(appCtx, 0);
+                     ActivityEventStore.recordForced(appCtx, "distraction_pull_back",
+-                            "分心查岗拉回(" + (strong ? "强制" : "可拒绝") + ")", "切出切回 " + loopTimes + " 次");
++                            "分心拉回(" + (strong ? "强制" : "可拒绝") + ")", "切到 " + appLabel(current));
+                 }
+             }
+         }
+-
+-        // 兼容旧逻辑：每次切屏都拉回 / 累计超阈值也弹一次。
+-        // 必须限定在「确实处于其它 App」且聊天已武装（真正开始聊天过）时才触发，
+-        // 避免用户从未聊天、或只是路过聊天界面时被误拉回。
+-        if (!excluded && chatArmed) {
+-            boolean every = PolicyStore.distractionEveryTime(appCtx);
+-            boolean byAccumulated = PolicyStore.distractionAutoPullback(appCtx)
+-                    && PolicyStore.distractionCount(appCtx) >= PolicyStore.distractionThreshold(appCtx);
+-            if ((every || byAccumulated)
+-                    && !PolicyStore.isInCooldown(appCtx) && !PolicyStore.isQuietNow(appCtx)
+-                    && !ClassScheduleState.isInClassNow(appCtx)) {
+-                boolean strong = strongByThreshold();
+-                int cnt = PolicyStore.distractionCount(appCtx);
+-                String msg = byAccumulated
+-                        ? ("已经分心 " + cnt + " 次了，先回来陪" + AppPrefs.companionName(appCtx) + "。")
+-                        : CompanionEmotionState.message(appCtx);
+-                showPullBack(strong, byAccumulated ? "distraction_accumulated" : "distraction", "分心查岗", msg);
+-                PolicyStore.markAction(appCtx);
+-                if (byAccumulated) PolicyStore.setDistractionCount(appCtx, 0);
+-                ActivityEventStore.recordForced(appCtx, "distraction_pull_back",
+-                        "分心拉回(" + (strong ? "强制" : "可拒绝") + ")", "切到 " + appLabel(current));
+-            }
+-        }
+     }
+ 
+-    /** 是否达到拉回阈值：只由底层代码算出的想你程度与强情绪决定，不因触发来源改变。 */
++    /** 是否达到拉回阈值：优先看训诫高档位（加强管控强制拉回），否则由底层代码算出的想你程度与强情绪决定。 */
+     private boolean strongByThreshold() {
++        if (PolicyStore.disciplineForceStrong(appCtx)) return true;
+         return EmotionPerception.isStrongNow(appCtx);
+     }
+ 
+@@ -549,6 +565,7 @@ public final class PolicyScheduler {
+     // ============ 权限开关逐项生效 ============
+ 
+     private void evaluatePermissions(long now, String current) {
++        if (ClassScheduleState.isInClassNow(appCtx)) return;   // 上课期间不弹任何权限提醒
+         boolean quiet = PolicyStore.isQuietNow(appCtx); // 普通提醒在安静时段静默
+ 
+         // 屏幕时长上限：持续停留在非本机 App 的时长超过上限 → 提醒。
+@@ -650,6 +667,7 @@ public final class PolicyScheduler {
+     /** 跟踪前台连续使用时长，超阈值自动锁该 App（用时长与锁定时间手机端/MCP 可调）。 */
+     private void evaluateUsageLock(long now, String current) {
+         if (!PolicyStore.usageLockEnabled(appCtx)) { usagePkg = ""; usageStartAt = 0; return; }
++        if (ClassScheduleState.isInClassNow(appCtx)) { usagePkg = ""; usageStartAt = 0; return; }   // 上课期间不自动锁
+         // 计算要监控的包名集合：未指定则只监控目标 App（聊天对象所在 App）。
+         java.util.Set<String> watch = new java.util.HashSet<>();
+         String pkgs = PolicyStore.usageLockPackages(appCtx);
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java b/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java
+index 4b1b916..36ebb26 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java
++++ b/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java
+@@ -213,6 +213,9 @@ public class PolicySettingsActivity extends Activity {
+         // 修复「课表作息没办法删除已有信息和更改」：列出全部课程，每条可修改/删除。
+         g11.addView(buildScheduleList());
+         g11.addView(rowButton("清空全部课表", "一次删除所有课程条目（会先确认）。", "清空课表", v -> confirmClearSchedule()));
++        // 课前提醒：提前 N 分钟「弹窗」提醒（写在底层代码，改完立即生效）。
++        g11.addView(rowSwitch("课前弹窗提醒", "上课前提前弹出「课前提醒」弹窗（盖在当前 App 之上），不打断当前界面。默认开启。", PolicyStore.classRemindEnabled(this), (v, c) -> PolicyStore.setClassRemindEnabled(this, c)));
++        g11.addView(rowNumber("课前提醒提前（分钟）", "提前多少分钟弹出课前提醒。默认 30。", PolicyStore.classRemindMin(this), 5, 120, v -> PolicyStore.setClassRemindMin(this, v)));
+ 
+         LinearLayout g12 = card(container, "共同记忆", "双方可增/改/删、双向修改实时生效的记忆面板。", "memory");
+         g12.addView(rowText("新增记忆", "写下一条共同记忆，点下方保存。", "", s -> memoryDraft = s));
+@@ -441,8 +444,14 @@ public class PolicySettingsActivity extends Activity {
+ 
+     private void showWeatherLocations() {
+         try {
++            // 查看全部地点：列出每个地点的名称 / 城市 / 备注与「当前」标记，确保定制内容正确显示。
++            String text = WeatherState.locationsText(this);
++            JSONObject cur = WeatherState.currentLocation(this);
++            text += "\n\n当前使用：" + cur.optString("name", "家")
++                    + (cur.optString("city", "").isEmpty() ? "" : " · " + cur.optString("city", ""))
++                    + (cur.optString("note", "").isEmpty() ? "" : "\n备注：" + cur.optString("note", ""));
+             AlertDialog.Builder b = new AlertDialog.Builder(this);
+-            b.setTitle("全部地点").setMessage(WeatherState.pretty(this)).setPositiveButton("知道了", null).show();
++            b.setTitle("全部地点").setMessage(text).setPositiveButton("知道了", null).show();
+         } catch (Exception e) { status("读取失败：" + ScreenshotService.shortMsg(e)); }
+     }
+ 
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicyStore.java b/android/app/src/main/java/dev/linjian/peek/PolicyStore.java
+index 1e215a9..dccfaf7 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PolicyStore.java
++++ b/android/app/src/main/java/dev/linjian/peek/PolicyStore.java
+@@ -92,6 +92,10 @@ public final class PolicyStore {
+     public static final String KEY_EMOTION_POPUP_THRESHOLD = PREFIX + "emo_popup_threshold"; // 想你达到该 % 触发，默认 70
+     public static final String KEY_EMOTION_POPUP_INTERVAL = PREFIX + "emo_popup_interval";  // 两次最小间隔（分钟），默认 30
+ 
++    // —— 课表课前提醒（写在底层代码，手机端 / MCP 可改，改完立即生效）——
++    public static final String KEY_CLASS_REMIND_ENABLED = PREFIX + "class_remind_enabled"; // 课前提醒开关，默认 true
++    public static final String KEY_CLASS_REMIND_MIN = PREFIX + "class_remind_min";          // 课前提前提醒分钟，默认 30
++
+     // —— 安静时段 / 深夜时段（支持跨零点）——
+     public static final String KEY_QUIET_START = PREFIX + "quiet_start";         // "23:30"
+     public static final String KEY_QUIET_END = PREFIX + "quiet_end";             // "08:00"
+@@ -150,6 +154,8 @@ public final class PolicyStore {
+     private static final boolean DEF_EMO_POPUP_ENABLED = true;
+     private static final int DEF_EMO_POPUP_THRESHOLD = 70;
+     private static final int DEF_EMO_POPUP_INTERVAL = 30;
++    private static final boolean DEF_CLASS_REMIND_ENABLED = true;
++    private static final int DEF_CLASS_REMIND_MIN = 30;
+     private static final String DEF_QUIET_START = "23:30";
+     private static final String DEF_QUIET_END = "08:00";
+     private static final String DEF_NIGHT_START = "23:00";
+@@ -189,16 +195,16 @@ public final class PolicyStore {
+     private static void putBool(Context ctx, String key, boolean v, String label) {
+         SharedPreferences.Editor e = sp(ctx).edit();
+         boolean old = sp(ctx).getBoolean(key, false);
+-        if (old == v) { e.putBoolean(key, v).apply(); return; }
+-        e.putBoolean(key, v).apply();
++        if (old == v) { e.putBoolean(key, v).commit(); return; }
++        e.putBoolean(key, v).commit();
+         logChange(ctx, "用户", label, String.valueOf(old), String.valueOf(v));
+         resetCooldown(ctx);
+     }
+     private static void putInt(Context ctx, String key, int v, String label) {
+         SharedPreferences.Editor e = sp(ctx).edit();
+         int old = sp(ctx).getInt(key, Integer.MIN_VALUE);
+-        if (old == v) { e.putInt(key, v).apply(); return; }
+-        e.putInt(key, v).apply();
++        if (old == v) { e.putInt(key, v).commit(); return; }
++        e.putInt(key, v).commit();
+         logChange(ctx, "用户", label, String.valueOf(old), String.valueOf(v));
+         resetCooldown(ctx);
+     }
+@@ -206,8 +212,8 @@ public final class PolicyStore {
+         if (v == null) v = "";
+         SharedPreferences.Editor e = sp(ctx).edit();
+         String old = sp(ctx).getString(key, "");
+-        if (old.equals(v)) { e.putString(key, v).apply(); return; }
+-        e.putString(key, v).apply();
++        if (old.equals(v)) { e.putString(key, v).commit(); return; }
++        e.putString(key, v).commit();
+         logChange(ctx, "用户", label, old, v);
+         resetCooldown(ctx);
+     }
+@@ -289,6 +295,10 @@ public final class PolicyStore {
+     public static void setDisciplineEnabled(Context ctx, boolean v) { putBool(ctx, KEY_DISCIPLINE_ENABLED, v, "训诫插件开关"); }
+     public static int disciplineLevel(Context ctx) { return getInt(ctx, KEY_DISCIPLINE_LEVEL, DEF_DISC_LEVEL); }
+     public static void setDisciplineLevel(Context ctx, int v) { putInt(ctx, KEY_DISCIPLINE_LEVEL, clamp(v, 0, 4), "训诫档位"); }
++    /** 训诫高档位（>=3）强制拉回：加强管控，所有拉回弹窗变为「只能回到软件」不可拒绝。 */
++    public static boolean disciplineForceStrong(Context ctx) {
++        return disciplineEnabled(ctx) && disciplineLevel(ctx) >= 3;
++    }
+     public static boolean disciplineUserOnly(Context ctx) { return getBool(ctx, KEY_DISCIPLINE_USER_ONLY, DEF_DISC_USER_ONLY); }
+     public static boolean disciplineBadge(Context ctx) { return getBool(ctx, KEY_DISCIPLINE_BADGE, DEF_DISC_BADGE); }
+     public static void setDisciplineBadge(Context ctx, boolean v) { putBool(ctx, KEY_DISCIPLINE_BADGE, v, "训诫开启标志"); }
+@@ -347,6 +357,12 @@ public final class PolicyStore {
+     public static int emotionPopupIntervalMin(Context ctx) { return getInt(ctx, KEY_EMOTION_POPUP_INTERVAL, DEF_EMO_POPUP_INTERVAL); }
+     public static void setEmotionPopupIntervalMin(Context ctx, int v) { putInt(ctx, KEY_EMOTION_POPUP_INTERVAL, clamp(v, 1, 1440), "情绪弹窗最小间隔(分钟)"); }
+ 
++    // —— 课表课前提醒（写在底层代码，手机端 / MCP 可改，改完立即生效）——
++    public static boolean classRemindEnabled(Context ctx) { return getBool(ctx, KEY_CLASS_REMIND_ENABLED, DEF_CLASS_REMIND_ENABLED); }
++    public static void setClassRemindEnabled(Context ctx, boolean v) { putBool(ctx, KEY_CLASS_REMIND_ENABLED, v, "课前提醒开关"); }
++    public static int classRemindMin(Context ctx) { return getInt(ctx, KEY_CLASS_REMIND_MIN, DEF_CLASS_REMIND_MIN); }
++    public static void setClassRemindMin(Context ctx, int v) { putInt(ctx, KEY_CLASS_REMIND_MIN, clamp(v, 5, 120), "课前提醒提前(分钟)"); }
++
+     // —— 安静 / 深夜时段 ——
+     public static String quietStart(Context ctx) { return getString(ctx, KEY_QUIET_START, DEF_QUIET_START); }
+     public static void setQuietStart(Context ctx, String v) { putString(ctx, KEY_QUIET_START, v, "安静时段开始"); }
+@@ -567,6 +583,8 @@ public final class PolicyStore {
+         e.putBoolean(KEY_EMOTION_POPUP_ENABLED, DEF_EMO_POPUP_ENABLED);
+         e.putInt(KEY_EMOTION_POPUP_THRESHOLD, DEF_EMO_POPUP_THRESHOLD);
+         e.putInt(KEY_EMOTION_POPUP_INTERVAL, DEF_EMO_POPUP_INTERVAL);
++        e.putBoolean(KEY_CLASS_REMIND_ENABLED, DEF_CLASS_REMIND_ENABLED);
++        e.putInt(KEY_CLASS_REMIND_MIN, DEF_CLASS_REMIND_MIN);
+         e.putString(KEY_QUIET_START, DEF_QUIET_START);
+         e.putString(KEY_QUIET_END, DEF_QUIET_END);
+         e.putString(KEY_NIGHT_START, DEF_NIGHT_START);
+diff --git a/android/app/src/main/java/dev/linjian/peek/PopupMutex.java b/android/app/src/main/java/dev/linjian/peek/PopupMutex.java
+index 70b5c33..3f7d530 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PopupMutex.java
++++ b/android/app/src/main/java/dev/linjian/peek/PopupMutex.java
+@@ -45,6 +45,13 @@ public final class PopupMutex {
+         if (who != null && who.equals(owner)) owner = "";
+     }
+ 
++    /** 强制关闭全部弹窗（悬浮窗两条通道），用于上课开始等需要「立即静默」的场景。 */
++    public static void dismissAll() {
++        try { PullBackOverlay.dismiss(); } catch (Exception ignored) { }
++        try { AlertCenterOverlay.dismiss(); } catch (Exception ignored) { }
++        owner = "";
++    }
++
+     /** 当前占用者（诊断用）。 */
+     public static String currentOwner() { return owner; }
+ 
+diff --git a/android/app/src/main/java/dev/linjian/peek/PullBackOverlay.java b/android/app/src/main/java/dev/linjian/peek/PullBackOverlay.java
+index 0173bdc..5f9ed46 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PullBackOverlay.java
++++ b/android/app/src/main/java/dev/linjian/peek/PullBackOverlay.java
+@@ -62,7 +62,9 @@ public class PullBackOverlay {
+                     WindowManager.LayoutParams.MATCH_PARENT,
+                     WindowManager.LayoutParams.WRAP_CONTENT,
+                     overlayType(),
+-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
++                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
++                            | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
++                            | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                     PixelFormat.TRANSLUCENT);
+             params.gravity = gravityFor(GuidianState.popupPosition(appCtx));
+             params.x = 0;
+diff --git a/android/app/src/main/java/dev/linjian/peek/WeatherState.java b/android/app/src/main/java/dev/linjian/peek/WeatherState.java
+index 9a26a34..907cbbb 100644
+--- a/android/app/src/main/java/dev/linjian/peek/WeatherState.java
++++ b/android/app/src/main/java/dev/linjian/peek/WeatherState.java
+@@ -123,7 +123,7 @@ public class WeatherState {
+     }
+ 
+     private static void syncLegacy(Context ctx, Location loc) {
+-        AppPrefs.get(ctx).edit().putString(AppPrefs.KEY_CITY, loc.city).putString(AppPrefs.KEY_WEATHER_NOTE, loc.note).apply();
++        AppPrefs.get(ctx).edit().putString(AppPrefs.KEY_CITY, loc.city).putString(AppPrefs.KEY_WEATHER_NOTE, loc.note).commit();
+     }
+ 
+     private static LinkedHashMap<String, Location> readLocations(Context ctx) {
+@@ -160,7 +160,7 @@ public class WeatherState {
+             Location l = e.getValue();
+             sb.append(escape(l.name)).append("|").append(escape(l.city)).append("|").append(escape(l.note)).append("|").append(l.current ? "1" : "0").append("\n");
+         }
+-        AppPrefs.get(ctx).edit().putString(AppPrefs.KEY_WEATHER_LOCATIONS, sb.toString()).apply();
++        AppPrefs.get(ctx).edit().putString(AppPrefs.KEY_WEATHER_LOCATIONS, sb.toString()).commit();
+     }
+ 
+     public static String localAdvice(String note) {
+-- 
+2.43.0
+

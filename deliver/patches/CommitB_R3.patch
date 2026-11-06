@@ -1,0 +1,387 @@
+diff --git a/CHANGES.md b/CHANGES.md
+index 9654bd8..fd58ce1 100644
+--- a/CHANGES.md
++++ b/CHANGES.md
+@@ -2,6 +2,34 @@
+ 
+ ---
+ 
++## 第四轮：交付格式重排 + R3 状态一致性专项（本轮）
++
++> 按交付要求拆成**两版可独立推送/回滚的提交**：
++> - **Commit A（R1/R2/R4 根因版）**：见上一节「Bug 清单全量版本轮已处理项」+ 33–72 补充项。
++> - **Commit B（R3 状态一致性专项，本节）**：状态由多份快照各算各的 → 收敛为单一来源。
++> 每一条的「已改/未改 + 文件 + commit」逐条回执见 `BUG_RECEIPT.md`；
++> 逐条复测步骤见 `RETEST_CHECKLIST.md`。
++
++### Commit B（R3）已改
++- **#35 训诫单开关 / 0 档不得输出事件**：`PolicyScheduler.discipline()` 增加 `level<=0` 守卫（关闭不再产生「训诫(0档)」事件）；`linjian_server.py /api/discipline` 归一 `enabled` 与 `level` 为单一状态源（level=0→enabled=false；enabled=false→level=0）。运行时冒烟已验证。
++- **#39 / P1-6b / R3 专注三时间字段互不同步**：`FocusMode` 新增 `normalizeState()` 作为状态唯一收敛点，统一推导 active/remaining/temporary/emergency/pending；`start()` 清旧 ended；`isActiveRaw()` 到点补 `ended_at`；纠正「结束早于开始」的历史脏数据。
++- **P0-4 / #36 专注求助全部 pending 无提示**：`normalizeState()` 计算 `pending_request_count` / `oldest_pending_age_minutes` / `pending_timeout` / `pending_hint`，超 5 分钟未处理给明确提示（推送到陪伴对象会话需手机端通知通道联调，见回执）。
++- **P0-5 / #37 离线应急计数不重置**：新增 `emergency_session_started_at_ms` 会话锚点，应急额度按专注会话归零，`offlineEmergencyUnlock()` 先收敛再判额度。
++- **P1-7 / #7 门禁申请无去重**：`AppGate.submitUnlockRequest()` 同 App+同理由 10 秒窗口合并 `repeat_count`，不再灌入十几条重复申请。
++- **P1-8 / #40 失活锁不清理 + temporary_* 污染**：`AppGate.pruneState()` 归档失活超 24h 的锁、剔除闲置 `temporary_*` 恒零字段、给旧申请补 `status`/超时。
++- **#57 陪伴 App 自锁风险**：`AppGate.protectedPackages()` 自动把 `GuidianState.targetPackage()` 与 `PolicyStore.targetPackage()`（陪伴入口）纳入保护名单。
++- **#43 / P2-19 归电 interval 不生效 + next 排进安静段**：`GuidianState.nextPromptAfterMs()` 把落在安静时段的 `next_prompt_after` 顺延到安静结束（`quietEndMs`），避免到点被 `quiet_time` 拦掉空转。
++- **P1-6a / #49 unlock_count_today 恒 0**：`LifeState` 增加 `unlock_count_reliable` 标注（亮屏>0 却 0 次解锁时标 false），避免下游把 0 当真实值参与情绪计算；真实解锁事件采集需 UsageStats 权限联调。
++- **P2-18 / #51 天气数字三处不一致 + 降水矛盾**：`buildWeatherAdvice()` min/max/temp 统一 `Math.round`，降水概率≥90% 但天气码无雨雪时如实提示「数据可能不一致」。
++- **P1-13 到访统计日界**：`buildVisitStats()` 返回 `today_key` / `today_timezone_offset` 及口径标记（`today_is_local_calendar_day` vs `recent_24h_is_rolling_window`），消除「自然日 0 次 vs 滚动 24h 3 次」被误读为 bug。
++
++### 查证结果
++- `javac` 全量编译 45 个 Java 文件：**0 error**；`build.sh` 产出 APK 并通过 v1/v2/v3 签名验证。
++- `node --check mcp/server.js`、`node --check worker.js`、`python3.11 -m py_compile linjian_server.py`：全通过。
++- Python 后端运行时冒烟：`/api/discipline` 单开关三组归一、`metadata_json` 5000→1006 字截断、`/api/emotion/snapshot` 方向/来源/quiet 一致：全通过。
++
++---
++
+ ## Bug 清单全量版（R1–R4 根因 + P0–P2）本轮已处理项
+ 
+ > 版本基线：`0.3.9.0-public-diary-annotations`（GitHub `main` @ `ecdc938`）。
+diff --git a/android/app/src/main/java/dev/linjian/peek/AppGate.java b/android/app/src/main/java/dev/linjian/peek/AppGate.java
+index 363ecb5..d9c315c 100644
+--- a/android/app/src/main/java/dev/linjian/peek/AppGate.java
++++ b/android/app/src/main/java/dev/linjian/peek/AppGate.java
+@@ -585,10 +585,28 @@ public class AppGate {
+ 
+     public static void submitUnlockRequest(final Context ctx, final String pkg, final String reason) {
+         try {
+-            JSONObject s = state(ctx); JSONObject req = new JSONObject();
+-            req.put("id", String.valueOf(System.currentTimeMillis())); req.put("device_id", AppPrefs.device(ctx)); req.put("package", pkg);
+-            req.put("app_name", labelOf(ctx, pkg)); req.put("reason", reason == null ? "" : reason.trim()); req.put("created_at_ms", System.currentTimeMillis()); req.put("created_at_local", formatLocal(System.currentTimeMillis()));
+-            JSONArray arr = s.optJSONArray("requests"); if (arr == null) arr = new JSONArray(); arr.put(req); while (arr.length() > 20) arr.remove(0); s.put("requests", arr); save(ctx, s);
++            long now = System.currentTimeMillis();
++            String text = reason == null ? "" : reason.trim();
++            JSONObject s = state(ctx);
++            JSONArray arr = s.optJSONArray("requests"); if (arr == null) arr = new JSONArray();
++            // R4/#7：同 App + 同理由在 10 秒窗口内合并计数，不再灌入十几条重复申请
++            JSONObject last = arr.length() > 0 ? arr.optJSONObject(arr.length() - 1) : null;
++            if (last != null && pkg.equals(last.optString("package", ""))
++                    && text.equals(last.optString("reason", ""))
++                    && (now - last.optLong("created_at_ms", 0L)) < 10000L
++                    && "pending".equals(last.optString("status", "pending"))) {
++                last.put("repeat_count", last.optInt("repeat_count", 1) + 1);
++                last.put("updated_at_ms", now);
++                s.put("requests", arr); save(ctx, s);
++                return;
++            }
++            JSONObject req = new JSONObject();
++            req.put("id", String.valueOf(now)); req.put("device_id", AppPrefs.device(ctx)); req.put("package", pkg);
++            req.put("app_name", labelOf(ctx, pkg)); req.put("reason", text);
++            req.put("created_at_ms", now); req.put("created_at_local", formatLocal(now));
++            req.put("status", "pending"); req.put("repeat_count", 1);
++            req.put("timeout_at_ms", now + 5 * 60000L);
++            arr.put(req); while (arr.length() > 20) arr.remove(0); s.put("requests", arr); save(ctx, s);
+             log(ctx, "提交解锁申请：" + pkg + "；理由：" + reason);
+             final String url = ScreenshotService.normalizeUrl(AppPrefs.server(ctx)); final String token = AppPrefs.token(ctx); final String body = req.toString();
+             if (url.length() > 0 && token.length() > 0) new Thread(() -> postUnlockRequest(url, token, body)).start();
+@@ -608,11 +626,54 @@ public class AppGate {
+     public static JSONObject config(Context ctx) {
+         JSONObject out = new JSONObject();
+         try {
+-            out.put("enabled", enabled(ctx)); out.put("gate_apps", gateAppsJson(ctx)); out.put("state", state(ctx)); out.put("protected_packages", protectedJson(ctx));
++            JSONObject s = pruneState(ctx);
++            out.put("enabled", enabled(ctx)); out.put("gate_apps", gateAppsJson(ctx)); out.put("state", s); out.put("protected_packages", protectedJson(ctx));
+         } catch (Exception ignored) { }
+         return out;
+     }
+ 
++    /** R4/#8/#40：清理失活过期锁、剔除闲置 temporary_* 恒零字段、给旧申请补 status/超时。 */
++    private static JSONObject pruneState(Context ctx) {
++        JSONObject s = state(ctx);
++        long now = System.currentTimeMillis();
++        boolean changed = false;
++        try {
++            JSONObject ls = s.optJSONObject("locks");
++            if (ls != null) {
++                Iterator<String> it = ls.keys();
++                ArrayList<String> drop = new ArrayList<>();
++                while (it.hasNext()) {
++                    String key = it.next();
++                    JSONObject l = ls.optJSONObject(key);
++                    if (l == null) { drop.add(key); continue; }
++                    boolean active = l.optBoolean("active", false);
++                    long until = l.optLong("locked_until_ms", 0L);
++                    if ((!active && until > 0 && (now - until) > 24L * 3600 * 1000) || (!active && until <= 0)) {
++                        drop.add(key); continue;
++                    }
++                    if (!l.optBoolean("temporary_active", false)) {
++                        Iterator<String> fk = l.keys();
++                        ArrayList<String> rm = new ArrayList<>();
++                        while (fk.hasNext()) { String f = fk.next(); if (f.startsWith("temporary_")) rm.add(f); }
++                        for (String f : rm) { l.remove(f); changed = true; }
++                    }
++                }
++                for (String k : drop) { ls.remove(k); changed = true; }
++            }
++            JSONArray reqs = s.optJSONArray("requests");
++            if (reqs != null) {
++                for (int i = 0; i < reqs.length(); i++) {
++                    JSONObject r = reqs.optJSONObject(i); if (r == null) continue;
++                    if (!r.has("status")) { r.put("status", "pending"); changed = true; }
++                    long to = r.optLong("timeout_at_ms", 0L);
++                    if ("pending".equals(r.optString("status")) && to > 0 && now > to) { r.put("status", "timed_out"); changed = true; }
++                }
++            }
++        } catch (Exception ignored) { }
++        if (changed) save(ctx, s);
++        return s;
++    }
++
+     public static String summaryLine(Context ctx) {
+         try {
+             boolean on = enabled(ctx);
+@@ -675,6 +736,13 @@ public class AppGate {
+         packages.add(SELF_PACKAGE);
+         String companionTarget = AppPrefs.homeTargetPackage(ctx);
+         if (!companionTarget.isEmpty()) packages.add(companionTarget);
++        // #57：归电/拉回目标 App（陪伴入口）自动进保护名单，防止自锁形成死锁
++        try {
++            String guidianTarget = GuidianState.targetPackage(ctx);
++            if (guidianTarget != null && !guidianTarget.trim().isEmpty()) packages.add(guidianTarget.trim());
++            String pullTarget = PolicyStore.targetPackage(ctx);
++            if (pullTarget != null && !pullTarget.trim().isEmpty()) packages.add(pullTarget.trim());
++        } catch (Exception ignored) { }
+         packages.add("com.android.settings");
+         packages.add("com.android.phone");
+         packages.add("com.google.android.dialer");
+diff --git a/android/app/src/main/java/dev/linjian/peek/FocusMode.java b/android/app/src/main/java/dev/linjian/peek/FocusMode.java
+index 9808713..d3e8dbc 100644
+--- a/android/app/src/main/java/dev/linjian/peek/FocusMode.java
++++ b/android/app/src/main/java/dev/linjian/peek/FocusMode.java
+@@ -121,6 +121,10 @@ public class FocusMode {
+         s.put("emergency_total", Math.max(0, cmd.optInt("emergency_total", cmd.optInt("emergency_times", s.optInt("emergency_total", 1)))));
+         s.put("emergency_minutes", Math.max(1, cmd.optInt("emergency_minutes", s.optInt("emergency_minutes", 1))));
+         s.put("emergency_used", 0);
++        s.put("emergency_session_started_at_ms", now);
++        // R3/#39：开新会话清掉上次结束时间，避免 ended_at 早于 started_at 数天
++        s.put("ended_at_ms", 0L);
++        s.put("ended_at_local", "");
+         log(s, "开启专注模式到 " + formatLocal(until));
+         appendMessage(s, "ai", s.optString("message"), false);
+         save(ctx, s);
+@@ -212,7 +216,9 @@ public class FocusMode {
+     public static boolean offlineEmergencyUnlock(Context ctx, String reason) {
+         try {
+             JSONObject s = state(ctx);
+-            if (!isActiveRaw(s, System.currentTimeMillis())) return true;
++            long now = System.currentTimeMillis();
++            normalizeState(s, now);
++            if (!isActiveRaw(s, now)) return true;
+             int total = Math.max(0, s.optInt("emergency_total", 1));
+             int used = Math.max(0, s.optInt("emergency_used", 0));
+             if (used >= total) return false;
+@@ -241,7 +247,13 @@ public class FocusMode {
+     private static boolean isActiveRaw(JSONObject s, long now) throws Exception {
+         if (s == null || !s.optBoolean("active", false)) return false;
+         long until = s.optLong("until_ms", 0L);
+-        if (until > 0 && now >= until) { s.put("active", false); return false; }
++        if (until > 0 && now >= until) {
++            s.put("active", false);
++            s.put("ended_at_ms", until);
++            s.put("ended_at_local", formatLocal(until));
++            s.put("temporary_until_ms", 0L);
++            return false;
++        }
+         return true;
+     }
+ 
+@@ -315,16 +327,66 @@ public class FocusMode {
+     public static JSONObject config(Context ctx) {
+         JSONObject s = state(ctx);
+         try {
+-            long now = System.currentTimeMillis();
+-            if (s.optBoolean("active", false) && s.optLong("until_ms", 0L) > 0 && now >= s.optLong("until_ms", 0L)) {
+-                s.put("active", false); save(ctx, s);
++            normalizeState(s, System.currentTimeMillis());
++            save(ctx, s);
++        } catch (Exception ignored) { }
++        return s;
++    }
++
++    /**
++     * R3：专注状态的唯一收敛点。active / started / until / ended / remaining /
++     * temporary_* / emergency_* / 求助超时 全部按同一份 state 推导，
++     * 避免多份快照各算各的造成「同一秒两个答案」。每次读取前先跑一遍。
++     */
++    private static void normalizeState(JSONObject s, long now) {
++        if (s == null) return;
++        try {
++            boolean active = s.optBoolean("active", false);
++            long until = s.optLong("until_ms", 0L);
++            long started = s.optLong("started_at_ms", 0L);
++            if (active && until > 0 && now >= until) {
++                active = false;
++                s.put("active", false);
++                s.put("ended_at_ms", until);
++                s.put("ended_at_local", formatLocal(until));
++                s.put("temporary_until_ms", 0L);
++            }
++            // #39/#6b：结束不得早于开始，纠正历史脏数据
++            long ended = s.optLong("ended_at_ms", 0L);
++            if (!active && started > 0 && (ended <= 0 || ended < started)) {
++                long fixed = until > started ? until : now;
++                s.put("ended_at_ms", fixed);
++                s.put("ended_at_local", formatLocal(fixed));
++            }
++            s.put("remaining_ms", active ? Math.max(0L, until - now) : 0L);
++            long tempUntil = s.optLong("temporary_until_ms", 0L);
++            s.put("temporary_active", active && tempUntil > 0 && now < tempUntil);
++            s.put("temporary_remaining_ms", Math.max(0L, tempUntil - now));
++            // P0-5/#37：应急额度按「专注会话」归零，离线放行不走 start 也正确
++            long sessionAt = s.optLong("emergency_session_started_at_ms", started);
++            if (sessionAt > 0 && sessionAt != s.optLong("emergency_count_session_at_ms", 0L)) {
++                s.put("emergency_count_session_at_ms", sessionAt);
++                s.put("emergency_used", 0);
+             }
+-            s.put("remaining_ms", Math.max(0L, s.optLong("until_ms", 0L) - now));
+-            s.put("temporary_active", now < s.optLong("temporary_until_ms", 0L));
+-            s.put("temporary_remaining_ms", Math.max(0L, s.optLong("temporary_until_ms", 0L) - now));
+             s.put("emergency_remaining", Math.max(0, s.optInt("emergency_total", 1) - s.optInt("emergency_used", 0)));
++            // P0-4/#36：pending 求助超 5 分钟给明确提示，不再无限 pending
++            JSONArray reqs = s.optJSONArray("requests");
++            int pending = 0; long oldest = 0;
++            if (reqs != null) {
++                for (int i = 0; i < reqs.length(); i++) {
++                    JSONObject r = reqs.optJSONObject(i);
++                    if (r == null || !"pending".equals(r.optString("status", "pending"))) continue;
++                    pending++;
++                    long c = r.optLong("created_at_ms", 0L);
++                    if (c > 0 && (oldest == 0 || c < oldest)) oldest = c;
++                }
++            }
++            boolean timeout = pending > 0 && oldest > 0 && (now - oldest) > 5 * 60000L;
++            s.put("pending_request_count", pending);
++            s.put("oldest_pending_age_minutes", oldest > 0 ? Math.max(0, (now - oldest) / 60000L) : 0);
++            s.put("pending_timeout", timeout);
++            s.put("pending_hint", timeout ? ("有求助超过 5 分钟未处理：" + pending + " 条，请尽快回复或放行。") : "");
+         } catch (Exception ignored) { }
+-        return s;
+     }
+ 
+     public static String summaryLine(Context ctx) {
+diff --git a/android/app/src/main/java/dev/linjian/peek/GuidianState.java b/android/app/src/main/java/dev/linjian/peek/GuidianState.java
+index bcc4440..8d5898f 100644
+--- a/android/app/src/main/java/dev/linjian/peek/GuidianState.java
++++ b/android/app/src/main/java/dev/linjian/peek/GuidianState.java
+@@ -312,7 +312,29 @@ public class GuidianState {
+     private static long nextPromptAfterMs(Context ctx, SharedPreferences p, long now) {
+         long lastReturn = p.getLong(KEY_LAST_RETURN_AT, now);
+         long lastPrompt = p.getLong(KEY_LAST_PROMPT_AT, 0);
+-        return Math.max(lastReturn + intervalMin(ctx) * 60000L, lastPrompt + cooldownMin(ctx) * 60000L);
++        long next = Math.max(lastReturn + intervalMin(ctx) * 60000L, lastPrompt + cooldownMin(ctx) * 60000L);
++        // #43/#19：interval 真正生效，且下次归电不排进安静时段被 quiet_time 拦掉空转
++        long guard = now + 30L * 24 * 3600 * 1000;
++        while (p.getBoolean(KEY_QUIET_ENABLED, true) && inQuietTime(ctx, next) && next < guard) {
++            long shifted = quietEndMs(ctx, p, next);
++            if (shifted <= next) break;
++            next = shifted;
++        }
++        return next;
++    }
++
++    /** 返回 at 所在安静窗口的结束时刻（毫秒），用于把归电顺延出安静时段。 */
++    private static long quietEndMs(Context ctx, SharedPreferences p, long at) {
++        int start = parseMinute(p.getString(KEY_QUIET_START, "23:30"), 23 * 60 + 30);
++        int end = parseMinute(p.getString(KEY_QUIET_END, "08:00"), 8 * 60);
++        if (start == end) return at + 60000L;
++        Calendar c = Calendar.getInstance(); c.setTimeInMillis(at);
++        int nowMin = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE);
++        int delta = (start < end) ? (end - nowMin)
++                : (nowMin >= start ? (24 * 60 - nowMin) + end : (end - nowMin));
++        if (delta <= 0) delta = 1;
++        c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0);
++        return c.getTimeInMillis() + delta * 60000L;
+     }
+ 
+     private static void recordAutoCheck(Context ctx, long checkedAt, long dueAt, boolean dueButNotShown, String reason, String result) {
+diff --git a/android/app/src/main/java/dev/linjian/peek/LifeState.java b/android/app/src/main/java/dev/linjian/peek/LifeState.java
+index 177f9f0..9dcb0c5 100644
+--- a/android/app/src/main/java/dev/linjian/peek/LifeState.java
++++ b/android/app/src/main/java/dev/linjian/peek/LifeState.java
+@@ -84,7 +84,12 @@ public class LifeState {
+             state.put("accessibility_ready", ScreenshotService.ready());
+             state.put("usage_permission_ready", usageReady);
+             state.put("screen_time_today_minutes", usage.screenTimeMinutes);
+-            state.put("unlock_count_today", usage.unlockCount);
++            // R3/#49/#6a：亮屏>0 却 0 次解锁说明采集端没拿到解锁事件，
++            // 显式标注 unreliable，避免下游把 0 当真实值参与统计/情绪计算
++            int unlockCount = usage.unlockCount;
++            boolean unlockReliable = unlockCount > 0 || usage.screenTimeMinutes <= 0 || usage.lastUnlockAt > 0;
++            state.put("unlock_count_today", unlockCount);
++            state.put("unlock_count_reliable", unlockReliable);
+             state.put("last_unlock_at", usage.lastUnlockAt <= 0 ? "" : formatIsoLocal(usage.lastUnlockAt));
+             state.put("top_apps_today", usage.topApps);
+             state.put("city", prefs.city());
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java b/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
+index 62b0f14..eb23135 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
++++ b/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
+@@ -588,8 +588,11 @@ public final class PolicyScheduler {
+     public static boolean inClassNow(Context ctx) { return ClassScheduleState.isInClassNow(ctx); }
+ 
+     private void discipline(String cause, String detail) {
++        // #35：单一开关语义——总开关关闭或档位为 0 都视为「关闭」，不得产生任何训诫事件。
++        // 避免 enabled=false / level=0 时仍输出「训诫(0档)」污染事件流。
+         if (!PolicyStore.disciplineEnabled(appCtx)) return;
+         int level = PolicyStore.disciplineLevel(appCtx);
++        if (level <= 0) return;
+         ActivityEventStore.recordForced(appCtx, "discipline", "训诫(" + level + "档)", cause + "：" + detail);
+         DebugState.append(appCtx, "训诫插件触发 " + level + " 档，原因=" + cause);
+     }
+diff --git a/mcp/server.js b/mcp/server.js
+index e54fec0..40313ce 100644
+--- a/mcp/server.js
++++ b/mcp/server.js
+@@ -528,6 +528,12 @@ function buildVisitStats({ source = "", since_hours = 24, away_threshold_hours =
+     count_in_window: visits.length,
+     window_hours: Number(since_hours || 24),
+     today_count: todayCount,
++    // P1-13：把「今天」用的本地日界与所用时区一并返回，today_count 与 recent_24h_count
++    // 口径不同（自然日 vs 滚动 24h）不再被误读为 bug；调用方可据此核对。
++    today_key: todayKey,
++    today_timezone_offset: timezone_offset || visitState?.policy?.timezone_offset || DEFAULT_VISIT_POLICY.timezone_offset,
++    today_is_local_calendar_day: true,
++    recent_24h_is_rolling_window: true,
+     recent_24h_count: filteredVisits({ source, since_hours: 24, timezone_offset }).length,
+     recent_7d_count: last7dCount,
+     average_interval_minutes_in_window: avg,
+@@ -874,10 +880,17 @@ function buildWeatherAdvice(weather, name="当前地区") {
+   const temp = Math.round(Number(now.temperature_2m ?? now.temperature ?? 0));
+   const codeText = weatherCodeText(now.weather_code ?? now.weathercode);
+   const rain = Number(daily.precipitation_probability_max?.[0] ?? 0);
++  // #51/P2-18：min/max 一律 Math.round 到整数，文案与返回体用的是同一组数字，
++  // 不再出现 17/13、17.5/13.1、「13~18℃」三套口径。
+   const max = Math.round(Number(daily.temperature_2m_max?.[0] ?? temp));
+   const min = Math.round(Number(daily.temperature_2m_min?.[0] ?? temp));
+   const parts = [`${name}现在${codeText}，约 ${temp}℃，今天 ${min}~${max}℃。`];
+-  if (rain >= 50 || codeText.includes("雨") || codeText.includes("雪")) parts.push("出门把伞带上，别淋到。");
++  const wetCode = codeText.includes("雨") || codeText.includes("雪");
++  if (rain >= 50 || wetCode) {
++    // #51：降水概率与天气码矛盾时如实说明，而不是含糊一句「把伞带上」。
++    if (rain >= 90 && !wetCode) parts.push(`今天降水概率 ${Math.round(rain)}%，但当前天气码是「${codeText}」，数据可能不一致，伞还是带上稳妥。`);
++    else parts.push(`今晚/今天降水概率约 ${Math.round(rain)}%，出门把伞带上，别淋到。`);
++  }
+   else if (max >= 32) parts.push("今天偏热，水杯带着，不许又忘喝水。");
+   else if (min <= 8 || max - min >= 10) parts.push("温差有点明显，外套带着，别嘴硬。");
+   else parts.push("天气暂时还行，正常出门就好。");
+diff --git a/server/linjian_server.py b/server/linjian_server.py
+index 33c6a9b..0dfcd9a 100644
+--- a/server/linjian_server.py
++++ b/server/linjian_server.py
+@@ -853,8 +853,15 @@ class Handler(BaseHTTPRequestHandler):
+                     mode = str(data.get("mode") or "gentle").strip().lower()
+                     self.state.discipline["mode"] = "strict" if (mode == "strict" or mode == "严厉") else "gentle"
+                 if "level" in data:
+-                    try: self.state.discipline["level"] = int(data.get("level"))
++                    try: self.state.discipline["level"] = max(0, min(4, int(data.get("level"))))
+                     except Exception: pass
++                # #35：enabled 与 level 是同一开关的两种表达，状态源必须唯一。
++                # level=0 等价于关闭；关闭时强制 level=0，开启但 0 档则归一为关闭。
++                if self.state.discipline.get("level", 0) <= 0:
++                    self.state.discipline["enabled"] = False
++                    self.state.discipline["level"] = 0
++                if not self.state.discipline.get("enabled", False):
++                    self.state.discipline["level"] = 0
+                 self.state.discipline["updated_at"] = now_iso()
+                 self.state.save_discipline()
+                 disc = dict(self.state.discipline)

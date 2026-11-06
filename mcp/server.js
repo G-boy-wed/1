@@ -805,7 +805,7 @@ async function buildActiveCareSuggestion({ reason = "", care_intent = "check_in"
   const recent_care_events = (careState.history || []).slice(-5).reverse();
   const possible_actions = [];
   if (signals.defiant_or_continue || (sensitive && sensitiveUsage)) possible_actions.push("send_notification", "trigger_guidian", "screen_break_app");
-  if (signals.self_care_refusal || signals.plan_or_reminder) possible_actions.push("send_notification", "set_alarm");
+  if (signals.self_care_refusal || signals.plan_or_reminder) possible_actions.push("send_notification");
   if (signals.relationship_pullback || signals.missing_or_low_mood) possible_actions.push("send_notification", "trigger_guidian");
   if (!possible_actions.length) possible_actions.push("no_action", "send_notification");
 
@@ -1803,7 +1803,7 @@ function makeServer() {
   });
 
   server.tool("care_action", "执行陪伴对象已经判断好的关心动作，把关心落到手机上，包括发送通知、触发归电、临时锁定应用、打开 App 或设置闹钟。当用户看某个 App 很久还要继续看，或提到“不喝水/不困/不饿/不睡/不休息”，或告诉陪伴对象某个计划、提醒、学习/睡觉/出门安排时，陪伴对象可主动调用。", {
-    action: z.enum(["send_notification", "trigger_guidian", "screen_break_app", "end_screen_break", "open_app", "set_alarm", "show_center_alert", "force_back_to_chat", "no_action"]),
+    action: z.enum(["send_notification", "trigger_guidian", "screen_break_app", "end_screen_break", "open_app", "show_center_alert", "force_back_to_chat", "no_action"]),
     target_app: z.string().default(""),
     package: z.string().default(""),
     duration_minutes: z.number().int().min(1).max(1440).default(30),
@@ -2046,27 +2046,37 @@ function makeServer() {
   });
 
   // ============ 共同记忆：聊天中自动写入、回忆时自动检索 ============
-  server.tool("write_shared_memory", "把一条值得长期记住的内容写入共同记忆（掌心窗共同记忆面板，双方可见可改）。当用户在聊天里说「记住…」「别忘了…」「我们约定…」或任何值得长期保存的事实/偏好/约定时，主动调用本工具自动写入。", {
+  server.tool("write_shared_memory", "把一条值得长期记住的内容写入共同记忆（掌心窗共同记忆面板，双方可见可改）。【仅当用户在聊天里明确说「记住…」「别忘了…」「我们约定…」或任何值得长期保存的事实/偏好/约定时才调用】。写入会真正落到手机本机存储（唯一数据源），调用后可用 search_shared_memory 检索确认。", {
     text: z.string().describe("要记住的内容"),
     author: z.string().default("用户").describe("记录者，默认 用户")
   }, async ({ text, author = "用户" }) => {
-    const res = await linjianFetch("/api/shared_memory", { method: "POST", timeout_ms: COMMAND_QUEUE_TIMEOUT_MS, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "add", text, author }) }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
-    return { content: [{ type: "text", text: JSON.stringify({ ...res, note: "已写入共同记忆；下次聊天需要回忆时，先用 search_shared_memory 检索再回答。" }, null, 2) }] };
+    const result = await postCommand({ action: "add_shared_memory", device_id: DEFAULT_DEVICE, payload: { text, author, explicit: true } });
+    const id = result?.command?.id;
+    const observed = id ? await waitCommand(id, DEFAULT_COMMAND_WAIT_SECONDS) : null;
+    const cmd = observed?.command || result?.command || null;
+    let parsed = null;
+    try { parsed = typeof cmd?.result === "string" ? JSON.parse(cmd.result) : cmd?.result; } catch {}
+    const ok = parsed?.ok === true || cmd?.result === "memory_added";
+    return { content: [{ type: "text", text: JSON.stringify({ ok, item: parsed && parsed.id ? parsed : (cmd ? { result: cmd.result } : null), note: ok ? "已写入手机共同记忆（本机存储为唯一数据源），并已同步到掌心窗面板，可改可查。" : "记忆写入未确认，请查看掌心窗调试日志。" }, null, 2) }] };
   });
 
-  server.tool("search_shared_memory", "在共同记忆里检索与查询相关的内容。当用户问「你还记得…」「我们之前是不是约定…」「上次说的那个…」等需要回忆的场景时，先调用本工具检索再回答，不要凭空编造。", {
+  server.tool("search_shared_memory", "在共同记忆里检索与查询相关的内容（读取手机本机存储镜像）。当用户问「你还记得…」「我们之前是不是约定…」「上次说的那个…」等需要回忆的场景时，先调用本工具检索再回答，不要凭空编造。", {
     query: z.string().describe("检索关键词或句子"),
     limit: z.number().int().min(1).max(50).default(20)
   }, async ({ query, limit = 20 }) => {
-    const res = await linjianFetch(`/api/shared_memory?search=${encodeURIComponent(query)}`, { method: "GET", timeout_ms: QUICK_FETCH_TIMEOUT_MS }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
-    return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
+    const res = await linjianFetch(`/api/shared_memory?search=${encodeURIComponent(query || "")}`, { method: "GET", timeout_ms: QUICK_FETCH_TIMEOUT_MS }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
+    let items = Array.isArray(res?.items) ? res.items : [];
+    if (limit > 0 && items.length > limit) items = items.slice(0, limit);
+    return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: items.length, items, note: "检索自手机共同记忆镜像（手机本机存储为唯一数据源，状态上报会持续同步到这里）。" }, null, 2) }] };
   });
 
-  server.tool("list_shared_memory", "列出全部共同记忆条目（最新在前）。用于回顾你们一起记下的事。", {
+  server.tool("list_shared_memory", "列出全部共同记忆条目（最新在前，读取手机本机存储镜像）。用于回顾你们一起记下的事。", {
     limit: z.number().int().min(1).max(100).default(50)
   }, async ({ limit = 50 }) => {
     const res = await linjianFetch(`/api/shared_memory?search=`, { method: "GET", timeout_ms: QUICK_FETCH_TIMEOUT_MS }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
-    return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
+    let items = Array.isArray(res?.items) ? res.items : [];
+    if (limit > 0 && items.length > limit) items = items.slice(0, limit);
+    return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: items.length, items }, null, 2) }] };
   });
 
   // ============ 训诫模块（小圈管束）：严厉 / 温柔 ============
@@ -2193,17 +2203,20 @@ function makeServer() {
     return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
   });
 
-  server.tool("set_alarm", "设置系统闹钟。可用于陪伴对象主动安排睡觉、休息、学习、出门、喝水、计划执行或生活提醒。当用户提到“一会儿要做/几点要去/等下提醒/今天计划”等相近表达时主动调用。hour 为 0-23，minute 为 0-59。", {
+  server.tool("set_alarm", "设置系统闹钟。【仅当用户明确说「帮我定闹钟 / 定个闹钟 / 帮我设个闹钟」并给出具体时间（如「帮我定个明天 7 点的闹钟」）时才调用】；普通的「提醒我 / 计划 / 一会儿」不要调用本工具，改用 send_notification。hour 为 0-23，minute 为 0-59。", {
     hour: z.number().int().min(0).max(23), minute: z.number().int().min(0).max(59), message: z.string().default("掌心窗闹钟"), vibrate: z.boolean().default(true), skip_ui: z.boolean().default(true), device_id: z.string().default(DEFAULT_DEVICE)
   }, async ({ hour, minute, message = "掌心窗闹钟", vibrate = true, skip_ui = true, device_id = DEFAULT_DEVICE }) => {
-    const result = await postCommand({ action: "set_alarm", device_id, payload: { hour, minute, message, vibrate, skip_ui } });
-    await postCompanionAction("set_alarm", { summary: `设置了 ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} 的闹钟` });
-    return { content: [{ type: "text", text: JSON.stringify({ ...result, note: "部分手机系统可能仍会弹出闹钟 App 确认界面。" }, null, 2) }] };
+    const result = await postCommand({ action: "set_alarm", device_id, payload: { hour, minute, message, vibrate, skip_ui, explicit: true } });
+    const id = result?.command?.id;
+    const observed = id ? await waitCommand(id, DEFAULT_COMMAND_WAIT_SECONDS) : null;
+    const cmd = observed?.command || result?.command || null;
+    const ok = cmd?.result === "alarm_set" || (typeof cmd?.result === "string" && cmd.result.startsWith("alarm "));
+    return { content: [{ type: "text", text: JSON.stringify({ ...(cmd || {}), ok, note: ok ? "已在手机上设定闹钟。" : (cmd?.result === "alarm_requires_explicit_request" ? "手机端要求显式意图，请确认用户明确说了「帮我定闹钟+时间」。" : "部分手机系统可能仍会弹出闹钟 App 确认界面，或设定未确认，请查看掌心窗调试日志。") }, null, 2) }] };
   });
 
 
   const stepSchema = z.object({
-    action: z.string().describe("动作：open_app/home/back/recents/screen_off/tap/swipe/peek/send_notification/set_alarm/wait/get_life_state/get_calendar_state/upsert_calendar_event"),
+    action: z.string().describe("动作：open_app/home/back/recents/screen_off/tap/swipe/peek/send_notification/wait/get_life_state/get_calendar_state/upsert_calendar_event"),
     label: z.string().default(""),
     app: z.string().default(""),
     package: z.string().default(""),

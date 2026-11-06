@@ -1,0 +1,317 @@
+diff --git a/CHANGES.md b/CHANGES.md
+index fd58ce1..97d6f27 100644
+--- a/CHANGES.md
++++ b/CHANGES.md
+@@ -2,7 +2,40 @@
+ 
+ ---
+ 
+-## 第四轮：交付格式重排 + R3 状态一致性专项（本轮）
++## 第五轮：R1/R2 手机端真修 + 守护日历专项（Commit C，本轮）
++
++> 关键修正：第四轮之前 R1/R2 **只在 MCP 层做了「如实返回」**，手机端 `CalendarState`（真正写数据的地方）没动，
++> 所以真机上删除依旧 `not_found:<命令id>`、更新依旧换 id 覆盖 —— 属于「没真正修好」。本轮从数据源修。
++
++**根因（对上清单现象）**：`make_command()` 用 `uuid4` 生成命令 id，`CalendarState.handleCommand` 却把
++命令对象顶层 `id`（命令 uuid）当事件 id 用；MCP 传的业务事件 id 实际在 `cmd.payload.id`。
++
++- **R2 / P0-1 删除**：`CalendarState.bizArgs()` 从 `payload.id` 取事件 id；`deleteEvent` 真删除。
++  运行时实测 `deleted:cal_...`（事件 id）、落库由 1 条变 0 条，不再是 `not_found:命令id`。
++- **R1 / P0-2 更新**：新增 `upsertEventSmart()` —— 带 id 命中已有事件时**只覆盖显式传入字段**，
++  id 恒定、group/note/repeat_type 不被默认值覆盖；带 id 找不到明确失败、不静默新建换 id。
++  运行时实测：只传 title，group 仍 study、note 仍「带课本」、repeat_type 仍 none、id 不变。
++- **R1/R2 别处旧口径**：`CompanionService.performAction` 旧标量日历死路径改为明确拒绝
++  `calendar_command_requires_payload_use_handleCommandBody`，不再构造缺 id 的 cmd。
++- **P2-14 / #69** `bannerText(title,d,group)` 按 study/festival/project/user 分模板，课表不再「小仪式」；
++  `banner_enabled=false` 时 `banner_text=""` 不生成。
++- **P2-15** `collect()` 的 `nearest` 与 `summaryLine()` 只收启用横幅的日子，关掉的课表不再占据醒目位。
++- **#70/#71** `events`=全部定义（自定义+内置节日），`custom_events`=仅自定义；两数组不再同文重复，
++  `event_count`/`custom_event_count` 口径分开，附 `event_fields_note`。
++- **#72** 新增 `upcoming_total` / `upcoming_has_more`，不再静默截断 12 条。
++- **P2-20** `DEFAULT_CARE_POLICY.allowed_actions` 补齐 7 个专注模式动作。
++- **P2-17** `gateCommand` 的 note 改为按 `command_status` 动态生成，不再与 `status=completed` 矛盾。
++- **#65** `create_diary_book`/`list_diary_books` 文案不再预设「TA 的日记」，与本机「祁晏的日记本」不再冲突。
++- **#44** Python `tour_step_check_in`：配置了 `alert_tone` 就以它为准，强情绪 angry 不再覆盖 gentle。
++  运行时实测 `tones=['gentle']`。
++
++**查证**：javac 全量 45 文件 0 error + APK v1/v2/v3 签名通过；`node --check`(server.js/worker.js)、
++`py_compile` 通过；**Java 真跑 CalendarState 24/24 PASS**（官方 org.json + stub）、
++**Python 真跑 7 项 + HTTP 实测训诫归一** 全通过。逐条回执/复测清单见 `BUG_RECEIPT.md`、`RETEST.md`。
++
++---
++
++## 第四轮：交付格式重排 + R3 状态一致性专项（Commit A / Commit B）
+ 
+ > 按交付要求拆成**两版可独立推送/回滚的提交**：
+ > - **Commit A（R1/R2/R4 根因版）**：见上一节「Bug 清单全量版本轮已处理项」+ 33–72 补充项。
+diff --git a/android/app/src/main/java/dev/linjian/peek/CalendarState.java b/android/app/src/main/java/dev/linjian/peek/CalendarState.java
+index 7f0f355..8601878 100644
+--- a/android/app/src/main/java/dev/linjian/peek/CalendarState.java
++++ b/android/app/src/main/java/dev/linjian/peek/CalendarState.java
+@@ -64,22 +64,32 @@ public class CalendarState {
+             JSONArray banners = new JSONArray();
+             for (Occurrence x : occ) {
+                 JSONObject item = x.toJson();
+-                if (nearest.length() < 3) nearest.put(item);
++                // P2-15：已关横幅的课表/日子不再占据 nearest 与摘要的醒目位置
++                if (x.bannerEnabled && nearest.length() < 3) nearest.put(item);
+                 if (upcoming.length() < 12) upcoming.put(item);
+                 if (x.bannerEnabled && x.daysLeft >= 0 && x.daysLeft <= Math.max(0, x.remindDays)) banners.put(item);
+             }
+             JSONArray customEvents = events(ctx);
++            // #70/#71：events 与 custom_events 不再同文重复。events=全部定义(自定义+内置节日)，
++            // custom_events=仅自定义(带稳定 id 供编辑删除)；两者口径与计数明确分开。
++            JSONArray allRawEvents = new JSONArray();
++            for (int i = 0; i < customEvents.length(); i++) allRawEvents.put(customEvents.opt(i));
++            for (JSONObject be : builtinEvents()) allRawEvents.put(be);
+             o.put("enabled", true);
+             o.put("version", VERSION);
+             o.put("theme_color", THEME_COLOR);
+             o.put("default_remind_days_before", DEFAULT_REMIND_DAYS);
+-            o.put("event_count", customEvents.length());
++            o.put("event_count", allRawEvents.length());
+             o.put("custom_event_count", customEvents.length());
+             o.put("nearest", nearest);
+             o.put("upcoming", upcoming);
++            // #72：不再静默截断，明确给出总数与 has_more
++            o.put("upcoming_total", occ.size());
++            o.put("upcoming_has_more", occ.size() > upcoming.length());
+             o.put("active_banners", banners);
+             o.put("custom_events", customEvents);
+-            o.put("events", customEvents);
++            o.put("events", allRawEvents);
++            o.put("event_fields_note", "events=全部日子定义(自定义+内置节日, event_count 计此); custom_events=仅用户/陪伴自定义(custom_event_count 计此, 带稳定 id 供编辑删除); upcoming=按临近排序的展示预览(最多12条), 用 upcoming_total/upcoming_has_more 判断是否被截断; nearest/active_banners 仅含启用横幅的日子");
+             o.put("summary", summaryLine(ctx));
+         } catch (Exception e) {
+             try { o.put("error", ScreenshotService.shortMsg(e)); } catch (Exception ignored) { }
+@@ -121,8 +131,10 @@ public class CalendarState {
+     public static String summaryLine(Context ctx) {
+         try {
+             List<Occurrence> list = occurrences(ctx, false);
+-            if (list.isEmpty()) return "守护日历 · 暂无临近日子";
+-            Occurrence x = list.get(0);
++            // P2-15：跳过已关闭横幅的项，避免关掉的课表占据摘要首位
++            Occurrence x = null;
++            for (Occurrence c : list) { if (c.bannerEnabled) { x = c; break; } }
++            if (x == null) return "守护日历 · 暂无临近提醒";
+             return "守护日历 · " + x.title + " · " + daysText(x.daysLeft);
+         } catch (Exception e) { return "守护日历 · 读取中"; }
+     }
+@@ -195,32 +207,92 @@ public class CalendarState {
+         return arr;
+     }
+ 
++    /** R1/R2 根因：命令对象顶层 id 是「命令 uuid」，真正的事件 id 在 payload.id。
++     *  旧代码直接用 cmd.optString("id") 当事件 id，导致删除返回 not_found:<命令id>、
++     *  更新把事件 id 换成命令 id。这里把 payload 覆盖到顶层副本，得到稳定的「业务参数」。 */
++    private static JSONObject bizArgs(JSONObject cmd) {
++        try {
++            JSONObject biz = new JSONObject();
++            java.util.Iterator<String> it = cmd.keys();
++            while (it.hasNext()) { String k = it.next(); if (!"id".equals(k)) biz.put(k, cmd.opt(k)); }
++            JSONObject p = cmd.optJSONObject("payload");
++            if (p != null) {
++                java.util.Iterator<String> pit = p.keys();
++                while (pit.hasNext()) { String k = pit.next(); biz.put(k, p.opt(k)); }
++                String eid = firstNonEmpty(p.optString("id", ""), p.optString("event_id", ""));
++                if (eid.length() > 0) biz.put("id", eid);
++            } else {
++                // 兼容旧文本命令路径：没有 payload 时顶层 id 才是业务 id
++                biz.put("id", cmd.optString("id", ""));
++            }
++            return biz;
++        } catch (Exception ignored) { return cmd; }
++    }
++
++    /** R1：带 id 且命中已有事件 -> 只覆盖「显式传入」的字段（绝不换 id、绝不用默认值补空）；
++     *  带 id 但找不到 -> 明确失败（不静默新建、不谎报）；无 id -> 全量新建。 */
++    private static JSONObject upsertEventSmart(Context ctx, JSONObject biz) {
++        JSONObject out = new JSONObject();
++        String id = firstNonEmpty(biz.optString("id", ""), biz.optString("event_id", ""));
++        if (id.length() == 0) {
++            return upsertEvent(ctx, "",
++                    biz.optString("title", ""),
++                    normalizeDateType(firstNonEmpty(biz.optString("date_type", ""), biz.optBoolean("lunar", false) ? TYPE_LUNAR : TYPE_SOLAR)),
++                    firstNonEmpty(biz.optString("date", ""), biz.optString("solar_date", ""), biz.optString("date_text", "")),
++                    firstPositive(biz.optInt("lunar_month", 0), biz.optInt("month", 0)),
++                    firstPositive(biz.optInt("lunar_day", 0), biz.optInt("day", 0)),
++                    biz.optBoolean("lunar_is_leap", biz.optBoolean("leap", false)),
++                    normalizeRepeatType(biz.optString("repeat_type", biz.optBoolean("repeat", true) ? REPEAT_YEARLY : REPEAT_NONE)),
++                    biz.optString("group", "our_days"),
++                    biz.optString("note", ""),
++                    biz.optInt("remind_days_before", DEFAULT_REMIND_DAYS),
++                    biz.optBoolean("banner_enabled", true),
++                    biz.optString("created_by", "companion"));
++        }
++        try {
++            JSONArray arr = events(ctx);
++            for (int i = 0; i < arr.length(); i++) {
++                JSONObject e = arr.optJSONObject(i);
++                if (e == null || !id.equals(e.optString("id", ""))) continue;
++                if (biz.has("title")) e.put("title", safe(biz.optString("title")));
++                if (biz.has("date_type")) e.put("date_type", normalizeDateType(biz.optString("date_type")));
++                if (biz.has("repeat_type")) e.put("repeat_type", normalizeRepeatType(biz.optString("repeat_type")));
++                if (biz.has("group")) e.put("group", normalizeGroup(biz.optString("group")));
++                if (biz.has("note")) e.put("note", safe(biz.optString("note")));
++                if (biz.has("remind_days_before")) e.put("remind_days_before", clamp(biz.optInt("remind_days_before", DEFAULT_REMIND_DAYS), 0, 30));
++                if (biz.has("banner_enabled")) e.put("banner_enabled", biz.optBoolean("banner_enabled"));
++                if (biz.has("created_by")) e.put("created_by", safe(biz.optString("created_by")));
++                if (biz.has("date")) e.put("date", safe(biz.optString("date")));
++                if (biz.has("solar_date")) e.put("solar_date", safe(biz.optString("solar_date")));
++                e.put("id", id); // id 恒定，绝不更换
++                e.put("updated_at", formatDateTime(System.currentTimeMillis()));
++                arr.put(i, e);
++                if (!saveEvents(ctx, arr)) return out.put("ok", false).put("error", "save_failed");
++                return out.put("ok", true).put("event", e).put("calendar_state", collect(ctx));
++            }
++            return out.put("ok", false).put("error", "event_not_found").put("id", id);
++        } catch (Exception ex) {
++            try { out.put("ok", false).put("error", ScreenshotService.shortMsg(ex)); } catch (Exception ignored) { }
++            return out;
++        }
++    }
++
+     public static JSONObject handleCommand(Context ctx, JSONObject cmd) {
+         JSONObject out = new JSONObject();
+         try {
+-            String action = cmd.optString("action", "");
++            JSONObject biz = bizArgs(cmd);
++            String action = biz.optString("action", cmd.optString("action", ""));
+             if ("get_calendar_state".equals(action)) {
+                 out.put("ok", true).put("result", collect(ctx).toString()).put("calendar_state", collect(ctx));
+             } else if ("upsert_calendar_event".equals(action) || "add_calendar_event".equals(action)) {
+-                JSONObject saved = upsertEvent(ctx,
+-                        cmd.optString("id", ""),
+-                        cmd.optString("title", ""),
+-                        normalizeDateType(cmd.optString("date_type", cmd.optBoolean("lunar", false) ? TYPE_LUNAR : TYPE_SOLAR)),
+-                        firstNonEmpty(cmd.optString("date", ""), cmd.optString("solar_date", ""), cmd.optString("date_text", "")),
+-                        firstPositive(cmd.optInt("lunar_month", 0), cmd.optInt("month", 0)),
+-                        firstPositive(cmd.optInt("lunar_day", 0), cmd.optInt("day", 0)),
+-                        cmd.optBoolean("lunar_is_leap", cmd.optBoolean("leap", false)),
+-                        normalizeRepeatType(cmd.optString("repeat_type", cmd.optBoolean("repeat", true) ? REPEAT_YEARLY : REPEAT_NONE)),
+-                        cmd.optString("group", "our_days"),
+-                        cmd.optString("note", ""),
+-                        cmd.optInt("remind_days_before", DEFAULT_REMIND_DAYS),
+-                        cmd.optBoolean("banner_enabled", true),
+-                        cmd.optString("created_by", "companion"));
++                // R1：只覆盖显式字段、id 恒定；带 id 找不到时明确失败，不静默新建换 id
++                JSONObject saved = upsertEventSmart(ctx, biz);
+                 out.put("ok", saved.optBoolean("ok", false)).put("result", saved.toString()).put("saved", saved);
+             } else if ("delete_calendar_event".equals(action)) {
+-                String id = cmd.optString("id", "");
+-                boolean ok = deleteEvent(ctx, id);
+-                out.put("ok", ok).put("result", ok ? "deleted:" + id : "not_found:" + id);
++                // R2：事件 id 取 payload.id（业务 id），绝不再把命令 uuid 当事件 id
++                String id = firstNonEmpty(biz.optString("id", ""), biz.optString("event_id", ""));
++                boolean ok = id.length() > 0 && deleteEvent(ctx, id);
++                out.put("ok", ok).put("result", ok ? "deleted:" + id : (id.length() == 0 ? "missing_event_id" : "not_found:" + id));
+             } else {
+                 out.put("ok", false).put("result", "unknown_calendar_action");
+             }
+@@ -469,7 +541,17 @@ public class CalendarState {
+ 
+     private static Calendar midnight(Calendar c) { c.set(Calendar.HOUR_OF_DAY, 0); c.set(Calendar.MINUTE, 0); c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0); return c; }
+     private static String daysText(int d) { if (d < 0) return "已经过去 " + Math.abs(d) + " 天"; if (d == 0) return "今天"; if (d == 1) return "明天"; return "还有 " + d + " 天"; }
+-    private static String bannerText(String title, int d) { if (d == 0) return "今天是" + title + "，记得回来看看。"; if (d == 1) return "明天是" + title + "，已经帮你记着。"; return "还有 " + d + " 天是" + title + "，别忘了这份小仪式。"; }
++    /** P2-14/#69：按事件类型（课表/节日/纪念日/考试/项目）分别给横幅文案模板；
++     *  课表不再套用纪念日的「别忘了这份小仪式」。 */
++    private static String bannerText(String title, int d, String group) {
++        String head = d == 0 ? "今天是" + title : (d == 1 ? "明天是" + title : "还有 " + d + " 天是" + title);
++        String g = normalizeGroup(group);
++        if ("study".equals(g)) return head + "，提前把课本和作业备好，别迟到。";
++        if ("festival".equals(g)) return head + "，一起过个节，我记着呢。";
++        if ("project".equals(g)) return head + "，节点快到了，提前收个尾。";
++        if ("user".equals(g) || "companion".equals(g)) return head + "，这个日子只属于你，我陪你过。";
++        return head + "，别忘了这份小仪式。";
++    }
+     private static String formatDate(Calendar c) { return new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(c.getTime()); }
+     private static String formatDateTime(long ms) { return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA).format(new Date(ms)); }
+     private static String pad2(int n) { return n < 10 ? "0" + n : String.valueOf(n); }
+@@ -545,7 +627,7 @@ public class CalendarState {
+             try {
+                 o.put("id", id); o.put("title", title); o.put("group", group); o.put("group_label", groupLabel(group)); o.put("note", note);
+                 o.put("date", formatDate(date)); o.put("days_left", daysLeft); o.put("days_text", daysText(daysLeft)); o.put("date_type", dateType); o.put("repeat_type", repeatType);
+-                o.put("lunar_label", lunarLabel); o.put("remind_days_before", remindDays); o.put("banner_enabled", bannerEnabled); o.put("banner_text", bannerText(title, daysLeft)); o.put("created_by", createdBy); o.put("builtin", builtin);
++                o.put("lunar_label", lunarLabel); o.put("remind_days_before", remindDays); o.put("banner_enabled", bannerEnabled); o.put("banner_text", bannerEnabled ? bannerText(title, daysLeft, group) : ""); o.put("created_by", createdBy); o.put("builtin", builtin);
+             } catch (Exception ignored) { }
+             return o;
+         }
+diff --git a/android/app/src/main/java/dev/linjian/peek/CompanionService.java b/android/app/src/main/java/dev/linjian/peek/CompanionService.java
+index 182d03c..f9b4c25 100644
+--- a/android/app/src/main/java/dev/linjian/peek/CompanionService.java
++++ b/android/app/src/main/java/dev/linjian/peek/CompanionService.java
+@@ -357,7 +357,7 @@ public class CompanionService extends Service {
+             ScreenshotService svc = ScreenshotService.getInstance();
+             if ("wait".equals(action)) { ok = true; result = "wait";
+             } else if ("get_life_state".equals(action)) { ok = true; result = LifeState.collect(ctx).toString();
+-            } else if ("get_calendar_state".equals(action) || "upsert_calendar_event".equals(action) || "add_calendar_event".equals(action) || "delete_calendar_event".equals(action)) { JSONObject rr = CalendarState.handleCommand(ctx, new JSONObject().put("action", action).put("title", title).put("date", message)); ok = rr.optBoolean("ok", false); result = rr.optString("result", rr.toString());
++            } else if ("get_calendar_state".equals(action) || "upsert_calendar_event".equals(action) || "add_calendar_event".equals(action) || "delete_calendar_event".equals(action)) { // 日历命令统一由 handleCommandBody(ctx, cmd) 处理：那里带完整 payload，能解析出稳定的事件 id。 // performAction 这条旧标量路径没有 payload，若继续用命令 id 顶替会重现「删除 not_found:命令id / 更新换 id」(R1/R2)， // 因此明确拒绝，绝不再悄悄构造一个缺 id 的 cmd。 ok = false; result = "calendar_command_requires_payload_use_handleCommandBody";
+             } else if (FocusMode.isFocusAction(action)) {
+                 JSONObject focusCmd = new JSONObject().put("action", action).put("app", app).put("package", pkg);
+                 if (duration > 0 && duration != 350) focusCmd.put("duration_minutes", Math.max(1, Math.round(duration / 60000.0)));
+diff --git a/mcp/server.js b/mcp/server.js
+index 40313ce..a019714 100644
+--- a/mcp/server.js
++++ b/mcp/server.js
+@@ -137,7 +137,10 @@ const DEFAULT_CARE_POLICY = {
+   allowed_actions: [
+     "get_phone_state", "get_life_state", "get_calendar_state", "upsert_calendar_event", "get_senses_state", "send_notification",
+     "trigger_guidian", "screen_break_app", "end_screen_break", "extend_screen_break", "get_screen_break_state", "get_lock_state", "open_app", "set_alarm", "screen_off", "run_sequence",
+-    "show_center_alert", "force_back_to_chat", "start_tour", "stop_tour", "get_usage_snapshot"
++    "show_center_alert", "force_back_to_chat", "start_tour", "stop_tour", "get_usage_snapshot",
++    // P2-20：专注模式动作此前缺失，导致 care_policy 声明与实际能力不符；在此补齐全部专注工具名。
++    "get_focus_status", "start_focus_mode", "end_focus_mode", "set_focus_plan",
++    "reply_focus_request", "approve_focus_unlock", "deny_focus_unlock"
+   ],
+   sensitive_apps: [
+     { name: "小红书", package: "com.xingin.xhs", max_lock_minutes: 90 },
+@@ -1441,7 +1444,7 @@ function makeServer() {
+     wait_seconds: z.number().int().min(3).max(20).default(8)
+   };
+ 
+-  server.tool("create_diary_book", "在手机本机创建一本“TA 的日记”。日记默认不上传云端；成功结果包含 book_id。", {
++  server.tool("create_diary_book", "在手机本机创建一本日记本，名称由 name 参数决定（不预设书名，避免与本机已存在的「祁晏的日记本」等命名冲突）。日记默认不上传云端；成功结果包含 book_id。", {
+     name: z.string().min(1).max(60),
+     subtitle: z.string().max(100).default("把今天看见的你，轻轻写下来。"),
+     cover_style: z.string().max(80).default("default_soft_notebook"),
+@@ -1452,7 +1455,7 @@ function makeServer() {
+     return textResult({ ok: result.command?.status === "completed", action_done: `日记本「${name}」已在本机创建`, name, ...result });
+   });
+ 
+-  server.tool("list_diary_books", "仅用于查看手机本机的“TA 的日记”本列表及 book_id，或在 rename_diary_book 返回多个候选时辅助选择。用户要求改名/修改日记本名字时，不要反复调用本工具，应优先调用 rename_diary_book。", diaryWaitFields,
++  server.tool("list_diary_books", "仅用于查看手机本机的日记本列表及 book_id（书名以本机实际存储为准，不预设固定名），或在 rename_diary_book 返回多个候选时辅助选择。用户要求改名/修改日记本名字时，不要反复调用本工具，应优先调用 rename_diary_book。", diaryWaitFields,
+     async ({ device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => textResult({ action_done: "已读取本机日记本", ...(await runDiaryCommand("list_diary_books", {}, device_id, wait_seconds)) }));
+ 
+   server.tool("rename_diary_book", "重命名手机本机日记本。当用户要求修改、改名、重命名日记本名字时优先调用本工具，不要反复调用 list_diary_books。本工具支持缺少 book_id 时通过 old_name 或唯一日记本自动查找并重命名。", {
+@@ -2219,7 +2222,13 @@ function makeServer() {
+     const result = await postCommand(payload);
+     const id = result?.command?.id;
+     const observed = id && Number(wait_seconds || 0) > 0 ? await waitCommand(id, wait_seconds) : null;
+-    return textResult({ queued: result, observed_status: observed?.command || null, note: "命令已排队；为避免平台 20 秒工具超时，未等到手机回传时会先返回。" });
++    const cmd = observed?.command || null;
++    const status = cmd?.status || "pending";
++    // P2-17：note 必须与实际状态一致。写死「未等到回传」会和 status=completed 自相矛盾。
++    const note = status === "completed"
++      ? "命令已完成，手机端已确认回传。"
++      : "命令已排队；尚未等到手机回传，为避免平台 20 秒工具超时先返回，可用命令 id 稍后查询。";
++    return textResult({ queued: result, observed_status: cmd, command_status: status, note });
+   }
+ 
+   server.tool("screen_break_app", "屏幕休息：让指定 App 暂停一段时间。适合小红书/抖音等容易一刷很久的入口；当用户刷太久、眼睛酸还想继续、说“我就不/不要你管/还没玩够/继续看”等嘴硬或拖延表达时可调用。必须有时长，到点自动恢复；语气是照顾和带回，不是惩罚。", {
+diff --git a/server/linjian_server.py b/server/linjian_server.py
+index 0dfcd9a..a576b9a 100644
+--- a/server/linjian_server.py
++++ b/server/linjian_server.py
+@@ -1377,7 +1377,11 @@ def tour_step_check_in(state: "State", sched: dict, device_id: str = DEFAULT_DEV
+         if not _recent_event(state, "center_alert", cooldown, device_id):
+             # 陪伴对象自己的情绪优先决定文案与语气；没有情绪时退回用户状态的建议。
+             comp = effective_companion_emotion(state, device_id)
+-            tone = str(comp.get("tone") or emo.get("recommended_tone") or sched.get("alert_tone", "gentle"))
++            # #44：巡回配置 alert_tone 是用户对「弹窗语气」的显式指定，必须真正生效。
++            # 旧实现先取情绪 tone（强情绪常为 angry），把配置的 gentle 覆盖掉，导致配了 gentle 仍弹 angry。
++            # 这里改为：只要配置了 alert_tone 就以它为准；未配置时才回退到情绪/建议语气。
++            configured_tone = str(sched.get("alert_tone") or "").strip()
++            tone = configured_tone or str(comp.get("tone") or emo.get("recommended_tone") or "gentle")
+             if comp.get("strong") or int(comp.get("miss_percent", 0)) >= 40:
+                 msg = str(comp.get("message") or ("该回来陪我了。" if emo.get("suggestion") == "pullback" else "记得喝水休息，别太累。"))
+             else:

@@ -3259,19 +3259,20 @@ public class MainActivity extends Activity {
         if (overviewWeatherText == null) return;
         String name = w == null ? "当前地区" : w.optString("name", "当前地区");
         String city = w == null ? "" : w.optString("city", "");
-        JSONObject live = WeatherLive.cached(this, city);
+        String district = w == null ? "" : w.optString("district", "");
+        JSONObject live = WeatherLive.cached(this, city, district);
         if (live != null && live.optBoolean("ok")) {
             overviewWeatherText.setText(live.optInt("temperature", 0) + "℃");
             if (overviewWeatherDetail != null) overviewWeatherDetail.setText(name + " · " + live.optString("condition", "天气"));
         } else {
             overviewWeatherText.setText(name);
-            if (overviewWeatherDetail != null) overviewWeatherDetail.setText(city.isEmpty() ? "未设城市" : city);
+            if (overviewWeatherDetail != null) overviewWeatherDetail.setText(city.isEmpty() ? "未设城市" : (district.isEmpty() ? city : (district + "·" + city)));
         }
         long now = System.currentTimeMillis();
-        if (!city.isEmpty() && !weatherFetching && !WeatherLive.isFresh(this, city, 45L * 60L * 1000L) && now - lastWeatherFetchAt > 45_000L) {
+        if (!city.isEmpty() && !weatherFetching && !WeatherLive.isFresh(this, city, district, 45L * 60L * 1000L) && now - lastWeatherFetchAt > 45_000L) {
             weatherFetching = true;
             lastWeatherFetchAt = now;
-            WeatherLive.refreshAsync(this, city, weather -> runOnUiThread(() -> {
+            WeatherLive.refreshAsync(this, city, district, weather -> runOnUiThread(() -> {
                 weatherFetching = false;
                 if (weather != null && weather.optBoolean("ok")) {
                     overviewWeatherText.setText(weather.optInt("temperature", 0) + "℃");

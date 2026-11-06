@@ -1,0 +1,344 @@
+diff --git a/android/app/src/main/java/dev/linjian/peek/MainActivity.java b/android/app/src/main/java/dev/linjian/peek/MainActivity.java
+index c29b112..625dd11 100644
+--- a/android/app/src/main/java/dev/linjian/peek/MainActivity.java
++++ b/android/app/src/main/java/dev/linjian/peek/MainActivity.java
+@@ -83,6 +83,8 @@ public class MainActivity extends Activity {
+     private Button testGuidianButton, saveGuidianSettingsButton, chooseGuidianAvatarButton, guidianThemeDuskButton, guidianThemeCloudButton, guidianThemeBerryButton;
+     private Button themeCreamButton, themeBlueButton, themePeachButton, themeNightButton, themeMintButton, themePurpleButton, drawerThemeButton, drawerNowStateButton, locationPermissionButton, overlayPermissionButton, notificationListenerButton;
+     private Button drawerConnectionButton, drawerPermissionButton, drawerControlTestButton, drawerKnownAppsButton, drawerHomeModeButton, drawerGateAddButton, drawerReminderButton, drawerCycleButton, drawerDebugButton, drawerLifeDetailsButton, drawerAppGateButton, drawerWeatherButton, drawerVersionButton, checkUpdateButton, downloadUpdateButton;
++    // P0 设置页边界：以下抽屉原先无显式「保存」按钮（部分甚至没有任何落盘时机），补齐。
++    private Button saveReminderButton, saveCycleButton, saveHomeModeButton, saveConnectionButton, savePermissionButton, saveDebugFieldsButton;
+     private Button drawerGuidianButton, drawerGuidianSettingsButton, drawerCalendarButton, saveCalendarEventButton;
+     private CheckBox remindersEnabled, batteryRuleEnabled, screenRuleEnabled, waterRuleEnabled, restRuleEnabled, cycleEnabled, foregroundPopupEnabled, homeModeEnabled, homeModeForceEnabled, appGateEnabled;
+     private CheckBox guidianEnabled, guidianRemoteEnabled, guidianFullscreenEnabled, guidianQuietEnabled, calendarLunarEnabled, calendarRepeatEnabled, calendarBannerEnabled;
+@@ -178,6 +180,8 @@ public class MainActivity extends Activity {
+         if (targetAppsInput != null) targetAppsInput.setOnFocusChangeListener((v, focused) -> { if (!focused) { saveSettings(); updateUI(); } });
+         bindHomeModeAutoSave();
+         bindConnectionAutoSave();
++        bindExplicitSaveButtons();
++        bindInstantPersistToggles();
+ 
+         bindThemeButton(themeCreamButton, "奶油绿"); bindThemeButton(themeBlueButton, "雾蓝白"); bindThemeButton(themePeachButton, "白桃粉"); bindThemeButton(themeNightButton, "夜航黑"); bindThemeButton(themeMintButton, "薄荷透明"); bindThemeButton(themePurpleButton, "星云紫");
+ 
+@@ -225,6 +229,7 @@ public class MainActivity extends Activity {
+         testGuidianButton = findViewById(R.id.testGuidianButton); saveGuidianSettingsButton = findViewById(R.id.saveGuidianSettingsButton); chooseGuidianAvatarButton = findViewById(R.id.chooseGuidianAvatarButton); guidianThemeDuskButton = findViewById(R.id.guidianThemeDuskButton); guidianThemeCloudButton = findViewById(R.id.guidianThemeCloudButton); guidianThemeBerryButton = findViewById(R.id.guidianThemeBerryButton);
+         themeCreamButton = findViewById(R.id.themeCreamButton); themeBlueButton = findViewById(R.id.themeBlueButton); themePeachButton = findViewById(R.id.themePeachButton); themeNightButton = findViewById(R.id.themeNightButton); themeMintButton = findViewById(R.id.themeMintButton); themePurpleButton = findViewById(R.id.themePurpleButton); drawerThemeButton = findViewById(R.id.drawerThemeButton); drawerNowStateButton = findViewById(R.id.drawerNowStateButton); locationPermissionButton = findViewById(R.id.locationPermissionButton); overlayPermissionButton = findViewById(R.id.overlayPermissionButton); notificationListenerButton = findViewById(R.id.notificationListenerButton);
+         drawerConnectionButton = findViewById(R.id.drawerConnectionButton); drawerPermissionButton = findViewById(R.id.drawerPermissionButton); drawerControlTestButton = findViewById(R.id.drawerControlTestButton); drawerKnownAppsButton = findViewById(R.id.drawerKnownAppsButton); drawerHomeModeButton = findViewById(R.id.drawerHomeModeButton); drawerGateAddButton = findViewById(R.id.drawerGateAddButton); drawerReminderButton = findViewById(R.id.drawerReminderButton); drawerCycleButton = findViewById(R.id.drawerCycleButton); drawerDebugButton = findViewById(R.id.drawerDebugButton); drawerLifeDetailsButton = findViewById(R.id.drawerLifeDetailsButton); drawerAppGateButton = findViewById(R.id.drawerAppGateButton); drawerWeatherButton = findViewById(R.id.drawerWeatherButton); drawerVersionButton = findViewById(R.id.drawerVersionButton); checkUpdateButton = findViewById(R.id.checkUpdateButton); downloadUpdateButton = findViewById(R.id.downloadUpdateButton);
++        saveReminderButton = findViewById(R.id.saveReminderButton); saveCycleButton = findViewById(R.id.saveCycleButton); saveHomeModeButton = findViewById(R.id.saveHomeModeButton); saveConnectionButton = findViewById(R.id.saveConnectionButton); savePermissionButton = findViewById(R.id.savePermissionButton); saveDebugFieldsButton = findViewById(R.id.saveDebugFieldsButton);
+         drawerGuidianButton = findViewById(R.id.drawerGuidianButton); drawerGuidianSettingsButton = findViewById(R.id.drawerGuidianSettingsButton); drawerCalendarButton = findViewById(R.id.drawerCalendarButton); saveCalendarEventButton = findViewById(R.id.saveCalendarEventButton);
+         remindersEnabled = findViewById(R.id.remindersEnabled); batteryRuleEnabled = findViewById(R.id.batteryRuleEnabled); screenRuleEnabled = findViewById(R.id.screenRuleEnabled); waterRuleEnabled = findViewById(R.id.waterRuleEnabled); restRuleEnabled = findViewById(R.id.restRuleEnabled); cycleEnabled = findViewById(R.id.cycleEnabled); foregroundPopupEnabled = findViewById(R.id.foregroundPopupEnabled); homeModeEnabled = findViewById(R.id.homeModeEnabled); homeModeForceEnabled = findViewById(R.id.homeModeForceEnabled); appGateEnabled = findViewById(R.id.appGateEnabled);
+         guidianEnabled = findViewById(R.id.guidianEnabled); guidianRemoteEnabled = findViewById(R.id.guidianRemoteEnabled); guidianFullscreenEnabled = findViewById(R.id.guidianFullscreenEnabled); guidianQuietEnabled = findViewById(R.id.guidianQuietEnabled); calendarLunarEnabled = findViewById(R.id.calendarLunarEnabled); calendarRepeatEnabled = findViewById(R.id.calendarRepeatEnabled); calendarBannerEnabled = findViewById(R.id.calendarBannerEnabled);
+@@ -2015,6 +2020,70 @@ public class MainActivity extends Activity {
+         if (blocking) e.commit(); else e.apply();
+     }
+ 
++    /** P0 设置页边界：为原先没有显式「保存」按钮的抽屉补齐保存入口，点击即同步落盘。 */
++    private void bindExplicitSaveButtons() {
++        if (saveReminderButton != null) saveReminderButton.setOnClickListener(v -> { saveReminderSettingsOnly(true); Toast.makeText(this, "提醒规则已保存，重启后仍生效", Toast.LENGTH_SHORT).show(); });
++        if (saveCycleButton != null) saveCycleButton.setOnClickListener(v -> { saveCycleSettingsOnly(true); Toast.makeText(this, "周期提醒已保存，重启后仍生效", Toast.LENGTH_SHORT).show(); });
++        if (saveHomeModeButton != null) saveHomeModeButton.setOnClickListener(v -> { saveHomeModeSettingsOnly(true); Toast.makeText(this, "回家模式已保存，重启后仍生效", Toast.LENGTH_SHORT).show(); });
++        if (saveConnectionButton != null) saveConnectionButton.setOnClickListener(v -> { saveConnectionSettingsOnly(true); saveSettings(); Toast.makeText(this, "连接设置已保存，重启后仍生效", Toast.LENGTH_SHORT).show(); updateUI(); });
++        if (savePermissionButton != null) savePermissionButton.setOnClickListener(v -> { savePermissionSettingsOnly(true); Toast.makeText(this, "权限设置已保存，重启后仍生效", Toast.LENGTH_SHORT).show(); });
++        if (saveDebugFieldsButton != null) saveDebugFieldsButton.setOnClickListener(v -> { saveDebugFieldsOnly(true); Toast.makeText(this, "调试字段已保存，重启后仍生效", Toast.LENGTH_SHORT).show(); });
++    }
++
++    /** P0：勾选类开关「点选即落盘」（行级即时写），与抽屉里的显式保存按钮双保险，杜绝重启丢配置。 */
++    private void bindInstantPersistToggles() {
++        SharedPreferences prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE);
++        if (remindersEnabled != null) remindersEnabled.setOnCheckedChangeListener((b, c) -> prefs.edit().putBoolean(AppPrefs.KEY_ACTIVE_REMINDERS, c).apply());
++        if (batteryRuleEnabled != null) batteryRuleEnabled.setOnCheckedChangeListener((b, c) -> prefs.edit().putBoolean(AppPrefs.KEY_RULE_BATTERY, c).apply());
++        if (screenRuleEnabled != null) screenRuleEnabled.setOnCheckedChangeListener((b, c) -> prefs.edit().putBoolean(AppPrefs.KEY_RULE_SCREEN, c).apply());
++        if (waterRuleEnabled != null) waterRuleEnabled.setOnCheckedChangeListener((b, c) -> prefs.edit().putBoolean(AppPrefs.KEY_RULE_WATER, c).apply());
++        if (restRuleEnabled != null) restRuleEnabled.setOnCheckedChangeListener((b, c) -> prefs.edit().putBoolean(AppPrefs.KEY_RULE_REST, c).apply());
++        if (cycleEnabled != null) cycleEnabled.setOnCheckedChangeListener((b, c) -> prefs.edit().putBoolean(AppPrefs.KEY_CYCLE_ENABLED, c).apply());
++        if (foregroundPopupEnabled != null) foregroundPopupEnabled.setOnCheckedChangeListener((b, c) -> prefs.edit().putBoolean(AppPrefs.KEY_FOREGROUND_POPUP, c).apply());
++        if (appGateEnabled != null) appGateEnabled.setOnCheckedChangeListener((b, c) -> prefs.edit().putBoolean(AppGate.KEY_ENABLED, c).apply());
++    }
++
++    /** P0：主动提醒规则抽屉的显式保存（不再依赖刷新生活总览等无关动作顺带写入）。 */
++    private void saveReminderSettingsOnly(boolean blocking) {
++        SharedPreferences.Editor e = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).edit();
++        if (remindersEnabled != null) e.putBoolean(AppPrefs.KEY_ACTIVE_REMINDERS, remindersEnabled.isChecked());
++        if (batteryRuleEnabled != null) e.putBoolean(AppPrefs.KEY_RULE_BATTERY, batteryRuleEnabled.isChecked());
++        if (batteryThresholdInput != null) e.putInt(AppPrefs.KEY_BATTERY_THRESHOLD, parseInt(batteryThresholdInput.getText().toString().trim(), 20, 5, 80));
++        if (screenRuleEnabled != null) e.putBoolean(AppPrefs.KEY_RULE_SCREEN, screenRuleEnabled.isChecked());
++        if (screenThresholdInput != null) e.putInt(AppPrefs.KEY_SCREEN_THRESHOLD_MIN, parseInt(screenThresholdInput.getText().toString().trim(), 240, 30, 1440));
++        if (waterRuleEnabled != null) e.putBoolean(AppPrefs.KEY_RULE_WATER, waterRuleEnabled.isChecked());
++        if (waterIntervalInput != null) e.putInt(AppPrefs.KEY_WATER_INTERVAL_MIN, parseInt(waterIntervalInput.getText().toString().trim(), 120, 30, 720));
++        if (restRuleEnabled != null) e.putBoolean(AppPrefs.KEY_RULE_REST, restRuleEnabled.isChecked());
++        if (restIntervalInput != null) e.putInt(AppPrefs.KEY_REST_INTERVAL_MIN, parseInt(restIntervalInput.getText().toString().trim(), 90, 30, 720));
++        if (blocking) e.commit(); else e.apply();
++    }
++
++    /** P0：周期提醒抽屉的显式保存。 */
++    private void saveCycleSettingsOnly(boolean blocking) {
++        SharedPreferences.Editor e = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).edit();
++        if (cycleEnabled != null) e.putBoolean(AppPrefs.KEY_CYCLE_ENABLED, cycleEnabled.isChecked());
++        if (lastPeriodStartInput != null) e.putString(AppPrefs.KEY_LAST_PERIOD_START, lastPeriodStartInput.getText().toString().trim());
++        if (cycleLengthInput != null) e.putInt(AppPrefs.KEY_CYCLE_LENGTH, parseInt(cycleLengthInput.getText().toString().trim(), 30, 15, 60));
++        if (periodLengthInput != null) e.putInt(AppPrefs.KEY_PERIOD_LENGTH, parseInt(periodLengthInput.getText().toString().trim(), 6, 1, 14));
++        if (cycleRemindBeforeInput != null) e.putInt(AppPrefs.KEY_CYCLE_REMIND_BEFORE, parseInt(cycleRemindBeforeInput.getText().toString().trim(), 3, 0, 14));
++        if (blocking) e.commit(); else e.apply();
++    }
++
++    /** P0：权限与运行抽屉（横幅通知开关）的显式保存。 */
++    private void savePermissionSettingsOnly(boolean blocking) {
++        SharedPreferences.Editor e = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).edit();
++        if (foregroundPopupEnabled != null) e.putBoolean(AppPrefs.KEY_FOREGROUND_POPUP, foregroundPopupEnabled.isChecked());
++        if (blocking) e.commit(); else e.apply();
++    }
++
++    /** P0：高级调试抽屉遗留字段（城市/天气备注）的显式保存。 */
++    private void saveDebugFieldsOnly(boolean blocking) {
++        SharedPreferences.Editor e = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).edit();
++        if (cityInput != null) e.putString(AppPrefs.KEY_CITY, cityInput.getText().toString().trim());
++        if (weatherInput != null) e.putString(AppPrefs.KEY_WEATHER_NOTE, weatherInput.getText().toString().trim());
++        if (blocking) e.commit(); else e.apply();
++    }
++
+     private void saveSettings() {
+         SharedPreferences.Editor e = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).edit();
+         if (serverUrl != null) e.putString(AppPrefs.KEY_SERVER, serverUrl.getText().toString().trim());
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java b/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java
+index 8b60005..2442762 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java
++++ b/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java
+@@ -680,11 +680,14 @@ public class PolicySettingsActivity extends Activity {
+         final String base = AppPrefs.server(this), token = AppPrefs.token(this);
+         try {
+             JSONObject body = new JSONObject();
++            // Bug「get_tour_schedule 全为默认值/异常值」：旧代码把 force_back_interval_minutes=0、
++            // alert_tone="gentle"、exempt_packages=[] 硬编码进同步体，每次保存都会用假值覆盖
++            // 服务端已保存的巡回配置。本机没有这些项的独立配置（弹窗语气/豁免列表由服务端与
++            // 管束设定管理），因此这三项**不上送**——服务端 /api/tour/schedule 只更新 body 里
++            // 出现的键，缺省键保留原值，不会再被抹掉。
+             body.put("enabled", PolicyStore.checkinEnabled(this));
+             body.put("check_in_interval_minutes", PolicyStore.randomUpper(this));
+-            body.put("force_back_interval_minutes", 0);
+             body.put("cooldown_minutes", PolicyStore.cooldownMinutes(this));
+-            body.put("alert_tone", "gentle");
+             JSONObject q = new JSONObject();
+             q.put("start", PolicyStore.quietStart(this)); q.put("end", PolicyStore.quietEnd(this));
+             body.put("quiet_hours", q);
+@@ -692,7 +695,6 @@ public class PolicySettingsActivity extends Activity {
+             n.put("start", PolicyStore.nightStart(this)); n.put("end", PolicyStore.nightEnd(this));
+             body.put("night_hours", n);
+             body.put("force_back_miss_threshold", PolicyStore.forceBackThreshold(this));
+-            body.put("exempt_packages", new JSONArray());
+             final String payload = body.toString();
+             status("同步中…");
+             new Thread(() -> {
+diff --git a/android/app/src/main/res/layout/activity_main.xml b/android/app/src/main/res/layout/activity_main.xml
+index 2aa9f5b..0467fe2 100644
+--- a/android/app/src/main/res/layout/activity_main.xml
++++ b/android/app/src/main/res/layout/activity_main.xml
+@@ -407,6 +407,7 @@
+                     <EditText android:id="@+id/waterIntervalInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="喝水间隔分钟，默认 120" android:textSize="11sp" android:inputType="number" android:singleLine="true" />
+                     <CheckBox android:id="@+id/restRuleEnabled" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="休息提醒" android:textSize="11sp" />
+                     <EditText android:id="@+id/restIntervalInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="休息间隔分钟，默认 90" android:textSize="11sp" android:inputType="number" android:singleLine="true" />
++                    <Button android:id="@+id/saveReminderButton" android:layout_width="match_parent" android:layout_height="36dp" android:text="保存提醒规则" android:textSize="12sp" android:textColor="#FFFFFFFF" android:background="@drawable/pill_primary" android:layout_marginTop="8dp" />
+                 </LinearLayout>
+ 
+                 <Button android:id="@+id/drawerCycleButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="周期提醒  ›" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginBottom="8dp" />
+@@ -416,6 +417,7 @@
+                     <EditText android:id="@+id/cycleLengthInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="周期长度，默认 30" android:textSize="11sp" android:inputType="number" android:singleLine="true" />
+                     <EditText android:id="@+id/periodLengthInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="经期天数，默认 6" android:textSize="11sp" android:inputType="number" android:singleLine="true" />
+                     <EditText android:id="@+id/cycleRemindBeforeInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="提前提醒天数，默认 3" android:textSize="11sp" android:inputType="number" android:singleLine="true" />
++                    <Button android:id="@+id/saveCycleButton" android:layout_width="match_parent" android:layout_height="36dp" android:text="保存周期提醒" android:textSize="12sp" android:textColor="#FFFFFFFF" android:background="@drawable/pill_primary" android:layout_marginTop="8dp" />
+                 </LinearLayout>
+ 
+                 <Button android:id="@+id/drawerHomeModeButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="回家模式  ›" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginBottom="8dp" />
+@@ -427,6 +429,7 @@
+                     <EditText android:id="@+id/homeThresholdInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="阈值分钟，默认 10" android:textSize="11sp" android:inputType="number" android:singleLine="true" />
+                     <EditText android:id="@+id/homeCooldownInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="冷却分钟，默认 5" android:textSize="11sp" android:inputType="number" android:singleLine="true" />
+                     <EditText android:id="@+id/homeTargetInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="返回目标，可填目标 APP 名称或包名" android:textSize="11sp" android:singleLine="true" />
++                    <Button android:id="@+id/saveHomeModeButton" android:layout_width="match_parent" android:layout_height="36dp" android:text="保存回家模式" android:textSize="12sp" android:textColor="#FFFFFFFF" android:background="@drawable/pill_primary" android:layout_marginTop="8dp" />
+                 </LinearLayout>
+             </LinearLayout>
+         </ScrollView>
+@@ -508,11 +511,13 @@
+                     <EditText android:id="@+id/intervalInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="轮询间隔毫秒，默认 1500" android:textSize="11sp" android:inputType="number" android:singleLine="true" />
+                     <EditText android:id="@+id/userNameInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="你的名字，默认 宝宝" android:textSize="11sp" android:singleLine="true" />
+                     <EditText android:id="@+id/companionNameInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="AI / 陪伴对象名字，默认 陪伴者" android:textSize="11sp" android:singleLine="true" />
++                    <Button android:id="@+id/saveConnectionButton" android:layout_width="match_parent" android:layout_height="36dp" android:text="保存连接设置" android:textSize="12sp" android:textColor="#FFFFFFFF" android:background="@drawable/pill_primary" android:layout_marginTop="8dp" />
+                 </LinearLayout>
+ 
+                 <Button android:id="@+id/drawerPermissionButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="权限与运行  ›" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginBottom="8dp" />
+                 <LinearLayout android:id="@+id/drawerPermission" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/card_bg" android:visibility="gone" android:layout_marginBottom="8dp">
+                     <CheckBox android:id="@+id/foregroundPopupEnabled" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="优先用顶部横幅通知" android:textSize="11sp" />
++                    <Button android:id="@+id/savePermissionButton" android:layout_width="match_parent" android:layout_height="36dp" android:text="保存权限设置" android:textSize="12sp" android:textColor="#FFFFFFFF" android:background="@drawable/pill_primary" android:layout_marginTop="8dp" />
+                     <Button android:id="@+id/accessibilityButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="打开无障碍设置" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginTop="6dp" />
+                     <Button android:id="@+id/usageAccessButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="打开使用情况访问权限" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginTop="6dp" />
+                     <Button android:id="@+id/toggleButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="启动服务" android:textSize="11sp" android:textColor="#FFFFFFFF" android:background="@drawable/pill_primary" android:layout_marginTop="6dp" />
+@@ -551,6 +556,7 @@
+                 <LinearLayout android:id="@+id/drawerDebug" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/card_bg" android:visibility="gone" android:layout_marginBottom="8dp">
+                     <EditText android:id="@+id/cityInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="兼容旧字段：城市，例如 石家庄" android:textSize="11sp" android:singleLine="true" />
+                     <EditText android:id="@+id/weatherInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="兼容旧字段：天气备注" android:textSize="11sp" android:singleLine="true" />
++                    <Button android:id="@+id/saveDebugFieldsButton" android:layout_width="match_parent" android:layout_height="36dp" android:text="保存调试字段" android:textSize="12sp" android:textColor="#FFFFFFFF" android:background="@drawable/pill_primary" android:layout_marginTop="8dp" />
+                     <TextView android:id="@+id/debugText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="等待调试信息…" android:textSize="11sp" android:textColor="#FF596D66" android:paddingTop="8dp" android:lineSpacingExtra="3dp" />
+                 </LinearLayout>
+ 
+diff --git a/mcp/server.js b/mcp/server.js
+index a019714..d312474 100644
+--- a/mcp/server.js
++++ b/mcp/server.js
+@@ -7,6 +7,44 @@ import fs from "fs";
+ import path from "path";
+ 
+ const PORT = Number(process.env.PORT || 8787);
++
++// Bug #1 (MCP 可用性)：很多部署环境（Render 面板、本地 npx、部分 MCP 客户端）没法方便地设置
++// 环境变量，导致 LINJIAN_URL / LINJIAN_TOKEN 缺失、所有后端读取工具全部失效。
++// 兜底方案：进程启动时若环境变量缺失，自动从 server.js 同目录（或 LINJIAN_ENV_FILE 指定路径）
++// 的 .env 文件加载缺的键。已存在的环境变量优先，文件只补缺；不覆盖、不外泄。
++function loadEnvFileFallback() {
++  const need = ["LINJIAN_URL", "LINJIAN_TOKEN", "LINJIAN_DEFAULT_DEVICE"].filter((k) => !(process.env[k] || "").trim());
++  if (!need.length) return { loaded: [], file: null };
++  const candidates = [
++    process.env.LINJIAN_ENV_FILE || "",
++    path.join(path.dirname(new URL(import.meta.url).pathname), ".env"),
++    path.join(process.cwd(), ".env"),
++  ].filter(Boolean);
++  for (const file of candidates) {
++    try {
++      if (!fs.existsSync(file)) continue;
++      const text = fs.readFileSync(file, "utf-8");
++      const loaded = [];
++      for (const rawLine of text.split(/\r?\n/)) {
++        const line = rawLine.trim();
++        if (!line || line.startsWith("#")) continue;
++        const eq = line.indexOf("=");
++        if (eq <= 0) continue;
++        const key = line.slice(0, eq).trim();
++        if (!need.includes(key)) continue;
++        let value = line.slice(eq + 1).trim();
++        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
++        if (!value) continue;
++        process.env[key] = value;
++        loaded.push(key);
++      }
++      if (loaded.length) return { loaded, file };
++    } catch { /* .env 读取失败按未配置处理，不阻断启动 */ }
++  }
++  return { loaded: [], file: null };
++}
++const ENV_FALLBACK = loadEnvFileFallback();
++
+ const RAW_LINJIAN_URL = (process.env.LINJIAN_URL || "").trim();
+ 
+ function normalizeBaseUrl(value = "") {
+@@ -64,6 +102,16 @@ function maskUrlHost(url = "") {
+ const LINJIAN_TOKEN = process.env.LINJIAN_TOKEN || "";
+ const DEFAULT_DEVICE = process.env.LINJIAN_DEFAULT_DEVICE || "android-phone";
+ 
++// linjian_status 的可执行修复提示：配置缺失时告诉陪伴对象具体怎么补，而不是只报错。
++function configFixHint(missing) {
++  const items = [];
++  if (missing.includes("url")) items.push("在 MCP 服务部署面板（如 Render → Environment）设置 LINJIAN_URL=你的掌心窗 server 服务地址，例如 https://zhangxinchuang-server-xxxx.onrender.com");
++  if (missing.includes("token")) items.push("在同一面板设置 LINJIAN_TOKEN=与掌心窗 server 一致的访问令牌（App「连接设置」里填的那个）");
++  items.push("无法设置环境变量时，也可以在 mcp 目录放一个 .env 文件，每行 KEY=VALUE（支持 LINJIAN_URL / LINJIAN_TOKEN / LINJIAN_DEFAULT_DEVICE），重启 MCP 服务生效");
++  items.push("改完后重启 MCP 服务，再调用一次 linjian_status 确认 config_errors 为空");
++  return items;
++}
++
+ // Bug #3 (隐私)：手机端 screen_text / 无障碍节点可能包含聊天全文、口令、Token 等敏感内容。
+ // 只读接口返回前必须脱敏：截断长文本 + 过滤敏感词 + 抹掉凭据类片段，只保留脱敏摘要。
+ const SCREEN_TEXT_MAX_LEN = 200;
+@@ -1143,8 +1191,9 @@ function makeServer() {
+ 
+   server.tool("linjian_status", "检查掌心窗后端是否在线，以及 MCP 是否配置了 LINJIAN_URL 和 LINJIAN_TOKEN。当用户在聊天里提到掌心窗报错、出错、有点问题、连接不上、没反应、配置异常、Render/MCP/Token/URL 相关问题时，陪伴对象应主动调用。", {}, async () => {
+     const configErrors = [];
+-    if (!LINJIAN_URL_CANDIDATES.length) configErrors.push("Missing env LINJIAN_URL");
+-    if (!LINJIAN_TOKEN) configErrors.push("Missing env LINJIAN_TOKEN");
++    const missing = [];
++    if (!LINJIAN_URL_CANDIDATES.length) { configErrors.push("Missing env LINJIAN_URL"); missing.push("url"); }
++    if (!LINJIAN_TOKEN) { configErrors.push("Missing env LINJIAN_TOKEN"); missing.push("token"); }
+     const health = configErrors.length
+       ? { ok: false, error: configErrors.join("; ") }
+       : await linjianFetch("/health").then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
+@@ -1162,6 +1211,9 @@ function makeServer() {
+       has_url: Boolean(LINJIAN_URL_CANDIDATES.length),
+       has_token: Boolean(LINJIAN_TOKEN),
+       config_errors: configErrors,
++      env_file_fallback_used: ENV_FALLBACK.loaded.length > 0,
++      env_file_fallback_keys: ENV_FALLBACK.loaded,
++      fix_hint: missing.length ? configFixHint(missing) : [],
+       health,
+       has_latest: Boolean(latest),
+       latest: latestDecorated
+@@ -1170,7 +1222,17 @@ function makeServer() {
+ 
+   server.tool("get_window_whisper", "读取掌心窗陪伴页当前的共同窗语，包括内容、最后修改者、修改时间和版本。当用户问最近一句话、窗语写了什么、谁改过时使用。", {}, async () => {
+     const data = await getCompanionState(1);
+-    return textResult({ ok: true, whisper: data?.whisper || {} });
++    // Bug #2：后端读取失败（401/网络/服务未唤醒）时不能把失败掩蔽成空窗语，必须如实上报。
++    if (!data || data.ok === false) {
++      return textResult({ ok: false, error: "companion_state_fetch_failed", message: "读取共同窗语失败：后端未唤醒或 Token/URL 配置有误。请先调用 linjian_status 检查配置。", detail: String(data?.error || "").slice(0, 300) });
++    }
++    const whisper = data.whisper || {};
++    return textResult({
++      ok: true,
++      whisper,
++      is_default: typeof whisper.content === "string" && whisper.content.includes("收进窗里"),
++      note: "is_default=true 表示还是初始默认文案，说明从未有人修改过窗语；可用 set_window_whisper 写入新内容。"
++    });
+   });
+ 
+   server.tool("set_window_whisper", "更新掌心窗陪伴页的共同窗语。陪伴对象和用户都能修改；陪伴对象通过此工具修改时 author 默认为陪伴对象。内容应简短、适合在手机卡片中阅读。", {
+@@ -1186,7 +1248,18 @@ function makeServer() {
+     limit: z.number().int().min(1).max(50).default(20)
+   }, async ({ limit = 20 }) => {
+     const data = await getCompanionState(limit);
+-    return textResult({ ok: true, actions: data?.actions || [], privacy: "仅返回脱敏的标题、分类、摘要、状态与时间。" });
++    // Bug #3：读取失败不能伪装成「没有行动记录」；空列表也要说明空的原因，不糊弄。
++    if (!data || data.ok === false) {
++      return textResult({ ok: false, error: "companion_state_fetch_failed", message: "读取行动记录失败：后端未唤醒或 Token/URL 配置有误。请先调用 linjian_status 检查配置。", detail: String(data?.error || "").slice(0, 300) });
++    }
++    const actions = data.actions || [];
++    return textResult({
++      ok: true,
++      actions,
++      count: actions.length,
++      empty_reason: actions.length ? undefined : "后端还没有可展示的行动记录：陪伴动作（如 set_alarm、查天气、守护日历操作）发生后会自动写入；刚部署或刚清库时为空属正常。可用 set_alarm / get_weather 等动作生成一条后回读验证。",
++      privacy: "仅返回脱敏的标题、分类、摘要、状态与时间。"
++    });
+   });
+ 
+   server.tool("get_activity_events", "读取掌心窗统一活动事件。可按设备、日期和来源筛选；不会因为读取本身再写一条事件。", {
+@@ -2113,6 +2186,10 @@ function makeServer() {
+     device_id: z.string().default(DEFAULT_DEVICE)
+   }, async ({ device_id = DEFAULT_DEVICE }) => {
+     const res = await linjianFetch("/api/tour/state", { method: "GET", timeout_ms: COMMAND_QUEUE_TIMEOUT_MS }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
++    // Bug #4：读取失败必须如实上报，不能让调用方把错误响应当成「默认配置」。
++    if (!res || res.ok === false) {
++      return { content: [{ type: "text", text: JSON.stringify({ ok: false, error: "tour_state_fetch_failed", message: "读取查岗配置失败：后端未唤醒或 Token/URL 配置有误。请先调用 linjian_status 检查配置。", detail: String(res?.error || "").slice(0, 300) }, null, 2) }] };
++    }
+     return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
+   });
+ 
+diff --git a/server/linjian_server.py b/server/linjian_server.py
+index c750a41..0cf223b 100644
+--- a/server/linjian_server.py
++++ b/server/linjian_server.py
+@@ -29,6 +29,9 @@ MAX_UPLOAD_BYTES = 24 * 1024 * 1024
+ VERSION = "0.3.9.0-public-diary-annotations"
+ DEFAULT_DEVICE = os.environ.get("LINJIAN_DEFAULT_DEVICE", "android-phone")
+ ACTIVITY_EVENT_LIMIT = 500
++# Bug #3：/api/companion/state 过滤陪伴/指令事件用的扫描窗口，需大于活动事件总量上限，
++# 避免被无障碍事件刷满后陪伴动作记录被挤出窗口。
++COMPANION_ACTION_SCAN_LIMIT = 2000
+ 
+ ERR_BAD_TOKEN = "LINJIAN_ERR_BAD_TOKEN"
+ ERR_NO_IMAGE = "LINJIAN_ERR_NO_IMAGE"
+@@ -510,7 +513,10 @@ class Handler(BaseHTTPRequestHandler):
+             with self.state.companion_lock:
+                 whisper = dict(self.state.companion_state.get("whisper") or {})
+                 actions = list(self.state.companion_state.get("actions") or [])[:limit]
+-            unified = [e for e in self.state.list_activity_events("", "", "", ACTIVITY_EVENT_LIMIT)
++            # Bug #3：扫描窗口不能只取最近 500 条——被无障碍/前台事件刷满时，
++            # 陪伴与指令类事件会被整体挤出窗口，导致 get_companion_actions 恒为空。
++            # 这里按来源/类型过滤前先扫更大的窗口（2000 条），再截断到 limit。
++            unified = [e for e in self.state.list_activity_events("", "", "", COMPANION_ACTION_SCAN_LIMIT)
+                        if e.get("source") in ("companion", "assistant") or e.get("type") in ("command", "notification", "weather", "calendar", "status_check")][:limit]
+             if unified:
+                 actions = [{"id": e.get("id"), "at": e.get("created_at"), "created_at": e.get("created_at"), "kind": e.get("type"), "type": e.get("type"), "title": e.get("title"), "summary": e.get("subtitle"), "subtitle": e.get("subtitle"), "status": e.get("status"), "source": "companion"} for e in unified]

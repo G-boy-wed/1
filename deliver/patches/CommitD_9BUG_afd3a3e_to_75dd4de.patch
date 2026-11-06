@@ -1,0 +1,352 @@
+diff --git a/android/app/src/main/java/dev/linjian/peek/AppGate.java b/android/app/src/main/java/dev/linjian/peek/AppGate.java
+index d9c315c..edc5d03 100644
+--- a/android/app/src/main/java/dev/linjian/peek/AppGate.java
++++ b/android/app/src/main/java/dev/linjian/peek/AppGate.java
+@@ -68,6 +68,8 @@ public class AppGate {
+     }
+ 
+     private static void save(Context ctx, JSONObject s) { AppPrefs.get(ctx).edit().putString(KEY_STATE, s.toString()).apply(); }
++    /** Bug 2.2：关键状态翻转（到期自动解除等）用同步 commit，避免 apply 异步落盘造成的跨进程读取滞后（get_screen_break_state 短暂返回旧状态）。 */
++    private static void saveNow(Context ctx, JSONObject s) { try { AppPrefs.get(ctx).edit().putString(KEY_STATE, s.toString()).commit(); } catch (Exception ignored) { } }
+ 
+     private static JSONObject locks(JSONObject s) {
+         JSONObject locks = s.optJSONObject("locks");
+@@ -413,7 +415,7 @@ public class AppGate {
+                 root.setPadding(dp(ctx, 22), dp(ctx, 22), dp(ctx, 22), dp(ctx, 22));
+                 root.setClickable(true);
+                 root.setFocusable(true);
+-                root.setBackgroundColor(0x88F2EAFB);
++                root.setBackgroundColor(0xFFF2EAFB);
+                 root.setOnClickListener(v -> { /* 空白遮罩吃掉点击，不关闭也不透传 */ });
+ 
+                 LinearLayout card = new LinearLayout(app);
+@@ -477,7 +479,7 @@ public class AppGate {
+                         WindowManager.LayoutParams.MATCH_PARENT,
+                         WindowManager.LayoutParams.MATCH_PARENT,
+                         type,
+-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
++                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                         PixelFormat.TRANSLUCENT);
+                 lp.gravity = Gravity.CENTER;
+                 wm.addView(root, lp);
+@@ -533,7 +535,7 @@ public class AppGate {
+     public static JSONObject activeLockFor(Context ctx, String pkg, long now) throws Exception {
+         JSONObject s = state(ctx); JSONObject l = locks(s).optJSONObject(pkg);
+         if (l == null || !l.optBoolean("active", false)) return null;
+-        if (now >= l.optLong("locked_until_ms", 0)) { l.put("active", false); save(ctx, s); log(ctx, "门禁到时自动解除：" + pkg); return null; }
++        if (now >= l.optLong("locked_until_ms", 0)) { l.put("active", false); saveNow(ctx, s); log(ctx, "门禁到时自动解除：" + pkg); return null; }
+         return l;
+     }
+ 
+@@ -648,6 +650,11 @@ public class AppGate {
+                     if (l == null) { drop.add(key); continue; }
+                     boolean active = l.optBoolean("active", false);
+                     long until = l.optLong("locked_until_ms", 0L);
++                    // Bug 2.2：读路径兜底——已到期但仍标记为 active 的锁，在此纠正为失活，
++                    // 保证 get_lock_state / config 返回的 active 永远新鲜，不再依赖 activeLockFor 何时被前台包触发。
++                    if (active && until > 0 && now >= until) {
++                        l.put("active", false); changed = true; log(ctx, "门禁到期自动解除（读路径校验）：" + key);
++                    }
+                     if ((!active && until > 0 && (now - until) > 24L * 3600 * 1000) || (!active && until <= 0)) {
+                         drop.add(key); continue;
+                     }
+diff --git a/android/app/src/main/java/dev/linjian/peek/CalendarState.java b/android/app/src/main/java/dev/linjian/peek/CalendarState.java
+index 8601878..0db92c1 100644
+--- a/android/app/src/main/java/dev/linjian/peek/CalendarState.java
++++ b/android/app/src/main/java/dev/linjian/peek/CalendarState.java
+@@ -21,10 +21,25 @@ import java.nio.charset.StandardCharsets;
+ /** 守护日历：纪念日、节日、倒数日、提前三天横幅提醒，并接入生活状态层。 */
+ public class CalendarState {
+     public static final String VERSION = "0.3.9.0";
++    // Bug 3.2：编辑单调版本号（随每次增删事件自增），替代静态 VERSION 用作 calendar_state.version，
++    // 使服务端/前端能据此判断缓存是否过期、多端是否需刷新横幅。
++    private static final String KEY_CAL_VERSION = "calendar_state_version";
+     public static final String KEY_EVENTS = "guard_calendar_events_json";
+     public static final String THEME_COLOR = "#B8A8D8";
+     public static final int DEFAULT_REMIND_DAYS = 3;
+ 
++    private static int calendarVersion(Context ctx) {
++        try { return AppPrefs.get(ctx).getInt(KEY_CAL_VERSION, 0); } catch (Exception e) { return 0; }
++    }
++    private static int bumpCalendarVersion(Context ctx) {
++        try {
++            SharedPreferences p = AppPrefs.get(ctx);
++            int v = p.getInt(KEY_CAL_VERSION, 0) + 1;
++            p.edit().putInt(KEY_CAL_VERSION, v).apply();
++            return v;
++        } catch (Exception e) { return 1; }
++    }
++
+     private static final String TYPE_SOLAR = "solar";
+     private static final String TYPE_LUNAR = "lunar";
+     private static final String REPEAT_YEARLY = "yearly";
+@@ -76,7 +91,7 @@ public class CalendarState {
+             for (int i = 0; i < customEvents.length(); i++) allRawEvents.put(customEvents.opt(i));
+             for (JSONObject be : builtinEvents()) allRawEvents.put(be);
+             o.put("enabled", true);
+-            o.put("version", VERSION);
++            o.put("version", calendarVersion(ctx));
+             o.put("theme_color", THEME_COLOR);
+             o.put("default_remind_days_before", DEFAULT_REMIND_DAYS);
+             o.put("event_count", allRawEvents.length());
+@@ -350,6 +365,7 @@ public class CalendarState {
+             }
+             if (!replaced) arr.put(e);
+             if (!saveEvents(ctx, arr)) return out.put("ok", false).put("error", "save_failed");
++            bumpCalendarVersion(ctx);
+             out.put("ok", true).put("event", e).put("calendar_state", collect(ctx));
+         } catch (Exception ex) {
+             try { out.put("ok", false).put("error", ScreenshotService.shortMsg(ex)); } catch (Exception ignored) { }
+@@ -367,7 +383,7 @@ public class CalendarState {
+                 if (e != null && id != null && id.equals(e.optString("id", ""))) { found = true; continue; }
+                 if (e != null) next.put(e);
+             }
+-            if (found) return saveEvents(ctx, next);
++            if (found) { boolean ok = saveEvents(ctx, next); if (ok) bumpCalendarVersion(ctx); return ok; }
+             return false;
+         } catch (Exception e) { return false; }
+     }
+@@ -602,15 +618,23 @@ public class CalendarState {
+ 
+     private static Calendar lunarToSolar(int year, int month, int day, boolean leap) {
+         try {
+-            if (year < 1900 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 30) return null;
++            if (year < 1900 || year > 2100 || month < 1 || month > 12 || day < 1) return null;
++            int lm = leapMonth(year);
++            // Bug 3.1 容错：请求的闰月在该年并不存在时直接判无效，避免被当成普通月算出错位日期。
++            if (leap && lm != month) return null;
++            // Bug 3.1 容错：闰月/当月实际天数校验。农历月只有 29 或 30 天，超出实际天数按无效处理，
++            // 而不是返回一个偏移日期（原代码用 day>30 兜底，会放过 29 天月的第 30 天）。
++            int maxDay = leap ? leapDays(year) : monthDays(year, month);
++            if (day > maxDay) return null;
+             int offset = 0;
+             for (int y = 1900; y < year; y++) offset += yearDays(y);
+-            int leapMonth = leapMonth(year);
++            int leapMonth = lm;
+             for (int m = 1; m < month; m++) {
+                 offset += monthDays(year, m);
+                 if (m == leapMonth) offset += leapDays(year);
+             }
+-            if (leap && leapMonth == month) offset += monthDays(year, month);
++            // 闰月排在同名普通月之后：闰月目标需先跳过同名普通月，落到闰月起点。
++            if (leap) offset += monthDays(year, month);
+             offset += day - 1;
+             Calendar base = Calendar.getInstance();
+             base.set(1900, Calendar.JANUARY, 31, 0, 0, 0); base.set(Calendar.MILLISECOND, 0);
+diff --git a/android/app/src/main/java/dev/linjian/peek/CompanionService.java b/android/app/src/main/java/dev/linjian/peek/CompanionService.java
+index f9b4c25..4014679 100644
+--- a/android/app/src/main/java/dev/linjian/peek/CompanionService.java
++++ b/android/app/src/main/java/dev/linjian/peek/CompanionService.java
+@@ -15,6 +15,10 @@ import android.os.Build;
+ import android.os.Handler;
+ import android.os.HandlerThread;
+ import android.os.IBinder;
++import android.net.ConnectivityManager;
++import android.net.Network;
++import android.net.NetworkCapabilities;
++import android.net.NetworkRequest;
+ import android.provider.AlarmClock;
+ 
+ import org.json.JSONArray;
+@@ -42,6 +46,8 @@ public class CompanionService extends Service {
+     private Handler pollHandler;
+     private HandlerThread pollThread;
+     private long rateLimitedUntilMs = 0L;
++    private ConnectivityManager.NetworkCallback netCallback;
++    private boolean netWasLost = false;
+     private static long lastStateUploadMs = 0L;
+ 
+     public static boolean isRunning() { return running; }
+@@ -72,6 +78,7 @@ public class CompanionService extends Service {
+             startPolling();
+         } else DebugState.append(this, "服务已在运行，继续轮询");
+         PolicyScheduler.start(this);
++        registerNetworkRecovery();
+         return START_STICKY;
+     }
+ 
+@@ -176,7 +183,7 @@ public class CompanionService extends Service {
+                 boolean ok = rr.optBoolean("ok", false);
+                 String result = rr.optString("result", rr.toString());
+                 DebugState.append(ctx, "执行守护日历命令 " + action + "：" + result);
+-                try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, false); } catch (Exception ignored) { }
++                try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, true); } catch (Exception ignored) { }
+                 return;
+             }
+             if (action.contains("diary")) {
+@@ -728,5 +735,43 @@ public class CompanionService extends Service {
+ 
+     private void createNotificationChannel() { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { NotificationManager nm = getSystemService(NotificationManager.class); NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "掌心窗", NotificationManager.IMPORTANCE_LOW); channel.setDescription("掌心窗正在等待你授权的截图与手机动作请求"); nm.createNotificationChannel(channel); NotificationChannel reminder = new NotificationChannel(REMINDER_CHANNEL_ID, "掌心窗悬浮横幅提醒", NotificationManager.IMPORTANCE_HIGH); reminder.setDescription("来自掌心窗的悬浮横幅、生活提醒与回家模式"); reminder.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC); reminder.enableVibration(true); nm.createNotificationChannel(reminder); } }
+     private Notification buildNotification(String text) { Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this); return builder.setContentTitle("掌心窗运行中").setContentText(text).setSmallIcon(android.R.drawable.ic_menu_view).setOngoing(true).build(); }
+-    @Override public void onDestroy() { running = false; DebugState.append(this, "服务已销毁/停止"); PolicyScheduler.stop(this); if (pollThread != null) pollThread.quitSafely(); super.onDestroy(); }
++    /** Bug 4.2：监听网络恢复，断网重连后立刻重算情绪并强制上报，消除「一次 Tick 滞后」。 */
++    private void registerNetworkRecovery() {
++        try {
++            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
++            if (cm == null) return;
++            NetworkRequest req = new NetworkRequest.Builder()
++                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build();
++            netCallback = new ConnectivityManager.NetworkCallback() {
++                @Override public void onLost(Network network) { netWasLost = true; }
++                @Override public void onAvailable(Network network) {
++                    if (!netWasLost) return;
++                    netWasLost = false;
++                    onNetworkReconnected();
++                }
++            };
++            cm.registerNetworkCallback(req, netCallback);
++        } catch (Exception ignored) { }
++    }
++
++    private void onNetworkReconnected() {
++        try {
++            DebugState.append(this, "网络恢复：立即重算情绪并强制上报");
++            EmotionPerception.perceive(this, new EmotionPerception.Signals());
++            if (serverUrl != null && token != null && !serverUrl.isEmpty() && !token.isEmpty()) {
++                uploadStateThrottled(serverUrl, token, this, true);
++            }
++        } catch (Exception ignored) { }
++    }
++
++    @Override public void onDestroy() {
++        running = false;
++        DebugState.append(this, "服务已销毁/停止");
++        if (netCallback != null) {
++            try { ((ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE)).unregisterNetworkCallback(netCallback); } catch (Exception ignored) { }
++        }
++        PolicyScheduler.stop(this);
++        if (pollThread != null) pollThread.quitSafely();
++        super.onDestroy();
++    }
+ }
+diff --git a/android/app/src/main/java/dev/linjian/peek/GuidianActivity.java b/android/app/src/main/java/dev/linjian/peek/GuidianActivity.java
+index 5dbfa1f..7d62cba 100644
+--- a/android/app/src/main/java/dev/linjian/peek/GuidianActivity.java
++++ b/android/app/src/main/java/dev/linjian/peek/GuidianActivity.java
+@@ -63,6 +63,9 @@ public class GuidianActivity extends Activity {
+         getWindow().setNavigationBarColor(theme.background);
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+             int flags = getWindow().getDecorView().getSystemUiVisibility();
++            // Bug 4.1：允许内容布局延伸到导航栏之下，再用底部内边距避让，避免全面屏手势导航下
++            // 底部「× 稍后 / ⌁ 接通」按钮与理由抽屉被系统导航条遮挡。
++            flags |= View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
+             if (theme.dark) flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+             else flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+             getWindow().getDecorView().setSystemUiVisibility(flags);
+@@ -83,7 +86,7 @@ public class GuidianActivity extends Activity {
+         LinearLayout body = new LinearLayout(this);
+         body.setOrientation(LinearLayout.VERTICAL);
+         body.setGravity(Gravity.CENTER_HORIZONTAL);
+-        body.setPadding(dp(30), dp(34), dp(30), dp(24));
++        body.setPadding(dp(30), dp(34), dp(30), dp(24) + navBarHeight());
+         root.addView(body, new FrameLayout.LayoutParams(-1, -1));
+ 
+         String companion = AppPrefs.companionName(this);
+@@ -299,7 +302,7 @@ public class GuidianActivity extends Activity {
+         FrameLayout.LayoutParams drawerLp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+         drawerLp.leftMargin = dp(14);
+         drawerLp.rightMargin = dp(14);
+-        drawerLp.bottomMargin = dp(14);
++        drawerLp.bottomMargin = dp(14) + navBarHeight();
+         root.addView(reasonDrawer, drawerLp);
+ 
+         TextView title = text("晚一点，也没关系。", 19, theme.text, true);
+@@ -430,6 +433,15 @@ public class GuidianActivity extends Activity {
+         return (int) (value * getResources().getDisplayMetrics().density + .5f);
+     }
+ 
++    /** Bug 4.1：取系统导航栏高度，用于底部内容避让手势导航条。 */
++    private int navBarHeight() {
++        int resId = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
++        if (resId > 0) {
++            try { return getResources().getDimensionPixelSize(resId); } catch (Exception ignored) { }
++        }
++        return 0;
++    }
++
+     private class WaveLineView extends View {
+         private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
+         private final ValueAnimator breath;
+diff --git a/android/app/src/main/java/dev/linjian/peek/PullBackCard.java b/android/app/src/main/java/dev/linjian/peek/PullBackCard.java
+index 35d45a1..0e84072 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PullBackCard.java
++++ b/android/app/src/main/java/dev/linjian/peek/PullBackCard.java
+@@ -291,6 +291,7 @@ public class PullBackCard {
+         tv.setBackground(rounded(primary ? accent : withAlpha(accent, .12f), 23, primary ? accent : withAlpha(accent, .45f), 1));
+         tv.setClickable(true);
+         tv.setFocusable(true);
++        tv.setEnabled(true);
+         return tv;
+     }
+ 
+diff --git a/android/app/src/main/java/dev/linjian/peek/PullBackOverlay.java b/android/app/src/main/java/dev/linjian/peek/PullBackOverlay.java
+index 9c8a761..f2ae496 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PullBackOverlay.java
++++ b/android/app/src/main/java/dev/linjian/peek/PullBackOverlay.java
+@@ -110,11 +110,18 @@ public class PullBackOverlay {
+             final View view = current;
+             current = null;
+             if (wm == null || view == null) return;
+-            main.post(new Runnable() {
+-                @Override public void run() {
+-                    try { wm.removeView(view); } catch (Exception ignored) { }
+-                }
+-            });
++            // Bug 1.2 修复：主线程上同步移除旧视图，避免旧弹窗尚未移除时又叠加新弹窗，
++            // 造成软/强级别按钮在同帧共存、点击穿透。doAdd 在主线调用 dismiss 后即 addView，
++            // 因此必须同步移除才能消除重叠窗口。
++            if (Looper.myLooper() == Looper.getMainLooper()) {
++                try { wm.removeViewImmediate(view); } catch (Exception ignored) { }
++            } else {
++                main.post(new Runnable() {
++                    @Override public void run() {
++                        try { wm.removeView(view); } catch (Exception ignored) { }
++                    }
++                });
++            }
+         } catch (Exception ignored) { }
+     }
+ 
+diff --git a/server/linjian_server.py b/server/linjian_server.py
+index a576b9a..c750a41 100644
+--- a/server/linjian_server.py
++++ b/server/linjian_server.py
+@@ -953,7 +953,13 @@ def _hm_to_minutes(hm: str) -> int:
+ 
+ 
+ def in_quiet_hours(qh: dict, hm: str) -> bool:
+-    """判断 hm(HH:MM) 是否落在安静时段内，支持跨午夜。"""
++    """判断 hm(HH:MM) 是否落在安静时段内，支持跨午夜。
++
++    Bug 1.1 修复：边界统一采用「左闭右开」[start, end)，即结束时刻不算在窗口内。
++    与 Android 端 PolicyStore.inWindow / GuidianState.inQuietTime 的约定一致
++    （两端都按 cur < end 判定），避免落在 06:00 这一分钟时服务端认为「仍安静」、
++    Android 认为「已结束」而决策相反的时间戳对齐问题。
++    """
+     if not isinstance(qh, dict):
+         return False
+     start = _hm_to_minutes(qh.get("start", ""))
+@@ -964,8 +970,8 @@ def in_quiet_hours(qh: dict, hm: str) -> bool:
+     if cur < 0:
+         return False
+     if start <= end:
+-        return start <= cur <= end
+-    return cur >= start or cur <= end
++        return start <= cur < end
++    return cur >= start or cur < end
+ 
+ 
+ def _device_local_hm(state: "State", device_id: str) -> str:
+@@ -1453,7 +1459,11 @@ def tour_scheduler_loop(state: "State") -> None:
+             comp = effective_companion_emotion(state, DEFAULT_DEVICE)
+             fb = max(30, int(fb_base * float(comp.get("pull_back_interval_scale", 1.0))))
+             hm = _device_local_hm(state, DEFAULT_DEVICE)
+-            quiet = in_quiet_hours(sched.get("quiet_hours") or {}, hm)
++            # Bug 1.1 修复：安静判定同时尊重 quiet_hours 与 night_hours。
++            # 默认配置下 quiet_hours 为 None，服务端定时任务此前永远判定「非安静」，
++            # 与 Android 端夜间 23:30–08:00 静默窗口对不齐；此处合并两者，使服务端
++            # 调度与 Android 前台通知的安静窗口一致。
++            quiet = in_quiet_hours(sched.get("quiet_hours") or {}, hm) or in_quiet_hours(sched.get("night_hours") or {}, hm)
+             if now - last_check_in >= ci:
+                 last_check_in = now
+                 try:

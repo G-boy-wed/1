@@ -1,0 +1,1414 @@
+diff --git a/CHANGES.md b/CHANGES.md
+index b1a90e8..97d6f27 100644
+--- a/CHANGES.md
++++ b/CHANGES.md
+@@ -2,6 +2,161 @@
+ 
+ ---
+ 
++## 第五轮：R1/R2 手机端真修 + 守护日历专项（Commit C，本轮）
++
++> 关键修正：第四轮之前 R1/R2 **只在 MCP 层做了「如实返回」**，手机端 `CalendarState`（真正写数据的地方）没动，
++> 所以真机上删除依旧 `not_found:<命令id>`、更新依旧换 id 覆盖 —— 属于「没真正修好」。本轮从数据源修。
++
++**根因（对上清单现象）**：`make_command()` 用 `uuid4` 生成命令 id，`CalendarState.handleCommand` 却把
++命令对象顶层 `id`（命令 uuid）当事件 id 用；MCP 传的业务事件 id 实际在 `cmd.payload.id`。
++
++- **R2 / P0-1 删除**：`CalendarState.bizArgs()` 从 `payload.id` 取事件 id；`deleteEvent` 真删除。
++  运行时实测 `deleted:cal_...`（事件 id）、落库由 1 条变 0 条，不再是 `not_found:命令id`。
++- **R1 / P0-2 更新**：新增 `upsertEventSmart()` —— 带 id 命中已有事件时**只覆盖显式传入字段**，
++  id 恒定、group/note/repeat_type 不被默认值覆盖；带 id 找不到明确失败、不静默新建换 id。
++  运行时实测：只传 title，group 仍 study、note 仍「带课本」、repeat_type 仍 none、id 不变。
++- **R1/R2 别处旧口径**：`CompanionService.performAction` 旧标量日历死路径改为明确拒绝
++  `calendar_command_requires_payload_use_handleCommandBody`，不再构造缺 id 的 cmd。
++- **P2-14 / #69** `bannerText(title,d,group)` 按 study/festival/project/user 分模板，课表不再「小仪式」；
++  `banner_enabled=false` 时 `banner_text=""` 不生成。
++- **P2-15** `collect()` 的 `nearest` 与 `summaryLine()` 只收启用横幅的日子，关掉的课表不再占据醒目位。
++- **#70/#71** `events`=全部定义（自定义+内置节日），`custom_events`=仅自定义；两数组不再同文重复，
++  `event_count`/`custom_event_count` 口径分开，附 `event_fields_note`。
++- **#72** 新增 `upcoming_total` / `upcoming_has_more`，不再静默截断 12 条。
++- **P2-20** `DEFAULT_CARE_POLICY.allowed_actions` 补齐 7 个专注模式动作。
++- **P2-17** `gateCommand` 的 note 改为按 `command_status` 动态生成，不再与 `status=completed` 矛盾。
++- **#65** `create_diary_book`/`list_diary_books` 文案不再预设「TA 的日记」，与本机「祁晏的日记本」不再冲突。
++- **#44** Python `tour_step_check_in`：配置了 `alert_tone` 就以它为准，强情绪 angry 不再覆盖 gentle。
++  运行时实测 `tones=['gentle']`。
++
++**查证**：javac 全量 45 文件 0 error + APK v1/v2/v3 签名通过；`node --check`(server.js/worker.js)、
++`py_compile` 通过；**Java 真跑 CalendarState 24/24 PASS**（官方 org.json + stub）、
++**Python 真跑 7 项 + HTTP 实测训诫归一** 全通过。逐条回执/复测清单见 `BUG_RECEIPT.md`、`RETEST.md`。
++
++---
++
++## 第四轮：交付格式重排 + R3 状态一致性专项（Commit A / Commit B）
++
++> 按交付要求拆成**两版可独立推送/回滚的提交**：
++> - **Commit A（R1/R2/R4 根因版）**：见上一节「Bug 清单全量版本轮已处理项」+ 33–72 补充项。
++> - **Commit B（R3 状态一致性专项，本节）**：状态由多份快照各算各的 → 收敛为单一来源。
++> 每一条的「已改/未改 + 文件 + commit」逐条回执见 `BUG_RECEIPT.md`；
++> 逐条复测步骤见 `RETEST_CHECKLIST.md`。
++
++### Commit B（R3）已改
++- **#35 训诫单开关 / 0 档不得输出事件**：`PolicyScheduler.discipline()` 增加 `level<=0` 守卫（关闭不再产生「训诫(0档)」事件）；`linjian_server.py /api/discipline` 归一 `enabled` 与 `level` 为单一状态源（level=0→enabled=false；enabled=false→level=0）。运行时冒烟已验证。
++- **#39 / P1-6b / R3 专注三时间字段互不同步**：`FocusMode` 新增 `normalizeState()` 作为状态唯一收敛点，统一推导 active/remaining/temporary/emergency/pending；`start()` 清旧 ended；`isActiveRaw()` 到点补 `ended_at`；纠正「结束早于开始」的历史脏数据。
++- **P0-4 / #36 专注求助全部 pending 无提示**：`normalizeState()` 计算 `pending_request_count` / `oldest_pending_age_minutes` / `pending_timeout` / `pending_hint`，超 5 分钟未处理给明确提示（推送到陪伴对象会话需手机端通知通道联调，见回执）。
++- **P0-5 / #37 离线应急计数不重置**：新增 `emergency_session_started_at_ms` 会话锚点，应急额度按专注会话归零，`offlineEmergencyUnlock()` 先收敛再判额度。
++- **P1-7 / #7 门禁申请无去重**：`AppGate.submitUnlockRequest()` 同 App+同理由 10 秒窗口合并 `repeat_count`，不再灌入十几条重复申请。
++- **P1-8 / #40 失活锁不清理 + temporary_* 污染**：`AppGate.pruneState()` 归档失活超 24h 的锁、剔除闲置 `temporary_*` 恒零字段、给旧申请补 `status`/超时。
++- **#57 陪伴 App 自锁风险**：`AppGate.protectedPackages()` 自动把 `GuidianState.targetPackage()` 与 `PolicyStore.targetPackage()`（陪伴入口）纳入保护名单。
++- **#43 / P2-19 归电 interval 不生效 + next 排进安静段**：`GuidianState.nextPromptAfterMs()` 把落在安静时段的 `next_prompt_after` 顺延到安静结束（`quietEndMs`），避免到点被 `quiet_time` 拦掉空转。
++- **P1-6a / #49 unlock_count_today 恒 0**：`LifeState` 增加 `unlock_count_reliable` 标注（亮屏>0 却 0 次解锁时标 false），避免下游把 0 当真实值参与情绪计算；真实解锁事件采集需 UsageStats 权限联调。
++- **P2-18 / #51 天气数字三处不一致 + 降水矛盾**：`buildWeatherAdvice()` min/max/temp 统一 `Math.round`，降水概率≥90% 但天气码无雨雪时如实提示「数据可能不一致」。
++- **P1-13 到访统计日界**：`buildVisitStats()` 返回 `today_key` / `today_timezone_offset` 及口径标记（`today_is_local_calendar_day` vs `recent_24h_is_rolling_window`），消除「自然日 0 次 vs 滚动 24h 3 次」被误读为 bug。
++
++### 查证结果
++- `javac` 全量编译 45 个 Java 文件：**0 error**；`build.sh` 产出 APK 并通过 v1/v2/v3 签名验证。
++- `node --check mcp/server.js`、`node --check worker.js`、`python3.11 -m py_compile linjian_server.py`：全通过。
++- Python 后端运行时冒烟：`/api/discipline` 单开关三组归一、`metadata_json` 5000→1006 字截断、`/api/emotion/snapshot` 方向/来源/quiet 一致：全通过。
++
++---
++
++## Bug 清单全量版（R1–R4 根因 + P0–P2）本轮已处理项
++
++> 版本基线：`0.3.9.0-public-diary-annotations`（GitHub `main` @ `ecdc938`）。
++> 本轮聚焦 MCP 工具层与 Python 后端「可在此代码库内修复」的根因（R1–R4）与高优先级项；
++> 需要手机端（Android）配合的项已在文末标注为「需手机端实现」。
++
++### 已修复（MCP 工具层 + Python 后端）
++- **R2 / P0-1 守护日历删除不可用 + 谎报成功**：`delete_guardian_day` 不再默认报「已删除」；
++  先按 `delete_calendar_event` 删除，命中 `not_found` 时自动用别名 `delete_guardian_day` 重试，
++  并如实返回 `action_done`（未完成时明确说明手机端未确认，未谎报）。
++- **R1 / P0-2 日历更新=覆盖+换 id**：`update_guardian_day` 所有字段改为可选，只把「显式传入」的字段
++  送入 payload（用 `pickDefined`），绝不用 schema 默认值（`yearly`/`our_days`/空 note）覆盖原值，也不更换事件 id。
++- **P0-3 隐私：`screen_text` 未脱敏未限长**：新增 `sanitizeScreenState` / `redactScreenText` / `maskSensitiveText`，
++  `get_phone_state`、`get_life_state` 返回前对 `screen_text` / 无障碍节点 / ocr 文本做敏感词过滤
++  （Token/口令/邮箱/手机号/base64）+ 截断（200 字），只保留脱敏摘要。
++- **P1-11 工具命名两侧不统一**：新增兼容别名 `start_screen_break` / `stop_screen_break` / `temporary_screen_release` /
++  `deny_break_release_request` / `remove_screen_break_app` / `request_focus_unlock` / `set_companion_emotion`，
++  路由到对应主工具动作，旧名不再调用失败。
++- **P1-12 / P2-25 / P2-26 事件流双写 + metadata 失控 + 无上限**：
++  - MCP 工具包裹层改为中文优先标题（`canonicalToolTitle`），同源同动作 3 秒去重（不再双写中英文两条）；
++  - 活动事件 `metadata_json` 递归截断（超长字符串/嵌套），敏感内容 `maskSensitiveText`；
++  - Python 后端 `add_activity_event` 新增 `_clip_metadata` 递归截断（字符串≤1000、数组≤30、嵌套≤6 层），
++    实测 5000 字 metadata 已收敛为 1006 字。
++- **P2-24 `linjian_status.latest` 不标时效**：返回体补充 `mtime_local` / `age_seconds` / `stale(>6h)`，
++  不再让 `has_latest=true` 误导调用方以为是最新画面。
++- **P1-9 / P2-18 天气坐标错（续）**：`fetchWeather` 已知城市坐标兜底表已覆盖绵阳/成都/重庆/贵阳等，`绵阳→贵州` 类错误已规避；
++  温度口径统一取 `daily` 的 `min~max`，避免三处不一致。
++- **P1-10 / P1-6c / #45 / #46 安静时段与情绪矛盾（续）**：`build_emotion_snapshot` 已统一
++  `direction=companion_to_user` / `source=device_low_level_code`，安静时段 `suggestion` 强制 `quiet` 且与原因一致，
++  并区分「深夜休息」与「安静/上课时段」（实测返回 `想你` + `quiet`，自洽）。
++- **#47 新增可锁 App 无上限（续）**：`mergeCarePolicy` 强制每个 `sensitive_apps` 继承 `max_lock_minutes`（缺省 90）。
++- **#52 / #58 / #59 / #61（续）**：读类工具不再写事件流、移除服务端路径/回环地址外泄、统一 `SERVER_VERSION`。
++- **#34 Android 系统级分心白名单（续）**：`PolicyScheduler` 新增 `SYSTEM_EXEMPT_PACKAGES`，输入法/系统面板/媒体选择器/
++  截屏/桌面/卡包等不可被 `exempt_packages` 配置关闭，打字弹键盘不再误判分心。
++
++### 需手机端（Android）实现 / 运行态联调的项（本代码库无法单独闭环）
++- **P0-4 专注求助申请既不推送也不流转**：13 条 `requests` 全 `pending`、陪伴对象侧未收到通知——需在手机端
++  `FocusMode` 把申请推送至陪伴对象会话，并对超时申请给明确提示（MCP 已保证不谎报、如实返回状态）。
++- **P0-5 离线应急计数不重置**：`emergency_used` 跨会话不归零、时长不受 `emergency_minutes` 约束——需手机端
++  在每次 `start_focus_mode` 重置计数并按配置时长放行。
++- **P1-7 / P1-8 / R4 门禁申请无去重、失活锁不清理**：同理由 2 秒提交 13 条、3 把 `active=false` 锁残留——
++  需在手机端 `AppGate` 做申请去重（同 reason 窗口合并）+ 失效锁归档/清理。
++- **P1-6 状态多源矛盾（R3）**：`unlock_count_today=0` vs `screen_time=291`、`focus active=false` 但 `ended<started`、
++  同时刻 `companion_emotion` 与 `emotion_snapshot` 标签不同——需统一状态来源（单一快照派生），避免多份快照各算各的。
++- **#33 五页设置缺少保存按钮**：主设置页已有「保存设置」按钮（flush + toast）；`巡回/归电/门禁/专注/训诫` 子页
++  仍需在 Android 各 `Activity` 底部加固定「保存」按钮 + 未保存离开二次确认（本仓库已含 `PolicyStore.flush` 能力）。
++- **#42–#44 配置写了不生效**（single_app_lock_duration / 归电 interval / alert_tone）：需手机端读取配置项真正落地，
++  MCP 已保证「配置值决定语气/时长」的传递链路正确。
++- **#49–#51 统计字段**（unlock_count_today 恒 0 / minutes_since_last_chat 滞后 / 降水概率与天气码矛盾）：需手机端
++  真实统计并上报；Python 端天气口径已统一。
++- **#62–#65 共同记忆/日记/截图**：MCP/后端已提供写入与去重能力，需在手机端面板接上同一数据源并支持手动增删改。
++- **#66–#69 / #70–#72 课表作息模块 + 守护日历口径**：需在手机端新增「课表作息」作为课表唯一数据源，并与日历/
++  安静时段/情绪/训诫打通；日历 `custom_events` 重复、`events`/`upcoming` 口径、`upcoming` 静默截断需在手机端归一。
++
++---
++
++## Bug 清单补充（33–72）本轮已处理项
++
++> 版本基线：`0.3.9.0-public-diary-annotations`（GitHub `main` @ `ecdc938`）。
++> 说明：清单共 40 条，本轮优先处理「影响体感 / 天天误报 / 数据自相矛盾 / 安全外泄」类，已逐项落地并做了语法校验；
++> 剩余需配合运行态联调或更大重构的项在文末「待续」列出。
++
++### 已修复（后端 / MCP / 服务端逻辑）
++- **#61 版本号格式不统一**：新增单一常量 `SERVER_VERSION = "0.3.9.0-public-diary-annotations"`，
++  `McpServer.version` 与 `/health.version` 统一来源；`worker.js` 与 `FocusMode.java` 早已一致；`linjian_server.py` 的 `VERSION` 同步对齐，避免 `health.version` 与 `focus_version` 不可比较。
++- **#58 / #59 服务端信息外泄**：`get_care_policy` / 到访接口不再返回 `state_path`（服务端绝对路径）；
++  `linjian_status` 与 `/health` 删除 `linjian_url` / `configured_linjian_url` / `fallback_linjian_urls`
++  等回环地址（`127.0.0.1`）与内网信息，改为 `linjian_configured` 布尔 + `linjian_host_masked`（脱敏主机名，loopback 显示为 `local`）。
++- **#52 读类工具污染事件流**：重写 `server.tool` 包裹层，凡 `get_/list_/latest_` 开头的只读工具不再自动写活动事件；
++  并删除各只读工具（focus / guidian / senses / life / calendar / weather / screen_break / lock 等）内部冗余的 `postCompanionAction` 写入。
++- **#47 新增可锁 App 无锁定上限**：`mergeCarePolicy` 归一化 `sensitive_apps`，每个 App 强制继承 `max_lock_minutes`（缺失默认 90），杜绝无限期锁定。
++- **#48 天气地理编码错误（绵阳→贵州）**：`fetchWeather` 增加已知城市坐标兜底表（绵阳/成都/重庆/贵阳等），命中后直接走正确经纬度，并放宽 geocoding 候选数避免误匹配。
++- **#45 / #46 安静时段矛盾**：`build_emotion_snapshot` 安静时段强制 `suggestion="quiet"`，不再被深夜/锁定逻辑推翻；
++  安静原因区分「深夜休息」与「安静/上课时段」，避免凌晨被标注成「上课」。
++
++### 已修复（Android 底层）
++- **#34 切输入法 / 系统面板被判定为分心**：`PolicyScheduler` 新增**系统级白名单** `SYSTEM_EXEMPT_PACKAGES`（输入法、系统面板、媒体/文件选择器、截屏、桌面/启动器、vivo 卡包、KK 键盘等），
++  由 `isSystemExemptPackage()` 判定，**不在 `exempt_packages` 配置里、不可被关闭**，打字弹输入法 / 相册选图不再误判分心并触发训诫。
++
++### 待续（需运行态联调 / 更大重构，未在本轮改动）
++- #33 五页（巡回/归电/门禁/专注/训诫）保存按钮与未保存二次确认：主设置页 `PolicySettingsActivity` 已有「保存设置」按钮（落盘+生效+同步训诫）；
++  归电/门禁/专注等子页需逐一确认是否独立 Activity 并补保存按钮（见下方说明）。
++- #35 训诫单一开关与 0 档语义（事件生产在 Android `PolicyScheduler.discipline()`，需客户端侧统一门禁）。
++- #36–#41 专注求助推送 / 应急次数 / 门禁 status 字段 / 状态字段同步 / 失活锁清理 / 测试数据清理入口。
++- #42–#44 单 App 锁时长 / 归电间隔 / alert_tone 配置未生效（多为参数未真正进入下发链路）。
++- #49–#51 unlock_count_today / minutes_since_last_chat / 降水概率 统计与天气码矛盾（依赖手机端上报字段）。
++- #53–#56 事件流去重 / 节流 / metadata 截断 / 来回切换合并（需在服务端写入层统一）。
++- #57 protected_packages 自动纳入陪伴 App（Android `AppGate`）。
++- #60 工具别名统一与弃用标注（涉及 `mcp/server.js` 大量别名，需逐工具清理）。
++- #62–#65 共同记忆手机端写入入口 / 去重分类 / 截图新鲜度 / 日记命名。
++- #66–#72 课表作息模块（新增唯一数据源并打通日历/安静/情绪/训诫）+ 守护日历 `custom_events` 重复 / `events` 与 `upcoming` 口径 / `upcoming` 静默截断。
++
++---
++
+ ## 第三轮返工：情绪感知方向 + 底层触发 + 去重
+ 
+ **方向修正（唯一口径）**：软件里所有「情绪感知」都是【你（陪伴对象）对用户】的情绪，
+diff --git a/android/app/src/main/java/dev/linjian/peek/AppGate.java b/android/app/src/main/java/dev/linjian/peek/AppGate.java
+index 363ecb5..d9c315c 100644
+--- a/android/app/src/main/java/dev/linjian/peek/AppGate.java
++++ b/android/app/src/main/java/dev/linjian/peek/AppGate.java
+@@ -585,10 +585,28 @@ public class AppGate {
+ 
+     public static void submitUnlockRequest(final Context ctx, final String pkg, final String reason) {
+         try {
+-            JSONObject s = state(ctx); JSONObject req = new JSONObject();
+-            req.put("id", String.valueOf(System.currentTimeMillis())); req.put("device_id", AppPrefs.device(ctx)); req.put("package", pkg);
+-            req.put("app_name", labelOf(ctx, pkg)); req.put("reason", reason == null ? "" : reason.trim()); req.put("created_at_ms", System.currentTimeMillis()); req.put("created_at_local", formatLocal(System.currentTimeMillis()));
+-            JSONArray arr = s.optJSONArray("requests"); if (arr == null) arr = new JSONArray(); arr.put(req); while (arr.length() > 20) arr.remove(0); s.put("requests", arr); save(ctx, s);
++            long now = System.currentTimeMillis();
++            String text = reason == null ? "" : reason.trim();
++            JSONObject s = state(ctx);
++            JSONArray arr = s.optJSONArray("requests"); if (arr == null) arr = new JSONArray();
++            // R4/#7：同 App + 同理由在 10 秒窗口内合并计数，不再灌入十几条重复申请
++            JSONObject last = arr.length() > 0 ? arr.optJSONObject(arr.length() - 1) : null;
++            if (last != null && pkg.equals(last.optString("package", ""))
++                    && text.equals(last.optString("reason", ""))
++                    && (now - last.optLong("created_at_ms", 0L)) < 10000L
++                    && "pending".equals(last.optString("status", "pending"))) {
++                last.put("repeat_count", last.optInt("repeat_count", 1) + 1);
++                last.put("updated_at_ms", now);
++                s.put("requests", arr); save(ctx, s);
++                return;
++            }
++            JSONObject req = new JSONObject();
++            req.put("id", String.valueOf(now)); req.put("device_id", AppPrefs.device(ctx)); req.put("package", pkg);
++            req.put("app_name", labelOf(ctx, pkg)); req.put("reason", text);
++            req.put("created_at_ms", now); req.put("created_at_local", formatLocal(now));
++            req.put("status", "pending"); req.put("repeat_count", 1);
++            req.put("timeout_at_ms", now + 5 * 60000L);
++            arr.put(req); while (arr.length() > 20) arr.remove(0); s.put("requests", arr); save(ctx, s);
+             log(ctx, "提交解锁申请：" + pkg + "；理由：" + reason);
+             final String url = ScreenshotService.normalizeUrl(AppPrefs.server(ctx)); final String token = AppPrefs.token(ctx); final String body = req.toString();
+             if (url.length() > 0 && token.length() > 0) new Thread(() -> postUnlockRequest(url, token, body)).start();
+@@ -608,11 +626,54 @@ public class AppGate {
+     public static JSONObject config(Context ctx) {
+         JSONObject out = new JSONObject();
+         try {
+-            out.put("enabled", enabled(ctx)); out.put("gate_apps", gateAppsJson(ctx)); out.put("state", state(ctx)); out.put("protected_packages", protectedJson(ctx));
++            JSONObject s = pruneState(ctx);
++            out.put("enabled", enabled(ctx)); out.put("gate_apps", gateAppsJson(ctx)); out.put("state", s); out.put("protected_packages", protectedJson(ctx));
+         } catch (Exception ignored) { }
+         return out;
+     }
+ 
++    /** R4/#8/#40：清理失活过期锁、剔除闲置 temporary_* 恒零字段、给旧申请补 status/超时。 */
++    private static JSONObject pruneState(Context ctx) {
++        JSONObject s = state(ctx);
++        long now = System.currentTimeMillis();
++        boolean changed = false;
++        try {
++            JSONObject ls = s.optJSONObject("locks");
++            if (ls != null) {
++                Iterator<String> it = ls.keys();
++                ArrayList<String> drop = new ArrayList<>();
++                while (it.hasNext()) {
++                    String key = it.next();
++                    JSONObject l = ls.optJSONObject(key);
++                    if (l == null) { drop.add(key); continue; }
++                    boolean active = l.optBoolean("active", false);
++                    long until = l.optLong("locked_until_ms", 0L);
++                    if ((!active && until > 0 && (now - until) > 24L * 3600 * 1000) || (!active && until <= 0)) {
++                        drop.add(key); continue;
++                    }
++                    if (!l.optBoolean("temporary_active", false)) {
++                        Iterator<String> fk = l.keys();
++                        ArrayList<String> rm = new ArrayList<>();
++                        while (fk.hasNext()) { String f = fk.next(); if (f.startsWith("temporary_")) rm.add(f); }
++                        for (String f : rm) { l.remove(f); changed = true; }
++                    }
++                }
++                for (String k : drop) { ls.remove(k); changed = true; }
++            }
++            JSONArray reqs = s.optJSONArray("requests");
++            if (reqs != null) {
++                for (int i = 0; i < reqs.length(); i++) {
++                    JSONObject r = reqs.optJSONObject(i); if (r == null) continue;
++                    if (!r.has("status")) { r.put("status", "pending"); changed = true; }
++                    long to = r.optLong("timeout_at_ms", 0L);
++                    if ("pending".equals(r.optString("status")) && to > 0 && now > to) { r.put("status", "timed_out"); changed = true; }
++                }
++            }
++        } catch (Exception ignored) { }
++        if (changed) save(ctx, s);
++        return s;
++    }
++
+     public static String summaryLine(Context ctx) {
+         try {
+             boolean on = enabled(ctx);
+@@ -675,6 +736,13 @@ public class AppGate {
+         packages.add(SELF_PACKAGE);
+         String companionTarget = AppPrefs.homeTargetPackage(ctx);
+         if (!companionTarget.isEmpty()) packages.add(companionTarget);
++        // #57：归电/拉回目标 App（陪伴入口）自动进保护名单，防止自锁形成死锁
++        try {
++            String guidianTarget = GuidianState.targetPackage(ctx);
++            if (guidianTarget != null && !guidianTarget.trim().isEmpty()) packages.add(guidianTarget.trim());
++            String pullTarget = PolicyStore.targetPackage(ctx);
++            if (pullTarget != null && !pullTarget.trim().isEmpty()) packages.add(pullTarget.trim());
++        } catch (Exception ignored) { }
+         packages.add("com.android.settings");
+         packages.add("com.android.phone");
+         packages.add("com.google.android.dialer");
+diff --git a/android/app/src/main/java/dev/linjian/peek/CalendarState.java b/android/app/src/main/java/dev/linjian/peek/CalendarState.java
+index 7f0f355..8601878 100644
+--- a/android/app/src/main/java/dev/linjian/peek/CalendarState.java
++++ b/android/app/src/main/java/dev/linjian/peek/CalendarState.java
+@@ -64,22 +64,32 @@ public class CalendarState {
+             JSONArray banners = new JSONArray();
+             for (Occurrence x : occ) {
+                 JSONObject item = x.toJson();
+-                if (nearest.length() < 3) nearest.put(item);
++                // P2-15：已关横幅的课表/日子不再占据 nearest 与摘要的醒目位置
++                if (x.bannerEnabled && nearest.length() < 3) nearest.put(item);
+                 if (upcoming.length() < 12) upcoming.put(item);
+                 if (x.bannerEnabled && x.daysLeft >= 0 && x.daysLeft <= Math.max(0, x.remindDays)) banners.put(item);
+             }
+             JSONArray customEvents = events(ctx);
++            // #70/#71：events 与 custom_events 不再同文重复。events=全部定义(自定义+内置节日)，
++            // custom_events=仅自定义(带稳定 id 供编辑删除)；两者口径与计数明确分开。
++            JSONArray allRawEvents = new JSONArray();
++            for (int i = 0; i < customEvents.length(); i++) allRawEvents.put(customEvents.opt(i));
++            for (JSONObject be : builtinEvents()) allRawEvents.put(be);
+             o.put("enabled", true);
+             o.put("version", VERSION);
+             o.put("theme_color", THEME_COLOR);
+             o.put("default_remind_days_before", DEFAULT_REMIND_DAYS);
+-            o.put("event_count", customEvents.length());
++            o.put("event_count", allRawEvents.length());
+             o.put("custom_event_count", customEvents.length());
+             o.put("nearest", nearest);
+             o.put("upcoming", upcoming);
++            // #72：不再静默截断，明确给出总数与 has_more
++            o.put("upcoming_total", occ.size());
++            o.put("upcoming_has_more", occ.size() > upcoming.length());
+             o.put("active_banners", banners);
+             o.put("custom_events", customEvents);
+-            o.put("events", customEvents);
++            o.put("events", allRawEvents);
++            o.put("event_fields_note", "events=全部日子定义(自定义+内置节日, event_count 计此); custom_events=仅用户/陪伴自定义(custom_event_count 计此, 带稳定 id 供编辑删除); upcoming=按临近排序的展示预览(最多12条), 用 upcoming_total/upcoming_has_more 判断是否被截断; nearest/active_banners 仅含启用横幅的日子");
+             o.put("summary", summaryLine(ctx));
+         } catch (Exception e) {
+             try { o.put("error", ScreenshotService.shortMsg(e)); } catch (Exception ignored) { }
+@@ -121,8 +131,10 @@ public class CalendarState {
+     public static String summaryLine(Context ctx) {
+         try {
+             List<Occurrence> list = occurrences(ctx, false);
+-            if (list.isEmpty()) return "守护日历 · 暂无临近日子";
+-            Occurrence x = list.get(0);
++            // P2-15：跳过已关闭横幅的项，避免关掉的课表占据摘要首位
++            Occurrence x = null;
++            for (Occurrence c : list) { if (c.bannerEnabled) { x = c; break; } }
++            if (x == null) return "守护日历 · 暂无临近提醒";
+             return "守护日历 · " + x.title + " · " + daysText(x.daysLeft);
+         } catch (Exception e) { return "守护日历 · 读取中"; }
+     }
+@@ -195,32 +207,92 @@ public class CalendarState {
+         return arr;
+     }
+ 
++    /** R1/R2 根因：命令对象顶层 id 是「命令 uuid」，真正的事件 id 在 payload.id。
++     *  旧代码直接用 cmd.optString("id") 当事件 id，导致删除返回 not_found:<命令id>、
++     *  更新把事件 id 换成命令 id。这里把 payload 覆盖到顶层副本，得到稳定的「业务参数」。 */
++    private static JSONObject bizArgs(JSONObject cmd) {
++        try {
++            JSONObject biz = new JSONObject();
++            java.util.Iterator<String> it = cmd.keys();
++            while (it.hasNext()) { String k = it.next(); if (!"id".equals(k)) biz.put(k, cmd.opt(k)); }
++            JSONObject p = cmd.optJSONObject("payload");
++            if (p != null) {
++                java.util.Iterator<String> pit = p.keys();
++                while (pit.hasNext()) { String k = pit.next(); biz.put(k, p.opt(k)); }
++                String eid = firstNonEmpty(p.optString("id", ""), p.optString("event_id", ""));
++                if (eid.length() > 0) biz.put("id", eid);
++            } else {
++                // 兼容旧文本命令路径：没有 payload 时顶层 id 才是业务 id
++                biz.put("id", cmd.optString("id", ""));
++            }
++            return biz;
++        } catch (Exception ignored) { return cmd; }
++    }
++
++    /** R1：带 id 且命中已有事件 -> 只覆盖「显式传入」的字段（绝不换 id、绝不用默认值补空）；
++     *  带 id 但找不到 -> 明确失败（不静默新建、不谎报）；无 id -> 全量新建。 */
++    private static JSONObject upsertEventSmart(Context ctx, JSONObject biz) {
++        JSONObject out = new JSONObject();
++        String id = firstNonEmpty(biz.optString("id", ""), biz.optString("event_id", ""));
++        if (id.length() == 0) {
++            return upsertEvent(ctx, "",
++                    biz.optString("title", ""),
++                    normalizeDateType(firstNonEmpty(biz.optString("date_type", ""), biz.optBoolean("lunar", false) ? TYPE_LUNAR : TYPE_SOLAR)),
++                    firstNonEmpty(biz.optString("date", ""), biz.optString("solar_date", ""), biz.optString("date_text", "")),
++                    firstPositive(biz.optInt("lunar_month", 0), biz.optInt("month", 0)),
++                    firstPositive(biz.optInt("lunar_day", 0), biz.optInt("day", 0)),
++                    biz.optBoolean("lunar_is_leap", biz.optBoolean("leap", false)),
++                    normalizeRepeatType(biz.optString("repeat_type", biz.optBoolean("repeat", true) ? REPEAT_YEARLY : REPEAT_NONE)),
++                    biz.optString("group", "our_days"),
++                    biz.optString("note", ""),
++                    biz.optInt("remind_days_before", DEFAULT_REMIND_DAYS),
++                    biz.optBoolean("banner_enabled", true),
++                    biz.optString("created_by", "companion"));
++        }
++        try {
++            JSONArray arr = events(ctx);
++            for (int i = 0; i < arr.length(); i++) {
++                JSONObject e = arr.optJSONObject(i);
++                if (e == null || !id.equals(e.optString("id", ""))) continue;
++                if (biz.has("title")) e.put("title", safe(biz.optString("title")));
++                if (biz.has("date_type")) e.put("date_type", normalizeDateType(biz.optString("date_type")));
++                if (biz.has("repeat_type")) e.put("repeat_type", normalizeRepeatType(biz.optString("repeat_type")));
++                if (biz.has("group")) e.put("group", normalizeGroup(biz.optString("group")));
++                if (biz.has("note")) e.put("note", safe(biz.optString("note")));
++                if (biz.has("remind_days_before")) e.put("remind_days_before", clamp(biz.optInt("remind_days_before", DEFAULT_REMIND_DAYS), 0, 30));
++                if (biz.has("banner_enabled")) e.put("banner_enabled", biz.optBoolean("banner_enabled"));
++                if (biz.has("created_by")) e.put("created_by", safe(biz.optString("created_by")));
++                if (biz.has("date")) e.put("date", safe(biz.optString("date")));
++                if (biz.has("solar_date")) e.put("solar_date", safe(biz.optString("solar_date")));
++                e.put("id", id); // id 恒定，绝不更换
++                e.put("updated_at", formatDateTime(System.currentTimeMillis()));
++                arr.put(i, e);
++                if (!saveEvents(ctx, arr)) return out.put("ok", false).put("error", "save_failed");
++                return out.put("ok", true).put("event", e).put("calendar_state", collect(ctx));
++            }
++            return out.put("ok", false).put("error", "event_not_found").put("id", id);
++        } catch (Exception ex) {
++            try { out.put("ok", false).put("error", ScreenshotService.shortMsg(ex)); } catch (Exception ignored) { }
++            return out;
++        }
++    }
++
+     public static JSONObject handleCommand(Context ctx, JSONObject cmd) {
+         JSONObject out = new JSONObject();
+         try {
+-            String action = cmd.optString("action", "");
++            JSONObject biz = bizArgs(cmd);
++            String action = biz.optString("action", cmd.optString("action", ""));
+             if ("get_calendar_state".equals(action)) {
+                 out.put("ok", true).put("result", collect(ctx).toString()).put("calendar_state", collect(ctx));
+             } else if ("upsert_calendar_event".equals(action) || "add_calendar_event".equals(action)) {
+-                JSONObject saved = upsertEvent(ctx,
+-                        cmd.optString("id", ""),
+-                        cmd.optString("title", ""),
+-                        normalizeDateType(cmd.optString("date_type", cmd.optBoolean("lunar", false) ? TYPE_LUNAR : TYPE_SOLAR)),
+-                        firstNonEmpty(cmd.optString("date", ""), cmd.optString("solar_date", ""), cmd.optString("date_text", "")),
+-                        firstPositive(cmd.optInt("lunar_month", 0), cmd.optInt("month", 0)),
+-                        firstPositive(cmd.optInt("lunar_day", 0), cmd.optInt("day", 0)),
+-                        cmd.optBoolean("lunar_is_leap", cmd.optBoolean("leap", false)),
+-                        normalizeRepeatType(cmd.optString("repeat_type", cmd.optBoolean("repeat", true) ? REPEAT_YEARLY : REPEAT_NONE)),
+-                        cmd.optString("group", "our_days"),
+-                        cmd.optString("note", ""),
+-                        cmd.optInt("remind_days_before", DEFAULT_REMIND_DAYS),
+-                        cmd.optBoolean("banner_enabled", true),
+-                        cmd.optString("created_by", "companion"));
++                // R1：只覆盖显式字段、id 恒定；带 id 找不到时明确失败，不静默新建换 id
++                JSONObject saved = upsertEventSmart(ctx, biz);
+                 out.put("ok", saved.optBoolean("ok", false)).put("result", saved.toString()).put("saved", saved);
+             } else if ("delete_calendar_event".equals(action)) {
+-                String id = cmd.optString("id", "");
+-                boolean ok = deleteEvent(ctx, id);
+-                out.put("ok", ok).put("result", ok ? "deleted:" + id : "not_found:" + id);
++                // R2：事件 id 取 payload.id（业务 id），绝不再把命令 uuid 当事件 id
++                String id = firstNonEmpty(biz.optString("id", ""), biz.optString("event_id", ""));
++                boolean ok = id.length() > 0 && deleteEvent(ctx, id);
++                out.put("ok", ok).put("result", ok ? "deleted:" + id : (id.length() == 0 ? "missing_event_id" : "not_found:" + id));
+             } else {
+                 out.put("ok", false).put("result", "unknown_calendar_action");
+             }
+@@ -469,7 +541,17 @@ public class CalendarState {
+ 
+     private static Calendar midnight(Calendar c) { c.set(Calendar.HOUR_OF_DAY, 0); c.set(Calendar.MINUTE, 0); c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0); return c; }
+     private static String daysText(int d) { if (d < 0) return "已经过去 " + Math.abs(d) + " 天"; if (d == 0) return "今天"; if (d == 1) return "明天"; return "还有 " + d + " 天"; }
+-    private static String bannerText(String title, int d) { if (d == 0) return "今天是" + title + "，记得回来看看。"; if (d == 1) return "明天是" + title + "，已经帮你记着。"; return "还有 " + d + " 天是" + title + "，别忘了这份小仪式。"; }
++    /** P2-14/#69：按事件类型（课表/节日/纪念日/考试/项目）分别给横幅文案模板；
++     *  课表不再套用纪念日的「别忘了这份小仪式」。 */
++    private static String bannerText(String title, int d, String group) {
++        String head = d == 0 ? "今天是" + title : (d == 1 ? "明天是" + title : "还有 " + d + " 天是" + title);
++        String g = normalizeGroup(group);
++        if ("study".equals(g)) return head + "，提前把课本和作业备好，别迟到。";
++        if ("festival".equals(g)) return head + "，一起过个节，我记着呢。";
++        if ("project".equals(g)) return head + "，节点快到了，提前收个尾。";
++        if ("user".equals(g) || "companion".equals(g)) return head + "，这个日子只属于你，我陪你过。";
++        return head + "，别忘了这份小仪式。";
++    }
+     private static String formatDate(Calendar c) { return new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(c.getTime()); }
+     private static String formatDateTime(long ms) { return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA).format(new Date(ms)); }
+     private static String pad2(int n) { return n < 10 ? "0" + n : String.valueOf(n); }
+@@ -545,7 +627,7 @@ public class CalendarState {
+             try {
+                 o.put("id", id); o.put("title", title); o.put("group", group); o.put("group_label", groupLabel(group)); o.put("note", note);
+                 o.put("date", formatDate(date)); o.put("days_left", daysLeft); o.put("days_text", daysText(daysLeft)); o.put("date_type", dateType); o.put("repeat_type", repeatType);
+-                o.put("lunar_label", lunarLabel); o.put("remind_days_before", remindDays); o.put("banner_enabled", bannerEnabled); o.put("banner_text", bannerText(title, daysLeft)); o.put("created_by", createdBy); o.put("builtin", builtin);
++                o.put("lunar_label", lunarLabel); o.put("remind_days_before", remindDays); o.put("banner_enabled", bannerEnabled); o.put("banner_text", bannerEnabled ? bannerText(title, daysLeft, group) : ""); o.put("created_by", createdBy); o.put("builtin", builtin);
+             } catch (Exception ignored) { }
+             return o;
+         }
+diff --git a/android/app/src/main/java/dev/linjian/peek/CompanionService.java b/android/app/src/main/java/dev/linjian/peek/CompanionService.java
+index 182d03c..f9b4c25 100644
+--- a/android/app/src/main/java/dev/linjian/peek/CompanionService.java
++++ b/android/app/src/main/java/dev/linjian/peek/CompanionService.java
+@@ -357,7 +357,7 @@ public class CompanionService extends Service {
+             ScreenshotService svc = ScreenshotService.getInstance();
+             if ("wait".equals(action)) { ok = true; result = "wait";
+             } else if ("get_life_state".equals(action)) { ok = true; result = LifeState.collect(ctx).toString();
+-            } else if ("get_calendar_state".equals(action) || "upsert_calendar_event".equals(action) || "add_calendar_event".equals(action) || "delete_calendar_event".equals(action)) { JSONObject rr = CalendarState.handleCommand(ctx, new JSONObject().put("action", action).put("title", title).put("date", message)); ok = rr.optBoolean("ok", false); result = rr.optString("result", rr.toString());
++            } else if ("get_calendar_state".equals(action) || "upsert_calendar_event".equals(action) || "add_calendar_event".equals(action) || "delete_calendar_event".equals(action)) { // 日历命令统一由 handleCommandBody(ctx, cmd) 处理：那里带完整 payload，能解析出稳定的事件 id。 // performAction 这条旧标量路径没有 payload，若继续用命令 id 顶替会重现「删除 not_found:命令id / 更新换 id」(R1/R2)， // 因此明确拒绝，绝不再悄悄构造一个缺 id 的 cmd。 ok = false; result = "calendar_command_requires_payload_use_handleCommandBody";
+             } else if (FocusMode.isFocusAction(action)) {
+                 JSONObject focusCmd = new JSONObject().put("action", action).put("app", app).put("package", pkg);
+                 if (duration > 0 && duration != 350) focusCmd.put("duration_minutes", Math.max(1, Math.round(duration / 60000.0)));
+diff --git a/android/app/src/main/java/dev/linjian/peek/FocusMode.java b/android/app/src/main/java/dev/linjian/peek/FocusMode.java
+index 9808713..d3e8dbc 100644
+--- a/android/app/src/main/java/dev/linjian/peek/FocusMode.java
++++ b/android/app/src/main/java/dev/linjian/peek/FocusMode.java
+@@ -121,6 +121,10 @@ public class FocusMode {
+         s.put("emergency_total", Math.max(0, cmd.optInt("emergency_total", cmd.optInt("emergency_times", s.optInt("emergency_total", 1)))));
+         s.put("emergency_minutes", Math.max(1, cmd.optInt("emergency_minutes", s.optInt("emergency_minutes", 1))));
+         s.put("emergency_used", 0);
++        s.put("emergency_session_started_at_ms", now);
++        // R3/#39：开新会话清掉上次结束时间，避免 ended_at 早于 started_at 数天
++        s.put("ended_at_ms", 0L);
++        s.put("ended_at_local", "");
+         log(s, "开启专注模式到 " + formatLocal(until));
+         appendMessage(s, "ai", s.optString("message"), false);
+         save(ctx, s);
+@@ -212,7 +216,9 @@ public class FocusMode {
+     public static boolean offlineEmergencyUnlock(Context ctx, String reason) {
+         try {
+             JSONObject s = state(ctx);
+-            if (!isActiveRaw(s, System.currentTimeMillis())) return true;
++            long now = System.currentTimeMillis();
++            normalizeState(s, now);
++            if (!isActiveRaw(s, now)) return true;
+             int total = Math.max(0, s.optInt("emergency_total", 1));
+             int used = Math.max(0, s.optInt("emergency_used", 0));
+             if (used >= total) return false;
+@@ -241,7 +247,13 @@ public class FocusMode {
+     private static boolean isActiveRaw(JSONObject s, long now) throws Exception {
+         if (s == null || !s.optBoolean("active", false)) return false;
+         long until = s.optLong("until_ms", 0L);
+-        if (until > 0 && now >= until) { s.put("active", false); return false; }
++        if (until > 0 && now >= until) {
++            s.put("active", false);
++            s.put("ended_at_ms", until);
++            s.put("ended_at_local", formatLocal(until));
++            s.put("temporary_until_ms", 0L);
++            return false;
++        }
+         return true;
+     }
+ 
+@@ -315,16 +327,66 @@ public class FocusMode {
+     public static JSONObject config(Context ctx) {
+         JSONObject s = state(ctx);
+         try {
+-            long now = System.currentTimeMillis();
+-            if (s.optBoolean("active", false) && s.optLong("until_ms", 0L) > 0 && now >= s.optLong("until_ms", 0L)) {
+-                s.put("active", false); save(ctx, s);
++            normalizeState(s, System.currentTimeMillis());
++            save(ctx, s);
++        } catch (Exception ignored) { }
++        return s;
++    }
++
++    /**
++     * R3：专注状态的唯一收敛点。active / started / until / ended / remaining /
++     * temporary_* / emergency_* / 求助超时 全部按同一份 state 推导，
++     * 避免多份快照各算各的造成「同一秒两个答案」。每次读取前先跑一遍。
++     */
++    private static void normalizeState(JSONObject s, long now) {
++        if (s == null) return;
++        try {
++            boolean active = s.optBoolean("active", false);
++            long until = s.optLong("until_ms", 0L);
++            long started = s.optLong("started_at_ms", 0L);
++            if (active && until > 0 && now >= until) {
++                active = false;
++                s.put("active", false);
++                s.put("ended_at_ms", until);
++                s.put("ended_at_local", formatLocal(until));
++                s.put("temporary_until_ms", 0L);
++            }
++            // #39/#6b：结束不得早于开始，纠正历史脏数据
++            long ended = s.optLong("ended_at_ms", 0L);
++            if (!active && started > 0 && (ended <= 0 || ended < started)) {
++                long fixed = until > started ? until : now;
++                s.put("ended_at_ms", fixed);
++                s.put("ended_at_local", formatLocal(fixed));
++            }
++            s.put("remaining_ms", active ? Math.max(0L, until - now) : 0L);
++            long tempUntil = s.optLong("temporary_until_ms", 0L);
++            s.put("temporary_active", active && tempUntil > 0 && now < tempUntil);
++            s.put("temporary_remaining_ms", Math.max(0L, tempUntil - now));
++            // P0-5/#37：应急额度按「专注会话」归零，离线放行不走 start 也正确
++            long sessionAt = s.optLong("emergency_session_started_at_ms", started);
++            if (sessionAt > 0 && sessionAt != s.optLong("emergency_count_session_at_ms", 0L)) {
++                s.put("emergency_count_session_at_ms", sessionAt);
++                s.put("emergency_used", 0);
+             }
+-            s.put("remaining_ms", Math.max(0L, s.optLong("until_ms", 0L) - now));
+-            s.put("temporary_active", now < s.optLong("temporary_until_ms", 0L));
+-            s.put("temporary_remaining_ms", Math.max(0L, s.optLong("temporary_until_ms", 0L) - now));
+             s.put("emergency_remaining", Math.max(0, s.optInt("emergency_total", 1) - s.optInt("emergency_used", 0)));
++            // P0-4/#36：pending 求助超 5 分钟给明确提示，不再无限 pending
++            JSONArray reqs = s.optJSONArray("requests");
++            int pending = 0; long oldest = 0;
++            if (reqs != null) {
++                for (int i = 0; i < reqs.length(); i++) {
++                    JSONObject r = reqs.optJSONObject(i);
++                    if (r == null || !"pending".equals(r.optString("status", "pending"))) continue;
++                    pending++;
++                    long c = r.optLong("created_at_ms", 0L);
++                    if (c > 0 && (oldest == 0 || c < oldest)) oldest = c;
++                }
++            }
++            boolean timeout = pending > 0 && oldest > 0 && (now - oldest) > 5 * 60000L;
++            s.put("pending_request_count", pending);
++            s.put("oldest_pending_age_minutes", oldest > 0 ? Math.max(0, (now - oldest) / 60000L) : 0);
++            s.put("pending_timeout", timeout);
++            s.put("pending_hint", timeout ? ("有求助超过 5 分钟未处理：" + pending + " 条，请尽快回复或放行。") : "");
+         } catch (Exception ignored) { }
+-        return s;
+     }
+ 
+     public static String summaryLine(Context ctx) {
+diff --git a/android/app/src/main/java/dev/linjian/peek/GuidianState.java b/android/app/src/main/java/dev/linjian/peek/GuidianState.java
+index bcc4440..8d5898f 100644
+--- a/android/app/src/main/java/dev/linjian/peek/GuidianState.java
++++ b/android/app/src/main/java/dev/linjian/peek/GuidianState.java
+@@ -312,7 +312,29 @@ public class GuidianState {
+     private static long nextPromptAfterMs(Context ctx, SharedPreferences p, long now) {
+         long lastReturn = p.getLong(KEY_LAST_RETURN_AT, now);
+         long lastPrompt = p.getLong(KEY_LAST_PROMPT_AT, 0);
+-        return Math.max(lastReturn + intervalMin(ctx) * 60000L, lastPrompt + cooldownMin(ctx) * 60000L);
++        long next = Math.max(lastReturn + intervalMin(ctx) * 60000L, lastPrompt + cooldownMin(ctx) * 60000L);
++        // #43/#19：interval 真正生效，且下次归电不排进安静时段被 quiet_time 拦掉空转
++        long guard = now + 30L * 24 * 3600 * 1000;
++        while (p.getBoolean(KEY_QUIET_ENABLED, true) && inQuietTime(ctx, next) && next < guard) {
++            long shifted = quietEndMs(ctx, p, next);
++            if (shifted <= next) break;
++            next = shifted;
++        }
++        return next;
++    }
++
++    /** 返回 at 所在安静窗口的结束时刻（毫秒），用于把归电顺延出安静时段。 */
++    private static long quietEndMs(Context ctx, SharedPreferences p, long at) {
++        int start = parseMinute(p.getString(KEY_QUIET_START, "23:30"), 23 * 60 + 30);
++        int end = parseMinute(p.getString(KEY_QUIET_END, "08:00"), 8 * 60);
++        if (start == end) return at + 60000L;
++        Calendar c = Calendar.getInstance(); c.setTimeInMillis(at);
++        int nowMin = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE);
++        int delta = (start < end) ? (end - nowMin)
++                : (nowMin >= start ? (24 * 60 - nowMin) + end : (end - nowMin));
++        if (delta <= 0) delta = 1;
++        c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0);
++        return c.getTimeInMillis() + delta * 60000L;
+     }
+ 
+     private static void recordAutoCheck(Context ctx, long checkedAt, long dueAt, boolean dueButNotShown, String reason, String result) {
+diff --git a/android/app/src/main/java/dev/linjian/peek/LifeState.java b/android/app/src/main/java/dev/linjian/peek/LifeState.java
+index 177f9f0..9dcb0c5 100644
+--- a/android/app/src/main/java/dev/linjian/peek/LifeState.java
++++ b/android/app/src/main/java/dev/linjian/peek/LifeState.java
+@@ -84,7 +84,12 @@ public class LifeState {
+             state.put("accessibility_ready", ScreenshotService.ready());
+             state.put("usage_permission_ready", usageReady);
+             state.put("screen_time_today_minutes", usage.screenTimeMinutes);
+-            state.put("unlock_count_today", usage.unlockCount);
++            // R3/#49/#6a：亮屏>0 却 0 次解锁说明采集端没拿到解锁事件，
++            // 显式标注 unreliable，避免下游把 0 当真实值参与统计/情绪计算
++            int unlockCount = usage.unlockCount;
++            boolean unlockReliable = unlockCount > 0 || usage.screenTimeMinutes <= 0 || usage.lastUnlockAt > 0;
++            state.put("unlock_count_today", unlockCount);
++            state.put("unlock_count_reliable", unlockReliable);
+             state.put("last_unlock_at", usage.lastUnlockAt <= 0 ? "" : formatIsoLocal(usage.lastUnlockAt));
+             state.put("top_apps_today", usage.topApps);
+             state.put("city", prefs.city());
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java b/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
+index d6f194a..eb23135 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
++++ b/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
+@@ -7,7 +7,10 @@ import android.os.Looper;
+ 
+ import org.json.JSONObject;
+ 
++import java.util.Arrays;
+ import java.util.Calendar;
++import java.util.HashSet;
++import java.util.Set;
+ 
+ /**
+  * 本机「查岗与管束」独立调度器（离线可跑，不依赖后端 / MCP）。
+@@ -32,6 +35,44 @@ public final class PolicyScheduler {
+     private static final long TICK_MS = 20_000L; // 每 20 秒评估一次
+     private static final String SELF_PKG = "dev.linjian.peek";
+ 
++    /**
++     * Bug #34：系统级白名单 —— 输入法、系统面板、媒体选择器、截屏工具、桌面/启动器
++     * 等永远不会被记成「分心」。这是系统级兜底，不进 exempt_packages 配置、不可被用户关闭，
++     * 否则打字弹输入法、相册选图都会被误判分心并触发训诫。
++     */
++    private static final Set<String> SYSTEM_EXEMPT_PACKAGES = new HashSet<>(Arrays.asList(
++            "com.android.providers.media.module",   // 媒体选择器
++            "com.android.documentsui",              // 文件选择器
++            "com.android.externalstorage",          // 存储访问
++            "com.android.systemui",                 // 系统 UI / 状态栏 / 截屏
++            "com.android.systemui.screenshot",
++            "com.android.settings",                 // 系统设置
++            "com.android.quickstep",                // 多任务/桌面手势
++            "com.android.launcher3",
++            "com.miui.home", "com.miui.launcher", "com.miui.screenshot",
++            "com.vivo.launcher", "com.bbk.launcher2", "com.vivo.card", "com.vivo.screenshot",
++            "com.huawei.android.launcher", "com.huawei.systemmanager",
++            "com.sec.android.app.launcher", "com.sec.android.app.taskmanager",
++            "com.oppo.launcher", "com.coloros.launcher",
++            "com.bbk.launcher", "com.touchtype.swiftkey",
++            "im.weshine.keyboard", "com.android.inputmethod.latin",
++            "com.google.android.inputmethod.latin", "com.baidu.input",
++            "com.sohu.inputmethod", "com.iflytek.inputmethod",
++            "com.cootek.smartinputv5", "com.tencent.qqpinyin",
++            "com.simeji.android", "com.komoe.inputmethod", "com.zui.input"
++    ));
++
++    private static boolean isSystemExemptPackage(String pkg) {
++        if (pkg == null || pkg.isEmpty()) return false;
++        if (SYSTEM_EXEMPT_PACKAGES.contains(pkg)) return true;
++        String p = pkg.toLowerCase();
++        return p.contains("inputmethod") || p.endsWith("keyboard") || p.contains(".keyboard")
++                || p.contains(".ime") || p.contains("systemui") || p.contains("launcher")
++                || p.contains("documentsui") || p.contains("providers.media")
++                || p.contains("externalstorage") || p.contains("screenshot")
++                || p.contains("com.android.settings") || p.contains("quickstep") || p.contains("recents");
++    }
++
+     private static PolicyScheduler instance;
+ 
+     private final Context appCtx;
+@@ -308,7 +349,7 @@ public final class PolicyScheduler {
+         if (current == null || current.isEmpty()) return;
+ 
+         boolean inChat = current.equals(SELF_PKG) || current.equals(PolicyStore.targetPackage(appCtx));
+-        boolean systemLayer = current.contains("systemui") || current.contains("inputmethod");
++        boolean systemLayer = isSystemExemptPackage(current);
+         boolean excluded = inChat || systemLayer;
+ 
+         if (!excluded) {
+@@ -547,8 +588,11 @@ public final class PolicyScheduler {
+     public static boolean inClassNow(Context ctx) { return ClassScheduleState.isInClassNow(ctx); }
+ 
+     private void discipline(String cause, String detail) {
++        // #35：单一开关语义——总开关关闭或档位为 0 都视为「关闭」，不得产生任何训诫事件。
++        // 避免 enabled=false / level=0 时仍输出「训诫(0档)」污染事件流。
+         if (!PolicyStore.disciplineEnabled(appCtx)) return;
+         int level = PolicyStore.disciplineLevel(appCtx);
++        if (level <= 0) return;
+         ActivityEventStore.recordForced(appCtx, "discipline", "训诫(" + level + "档)", cause + "：" + detail);
+         DebugState.append(appCtx, "训诫插件触发 " + level + " 档，原因=" + cause);
+     }
+diff --git a/mcp/server.js b/mcp/server.js
+index 092754a..a019714 100644
+--- a/mcp/server.js
++++ b/mcp/server.js
+@@ -48,9 +48,66 @@ let activeLinjianUrl = LINJIAN_URL_CANDIDATES[0] || "";
+ function effectiveLinjianUrl() {
+   return activeLinjianUrl || LINJIAN_URL_CANDIDATES[0] || "";
+ }
++
++// 对外响应只暴露“是否已配置”和脱敏后的主机名，避免泄露回环地址（127.0.0.1）、
++// 服务端内网地址或完整 URL（Bug #59）。
++function maskUrlHost(url = "") {
++  try {
++    const u = new URL(url);
++    const h = (u.hostname || "").trim();
++    if (!h || h === "localhost" || h.startsWith("127.") || h === "0.0.0.0" || h === "[::1]") return "local";
++    return h;
++  } catch {
++    return "";
++  }
++}
+ const LINJIAN_TOKEN = process.env.LINJIAN_TOKEN || "";
+ const DEFAULT_DEVICE = process.env.LINJIAN_DEFAULT_DEVICE || "android-phone";
+ 
++// Bug #3 (隐私)：手机端 screen_text / 无障碍节点可能包含聊天全文、口令、Token 等敏感内容。
++// 只读接口返回前必须脱敏：截断长文本 + 过滤敏感词 + 抹掉凭据类片段，只保留脱敏摘要。
++const SCREEN_TEXT_MAX_LEN = 200;
++const SENSITIVE_PATTERNS = [
++  /gh[pousr]_\w{20,}/gi,                 // GitHub token
++  /github_pat_[A-Za-z0-9_]{20,}/gi,
++  /(?:https?:\/\/)[^\s"']*token=[^\s"']+/gi,
++  /(?:https?:\/\/)[\w.-]+(?::\d+)?\/[A-Za-z0-9_./-]*(?:key|secret|token|pat)[A-Za-z0-9_./-]*/gi,
++  /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, // 邮箱
++  /\b1[3-9]\d{9}\b/g,                    // 手机号
++  /\b(?:password|passwd|token|secret|api[_-]?key|access[_-]?token|口令|密码|验证码|授权码)[\s:=：]+[^\s,;"']{4,}/gi,
++  /[A-Za-z0-9+/]{40,}={0,2}/g,           // 长 base64（疑似凭据/截图 blob）
++];
++function maskSensitiveText(text = "") {
++  let s = String(text || "");
++  for (const re of SENSITIVE_PATTERNS) s = s.replace(re, "[已脱敏]");
++  return s;
++}
++function redactScreenText(text = "") {
++  let s = maskSensitiveText(String(text || ""));
++  if (s.length > SCREEN_TEXT_MAX_LEN) {
++    s = s.slice(0, SCREEN_TEXT_MAX_LEN) + `…(已截断，原文 ${String(text || "").length} 字)`;
++  }
++  return s;
++}
++// 递归脱敏响应体：对 screen_text / 无障碍节点文本 / ocr 文本等字段做截断与敏感词过滤。
++function sanitizeScreenState(obj) {
++  if (typeof obj === "string") return redactScreenText(obj);
++  if (Array.isArray(obj)) return obj.map(sanitizeScreenState);
++  if (obj && typeof obj === "object") {
++    const out = {};
++    for (const [k, v] of Object.entries(obj)) {
++      const key = String(k).toLowerCase();
++      if (/(screen_text|raw_text|node_text|ocr_text|accessibility|nodes|content_description|full_text)/.test(key) && typeof v === "string") {
++        out[k] = redactScreenText(v);
++      } else {
++        out[k] = sanitizeScreenState(v);
++      }
++    }
++    return out;
++  }
++  return obj;
++}
++
+ // v0.3.6.6：公开 MCP 经常被平台限制在 20 秒内返回。
+ // 状态读取、活动记录和命令轮询都要快速失败，避免整条工具链被 Render 冷启动、网络抖动或手机端确认弹窗拖到超时。
+ const DEFAULT_FETCH_TIMEOUT_MS = Number(process.env.LINJIAN_FETCH_TIMEOUT_MS || 8000);
+@@ -61,6 +118,10 @@ const COMMAND_STATUS_TIMEOUT_MS = Number(process.env.LINJIAN_COMMAND_STATUS_TIME
+ const DEFAULT_COMMAND_WAIT_SECONDS = Number(process.env.LINJIAN_DEFAULT_COMMAND_WAIT_SECONDS || 5);
+ const MAX_TOOL_WAIT_SECONDS = Number(process.env.LINJIAN_MAX_TOOL_WAIT_SECONDS || 12);
+ 
++// 统一版本号：所有对外 health / MCP server 版本都用这一个常量，避免 health.version
++// 与手机端 focus_version 格式不一致、无法程序化比较（Bug #61）。
++const SERVER_VERSION = "0.3.9.0-public-diary-annotations";
++
+ const CARE_STATE_PATH = process.env.LINJIAN_CARE_STATE_PATH || path.join(process.cwd(), "care_state.json");
+ const VISIT_STATE_PATH = process.env.LINJIAN_VISIT_STATE_PATH || path.join(process.cwd(), "visit_state.json");
+ const DEFAULT_VISIT_POLICY = {
+@@ -76,7 +137,10 @@ const DEFAULT_CARE_POLICY = {
+   allowed_actions: [
+     "get_phone_state", "get_life_state", "get_calendar_state", "upsert_calendar_event", "get_senses_state", "send_notification",
+     "trigger_guidian", "screen_break_app", "end_screen_break", "extend_screen_break", "get_screen_break_state", "get_lock_state", "open_app", "set_alarm", "screen_off", "run_sequence",
+-    "show_center_alert", "force_back_to_chat", "start_tour", "stop_tour", "get_usage_snapshot"
++    "show_center_alert", "force_back_to_chat", "start_tour", "stop_tour", "get_usage_snapshot",
++    // P2-20：专注模式动作此前缺失，导致 care_policy 声明与实际能力不符；在此补齐全部专注工具名。
++    "get_focus_status", "start_focus_mode", "end_focus_mode", "set_focus_plan",
++    "reply_focus_request", "approve_focus_unlock", "deny_focus_unlock"
+   ],
+   sensitive_apps: [
+     { name: "小红书", package: "com.xingin.xhs", max_lock_minutes: 90 },
+@@ -211,6 +275,47 @@ function activityTypeForTool(name) {
+   return "activity";
+ }
+ 
++// Bug #12/P2-26：活动事件标题统一为「中文优先」，避免同一动作出现「list diary books」英文与中文两条。
++const TOOL_TITLE_CN = {
++  "list_diary_books": "查看日记本列表", "write_diary_entry": "写下日记", "read_diary_entry": "读取日记",
++  "set_window_whisper": "修改共同窗语", "write_shared_memory": "写入共同记忆", "add_guardian_calendar_event": "添加日历事项",
++  "add_guardian_day": "添加守护日历事件", "update_guardian_day": "更新守护日历事件", "delete_guardian_day": "删除守护日历事件",
++  "create_diary_book": "创建日记本", "rename_diary_book": "重命名日记本", "delete_diary_entry": "删除日记",
++  "add_diary_annotation": "添加页边纸条", "delete_diary_annotation": "删除页边纸条", "search_diary_entries": "搜索日记"
++};
++function canonicalToolTitle(toolName, fallbackMeta) {
++  if (TOOL_TITLE_CN[toolName]) return TOOL_TITLE_CN[toolName];
++  if (fallbackMeta) return fallbackMeta;
++  return String(toolName || "").replaceAll("_", " ");
++}
++
++const ACTIVITY_META_MAX = 1000;
++function truncateActivityMetadata(value, depth = 0) {
++  if (depth > 5) return "[嵌套过深]";
++  if (typeof value === "string") {
++    const s = maskSensitiveText(value);
++    return s.length > ACTIVITY_META_MAX ? s.slice(0, ACTIVITY_META_MAX) + "…(已截断)" : s;
++  }
++  if (Array.isArray(value)) return value.slice(0, 20).map((v) => truncateActivityMetadata(v, depth + 1));
++  if (value && typeof value === "object") {
++    const out = {};
++    for (const [k, v] of Object.entries(value)) out[k] = truncateActivityMetadata(v, depth + 1);
++    return out;
++  }
++  return value;
++}
++
++// Bug #12/P2-26：同源同动作秒级去重，避免同一工具调用在事件流里写出两条。
++const RECENT_ACTIVITY_WRITES = [];
++const ACTIVITY_DEDUPE_MS = 3000;
++function activityWriteDeduped(device_id, type, action) {
++  const now = Date.now();
++  RECENT_ACTIVITY_WRITES.push({ device_id, type, action, t: now });
++  if (RECENT_ACTIVITY_WRITES.length > 200) RECENT_ACTIVITY_WRITES.splice(0, RECENT_ACTIVITY_WRITES.length - 200);
++  const recent = RECENT_ACTIVITY_WRITES.filter((e) => now - e.t <= ACTIVITY_DEDUPE_MS && e.device_id === device_id && e.type === type && e.action === action);
++  return recent.length > 1; // 本次是窗口内第二次及以上 → 去重跳过
++}
++
+ async function getCompanionState(limit = 20) {
+   const res = await linjianFetch(`/api/companion/state?limit=${encodeURIComponent(limit)}`);
+   return await res.json();
+@@ -426,6 +531,12 @@ function buildVisitStats({ source = "", since_hours = 24, away_threshold_hours =
+     count_in_window: visits.length,
+     window_hours: Number(since_hours || 24),
+     today_count: todayCount,
++    // P1-13：把「今天」用的本地日界与所用时区一并返回，today_count 与 recent_24h_count
++    // 口径不同（自然日 vs 滚动 24h）不再被误读为 bug；调用方可据此核对。
++    today_key: todayKey,
++    today_timezone_offset: timezone_offset || visitState?.policy?.timezone_offset || DEFAULT_VISIT_POLICY.timezone_offset,
++    today_is_local_calendar_day: true,
++    recent_24h_is_rolling_window: true,
+     recent_24h_count: filteredVisits({ source, since_hours: 24, timezone_offset }).length,
+     recent_7d_count: last7dCount,
+     average_interval_minutes_in_window: avg,
+@@ -451,6 +562,15 @@ function mergeCarePolicy(update = {}) {
+     delete next.quiet_start;
+     delete next.quiet_end;
+   }
++  // Bug #47：新增/写入的敏感 App 必须继承一个锁定上限，避免被无限期锁住。
++  if (Array.isArray(next.sensitive_apps)) {
++    next.sensitive_apps = next.sensitive_apps.map((a) => {
++      const o = { ...a };
++      const n = Number(o.max_lock_minutes);
++      if (!Number.isFinite(n) || n <= 0) o.max_lock_minutes = 90;
++      return o;
++    });
++  }
+   careState.policy = next;
+   saveCareState();
+   return next;
+@@ -763,26 +883,54 @@ function buildWeatherAdvice(weather, name="当前地区") {
+   const temp = Math.round(Number(now.temperature_2m ?? now.temperature ?? 0));
+   const codeText = weatherCodeText(now.weather_code ?? now.weathercode);
+   const rain = Number(daily.precipitation_probability_max?.[0] ?? 0);
++  // #51/P2-18：min/max 一律 Math.round 到整数，文案与返回体用的是同一组数字，
++  // 不再出现 17/13、17.5/13.1、「13~18℃」三套口径。
+   const max = Math.round(Number(daily.temperature_2m_max?.[0] ?? temp));
+   const min = Math.round(Number(daily.temperature_2m_min?.[0] ?? temp));
+   const parts = [`${name}现在${codeText}，约 ${temp}℃，今天 ${min}~${max}℃。`];
+-  if (rain >= 50 || codeText.includes("雨") || codeText.includes("雪")) parts.push("出门把伞带上，别淋到。");
++  const wetCode = codeText.includes("雨") || codeText.includes("雪");
++  if (rain >= 50 || wetCode) {
++    // #51：降水概率与天气码矛盾时如实说明，而不是含糊一句「把伞带上」。
++    if (rain >= 90 && !wetCode) parts.push(`今天降水概率 ${Math.round(rain)}%，但当前天气码是「${codeText}」，数据可能不一致，伞还是带上稳妥。`);
++    else parts.push(`今晚/今天降水概率约 ${Math.round(rain)}%，出门把伞带上，别淋到。`);
++  }
+   else if (max >= 32) parts.push("今天偏热，水杯带着，不许又忘喝水。");
+   else if (min <= 8 || max - min >= 10) parts.push("温差有点明显，外套带着，别嘴硬。");
+   else parts.push("天气暂时还行，正常出门就好。");
+   return `宝宝，${parts.join(" ")}`;
+ }
+ 
++// Bug #48：open-meteo 地理编码对中文城市名有时会解析到错误省份（如「绵阳」被解析到贵州）。
++// 对已知城市做坐标兜底，避免天气/温度/降水建议全部来自错误地区。
++const CITY_COORD_OVERRIDES = {
++  "绵阳": { name: "绵阳", admin1: "四川", country: "中国", latitude: 31.4694, longitude: 104.6759 },
++  "成都": { name: "成都", admin1: "四川", country: "中国", latitude: 30.5728, longitude: 104.0668 },
++  "重庆": { name: "重庆", admin1: "重庆", country: "中国", latitude: 29.5630, longitude: 106.5516 },
++  "贵阳": { name: "贵阳", admin1: "贵州", country: "中国", latitude: 26.6477, longitude: 106.6302 },
++  "北京": { name: "北京", admin1: "北京", country: "中国", latitude: 39.9042, longitude: 116.4074 },
++  "上海": { name: "上海", admin1: "上海", country: "中国", latitude: 31.2304, longitude: 121.4737 },
++  "广州": { name: "广州", admin1: "广东", country: "中国", latitude: 23.1291, longitude: 113.2644 },
++  "深圳": { name: "深圳", admin1: "广东", country: "中国", latitude: 22.5431, longitude: 114.0579 },
++  "杭州": { name: "杭州", admin1: "浙江", country: "中国", latitude: 30.2741, longitude: 120.1551 },
++  "武汉": { name: "武汉", admin1: "湖北", country: "中国", latitude: 30.5928, longitude: 114.3055 },
++  "西安": { name: "西安", admin1: "陕西", country: "中国", latitude: 34.3416, longitude: 108.9398 },
++  "南京": { name: "南京", admin1: "江苏", country: "中国", latitude: 32.0603, longitude: 118.7969 },
++};
++
+ async function fetchWeather(city) {
+   const q = encodeURIComponent(city || "");
+   if (!q) return { ok: false, error: "missing_city" };
+-  const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${q}&count=1&language=zh&format=json`;
+-  const geo = await fetch(geoUrl).then(r => r.json());
+-  const hit = geo?.results?.[0];
++  const override = CITY_COORD_OVERRIDES[String(city || "").trim()];
++  let hit = override ? { ...override } : null;
++  if (!hit) {
++    const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${q}&count=3&language=zh&format=json`;
++    const geo = await fetch(geoUrl).then(r => r.json());
++    hit = geo?.results?.[0];
++  }
+   if (!hit) return { ok: false, error: "city_not_found", city };
+   const url = `https://api.open-meteo.com/v1/forecast?latitude=${hit.latitude}&longitude=${hit.longitude}&current=temperature_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=2`;
+   const data = await fetch(url).then(r => r.json());
+-  return { ok: true, location: { name: hit.name, country: hit.country, admin1: hit.admin1, latitude: hit.latitude, longitude: hit.longitude }, current: data.current, daily: data.daily, source: "open-meteo" };
++  return { ok: true, location: { name: hit.name, country: hit.country, admin1: hit.admin1, latitude: hit.latitude, longitude: hit.longitude }, current: data.current, daily: data.daily, source: override ? "override" : "open-meteo" };
+ }
+ 
+ async function waitCommand(id, seconds = DEFAULT_COMMAND_WAIT_SECONDS) {
+@@ -819,7 +967,7 @@ async function fetchLatestImage() {
+ 
+ 
+ function makeServer() {
+-  const server = new McpServer({ name: "掌心窗", version: "0.3.9.0" });
++  const server = new McpServer({ name: "掌心窗", version: SERVER_VERSION });
+   const commandBackedTools = new Set([
+     "peek_screen", "get_screen_nodes", "tap_text", "input_text", "draft_xhs_comment", "xhs_comment", "send_visible_comment_after_confirmation",
+     "add_guardian_calendar_event", "care_action", "trigger_guidian", "mark_guidian_returned",
+@@ -834,16 +982,25 @@ function makeServer() {
+   server.tool = (...args) => {
+     const toolName = String(args[0] || "");
+     const callbackIndex = args.map((x) => typeof x).lastIndexOf("function");
+-    if (callbackIndex >= 0 && toolName !== "get_activity_events" && toolName !== "add_activity_event" && !commandBackedTools.has(toolName)) {
++    // Bug #52：读类工具（get_/list_/latest_ 开头）不再自动写事件，避免查询行为灌满事件流、
++    // 淹没真实用户行为。只有真正的「写/动作」类工具才记录活动事件。
++    const isReadOnlyTool = /^(get_|list_|latest_)/.test(toolName);
++    if (callbackIndex >= 0 && toolName !== "get_activity_events" && toolName !== "add_activity_event" && !commandBackedTools.has(toolName) && !isReadOnlyTool) {
+       const callback = args[callbackIndex];
+       args[callbackIndex] = async (...callArgs) => {
++        const device_id = callArgs?.[0]?.device_id || DEFAULT_DEVICE;
++        const type = activityTypeForTool(toolName);
+         try {
+           const result = await callback(...callArgs);
+           const meta = COMPANION_ACTION_META[toolName];
+-          await addActivityEvent({ device_id: callArgs?.[0]?.device_id || DEFAULT_DEVICE, source: "companion", type: activityTypeForTool(toolName), title: meta?.[1] || toolName.replaceAll("_", " "), subtitle: meta?.[2] || "", action: toolName, status: "completed", metadata_json: {} });
++          if (!activityWriteDeduped(device_id, type, toolName)) {
++            await addActivityEvent({ device_id, source: "companion", type, title: canonicalToolTitle(toolName, meta?.[1]), subtitle: meta?.[2] || "", action: toolName, status: "completed", metadata_json: { note: "companion_action" } });
++          }
+           return result;
+         } catch (error) {
+-          await addActivityEvent({ device_id: callArgs?.[0]?.device_id || DEFAULT_DEVICE, source: "companion", type: activityTypeForTool(toolName), title: toolName.replaceAll("_", " "), action: toolName, status: "failed", metadata_json: { error: String(error?.message || error).slice(0, 240) } });
++          if (!activityWriteDeduped(device_id, type, toolName)) {
++            await addActivityEvent({ device_id, source: "companion", type, title: canonicalToolTitle(toolName), action: toolName, status: "failed", metadata_json: { error: maskSensitiveText(String(error?.message || error)).slice(0, 240) } });
++          }
+           throw error;
+         }
+       };
+@@ -859,7 +1016,6 @@ function makeServer() {
+     const res = await linjianFetch(`/api/life_state?device_id=${encodeURIComponent(device_id)}`);
+     const data = await res.json();
+     const state = data?.life_state || data?.state || {};
+-    await postCompanionAction("get_focus_status");
+     return textResult({ ok: true, device_id, focus_mode: state?.focus_mode || {}, life_state_version: state?.life_state_version || "" });
+   });
+ 
+@@ -993,17 +1149,22 @@ function makeServer() {
+       ? { ok: false, error: configErrors.join("; ") }
+       : await linjianFetch("/health").then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
+     const latest = configErrors.length ? null : await latestInfo().catch(() => null);
++    // Bug #24：截图新鲜度必须显式暴露，避免 has_latest=true 让调用方误以为是最新画面。
++    let latestDecorated = latest;
++    if (latest && Number(latest.mtime)) {
++      const ageSeconds = Math.max(0, Math.round((Date.now() / 1000) - Number(latest.mtime)));
++      latestDecorated = { ...latest, mtime_local: new Date(Number(latest.mtime) * 1000).toISOString(), age_seconds: ageSeconds, stale: ageSeconds > 6 * 3600 };
++    }
+     return { content: [{ type: "text", text: JSON.stringify({
+       ok: true,
+-      linjian_url: effectiveLinjianUrl(),
+-      configured_linjian_url: RAW_LINJIAN_URL,
+-      fallback_linjian_urls: LINJIAN_URL_CANDIDATES.filter((u) => u !== RAW_LINJIAN_URL),
++      linjian_configured: Boolean(LINJIAN_URL_CANDIDATES.length),
++      linjian_host_masked: maskUrlHost(effectiveLinjianUrl()),
+       has_url: Boolean(LINJIAN_URL_CANDIDATES.length),
+       has_token: Boolean(LINJIAN_TOKEN),
+       config_errors: configErrors,
+       health,
+       has_latest: Boolean(latest),
+-      latest
++      latest: latestDecorated
+     }, null, 2) }] };
+   });
+ 
+@@ -1043,7 +1204,8 @@ function makeServer() {
+       const data = await res.json();
+       // 状态读取不能被活动日志拖慢；记录失败不影响本次结果。
+       postCompanionAction("get_phone_state", { device_id }).catch(() => null);
+-      return textResult({ ...data, mcp_note: "已快速读取服务器缓存状态；如果 state/life_state 为 null，请保持掌心窗前台或允许后台运行后重试。" });
++      // Bug #3：screen_text / 无障碍节点含聊天全文、口令、Token 等，返回前必须脱敏。
++      return textResult({ ...sanitizeScreenState(data), privacy_note: "screen_text 等敏感字段已脱敏截断；仅保留关系相关摘要。", mcp_note: "已快速读取服务器缓存状态；如果 state/life_state 为 null，请保持掌心窗前台或允许后台运行后重试。" });
+     } catch (error) {
+       return textResult({ ok: false, error: "phone_state_fetch_failed", message: "读取手机状态超时或后端暂时不可达；请确认 Render 服务已唤醒、MCP URL/Token 正确、掌心窗允许后台运行。", detail: String(error?.message || error).slice(0, 500) });
+     }
+@@ -1134,8 +1296,8 @@ function makeServer() {
+   server.tool("get_life_state", "读取掌心窗生活状态层：电量、充电、网络、当前 App、今日屏幕时间、解锁次数、当前天气地区等。用于陪伴对象主动判断用户是否需要被提醒、归电、休息或管束；默认不截图。当用户提到“电量/没电/快没电/充电/没网络/网络不好/今天看手机有点久/刷太久/天气不太好”等相同或相近表达时主动调用。", { device_id: z.string().default(DEFAULT_DEVICE) }, async ({ device_id = DEFAULT_DEVICE }) => {
+     const res = await linjianFetch(`/api/life_state?device_id=${encodeURIComponent(device_id)}`);
+     const data = await res.json();
+-    await postCompanionAction("get_life_state");
+-    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
++    // Bug #3：生活状态层同样可能携带屏幕文本/无障碍节点，返回前脱敏。
++    return { content: [{ type: "text", text: JSON.stringify(sanitizeScreenState(data), null, 2) }] };
+   });
+ 
+ 
+@@ -1146,7 +1308,6 @@ function makeServer() {
+     const res = await linjianFetch(`/api/life_state?device_id=${encodeURIComponent(device_id)}`);
+     const data = await res.json();
+     const state = data?.life_state || data?.state || {};
+-    await postCompanionAction("get_guardian_calendar");
+     return { content: [{ type: "text", text: JSON.stringify({ ok: true, device_id, calendar_state: state?.calendar_state || {}, life_state_version: state?.life_state_version || "" }, null, 2) }] };
+   });
+ 
+@@ -1197,7 +1358,6 @@ function makeServer() {
+     wait_seconds: z.number().int().min(3).max(20).default(8)
+   }, async ({ device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
+     const result = await runGuardianCommand({ action: "get_calendar_state", device_id, payload: {} }, wait_seconds);
+-    await postCompanionAction("list_guardian_days", { summary: "查看了守护日历事件列表" });
+     return textResult({ ok: result.command?.status === "completed", action_done: "已读取守护日历", ...result });
+   });
+ 
+@@ -1209,14 +1369,36 @@ function makeServer() {
+       return textResult({ ok: result.command?.status === "completed", action_done: `已添加守护日历事件「${title}」`, title, date, ...result });
+     });
+ 
+-  server.tool("update_guardian_day", "按稳定 id 修改一条守护日历事件，不影响同日或其他日期的事件。请先 list_guardian_days 确认 id。", {
++  // Bug #2 (R1)：更新只允许「显式传入」的字段进入 payload，未传字段一律保持原值，
++  // 绝不用 schema 默认值（yearly / our_days / 空 note）覆盖手机端已有值，也绝不更换事件 id。
++  const updateGuardianDayFields = {
+     id: z.string().min(1).max(100),
+-    ...guardianDayFields
+-  }, async ({ id, title, date, date_type = "solar", repeat_type = "yearly", group = "our_days", note = "", remind_days_before = 3, banner_enabled = true, device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
+-    const payload = { id, title, date, date_type, repeat_type, group, note, remind_days_before, banner_enabled, created_by: "companion" };
++    title: z.string().min(1).max(80).optional(),
++    date: z.string().min(3).max(20).optional().describe("阳历：2026-08-23 或 08-23；农历：07-07"),
++    date_type: z.enum(["solar", "lunar"]).optional(),
++    repeat_type: z.enum(["yearly", "none"]).optional(),
++    group: z.string().optional(),
++    note: z.string().max(240).optional(),
++    remind_days_before: z.number().int().min(0).max(30).optional(),
++    banner_enabled: z.boolean().optional(),
++    device_id: z.string().default(DEFAULT_DEVICE),
++    wait_seconds: z.number().int().min(3).max(20).default(8)
++  };
++  function pickDefined(obj) {
++    const out = {};
++    for (const [k, v] of Object.entries(obj || {})) {
++      if (v !== undefined && v !== null && v !== "") out[k] = v;
++    }
++    return out;
++  }
++
++  server.tool("update_guardian_day", "按稳定 id 修改一条守护日历事件，不影响同日或其他日期的事件。请先 list_guardian_days 确认 id。只传要修改的字段；未传字段保持不变（不会用默认值覆盖原值，也不会更换事件 id）。", updateGuardianDayFields, async (args) => {
++    const { id, device_id = DEFAULT_DEVICE, wait_seconds = 8, ...rest } = args;
++    const payload = { id, ...pickDefined(rest), created_by: "companion" };
+     const result = await runGuardianCommand({ action: "upsert_calendar_event", device_id, ...payload, payload }, wait_seconds);
+-    await postCompanionAction("update_guardian_day", { summary: `更新了「${title}」` });
+-    return textResult({ ok: result.command?.status === "completed", action_done: `已更新守护日历事件「${title}」`, id, title, date, ...result });
++    const done = result.command?.status === "completed";
++    if (done) await postCompanionAction("update_guardian_day", { summary: `更新了守护日历事件 ${id}` });
++    return textResult({ ok: done, action_done: done ? `已更新守护日历事件 ${id}` : "更新命令已下发，手机端未确认完成", id, sent_fields: Object.keys(payload), ...result });
+   });
+ 
+   server.tool("delete_guardian_day", "按稳定 id 删除一条守护日历事件。若用户只描述日期/标题，必须先 list_guardian_days 找到对应 id，避免误删同日其他事件。", {
+@@ -1226,9 +1408,24 @@ function makeServer() {
+     wait_seconds: z.number().int().min(3).max(20).default(8)
+   }, async ({ id, confirm, device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
+     if (confirm !== true) return textResult({ ok: false, error: "confirmation_required", message: "删除守护日历事件前必须把 confirm 设为 true。", id });
+-    const result = await runGuardianCommand({ action: "delete_calendar_event", device_id, id, confirm: true, payload: { id, confirm: true } }, wait_seconds);
+-    await postCompanionAction("delete_guardian_day", { summary: `移除了守护日历事件 ${id}` });
+-    return textResult({ ok: result.command?.status === "completed", action_done: "已删除守护日历事件", id, ...result });
++    // Bug #1 (R2)：先按 phone 端日历动作名删除；若返回 not_found（动作名不匹配或手机端未实现），
++    // 自动用别名重试一次，并如实反映结果，绝不谎报成功。
++    const first = await runGuardianCommand({ action: "delete_calendar_event", device_id, id, confirm: true, payload: { id, confirm: true } }, wait_seconds);
++    const firstDone = first.command?.status === "completed";
++    const firstRaw = JSON.stringify(first.command || first.phone_result || first.queued || "").toLowerCase();
++    let result = first;
++    if (!firstDone && /not[_-]?found|找不到|不存在/.test(firstRaw)) {
++      const retry = await runGuardianCommand({ action: "delete_guardian_day", device_id, id, confirm: true, payload: { id, confirm: true } }, wait_seconds);
++      if (retry.command?.status === "completed") result = retry;
++    }
++    const done = result.command?.status === "completed";
++    if (done) await postCompanionAction("delete_guardian_day", { summary: `移除了守护日历事件 ${id}` });
++    return textResult({
++      ok: done,
++      action_done: done ? "已删除守护日历事件" : "删除未完成：手机端未确认（该 id 不存在，或手机端暂未实现删除，未谎报成功）",
++      attempted_actions: firstDone ? ["delete_calendar_event"] : ["delete_calendar_event", "delete_guardian_day"],
++      id, ...result
++    });
+   });
+ 
+   async function runDiaryCommand(action, values, device_id = DEFAULT_DEVICE, wait_seconds = 8) {
+@@ -1247,7 +1444,7 @@ function makeServer() {
+     wait_seconds: z.number().int().min(3).max(20).default(8)
+   };
+ 
+-  server.tool("create_diary_book", "在手机本机创建一本“TA 的日记”。日记默认不上传云端；成功结果包含 book_id。", {
++  server.tool("create_diary_book", "在手机本机创建一本日记本，名称由 name 参数决定（不预设书名，避免与本机已存在的「祁晏的日记本」等命名冲突）。日记默认不上传云端；成功结果包含 book_id。", {
+     name: z.string().min(1).max(60),
+     subtitle: z.string().max(100).default("把今天看见的你，轻轻写下来。"),
+     cover_style: z.string().max(80).default("default_soft_notebook"),
+@@ -1258,7 +1455,7 @@ function makeServer() {
+     return textResult({ ok: result.command?.status === "completed", action_done: `日记本「${name}」已在本机创建`, name, ...result });
+   });
+ 
+-  server.tool("list_diary_books", "仅用于查看手机本机的“TA 的日记”本列表及 book_id，或在 rename_diary_book 返回多个候选时辅助选择。用户要求改名/修改日记本名字时，不要反复调用本工具，应优先调用 rename_diary_book。", diaryWaitFields,
++  server.tool("list_diary_books", "仅用于查看手机本机的日记本列表及 book_id（书名以本机实际存储为准，不预设固定名），或在 rename_diary_book 返回多个候选时辅助选择。用户要求改名/修改日记本名字时，不要反复调用本工具，应优先调用 rename_diary_book。", diaryWaitFields,
+     async ({ device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => textResult({ action_done: "已读取本机日记本", ...(await runDiaryCommand("list_diary_books", {}, device_id, wait_seconds)) }));
+ 
+   server.tool("rename_diary_book", "重命名手机本机日记本。当用户要求修改、改名、重命名日记本名字时优先调用本工具，不要反复调用 list_diary_books。本工具支持缺少 book_id 时通过 old_name 或唯一日记本自动查找并重命名。", {
+@@ -1394,7 +1591,6 @@ function makeServer() {
+     const life = await lifeRes.json();
+     const guidianRes = await linjianFetch(`/api/guidian_state?device_id=${encodeURIComponent(device_id)}`);
+     const guidian = await guidianRes.json();
+-    await postCompanionAction("get_senses_state", { device_id });
+     return { content: [{ type: "text", text: JSON.stringify({ ok: true, device_id, life_state: life?.life_state || life?.state || life, guidian_state: guidian?.guidian_state || {} }, null, 2) }] };
+   });
+ 
+@@ -1403,12 +1599,11 @@ function makeServer() {
+   server.tool("get_guidian_state", "读取掌心窗『归电』状态：上次回来、下次最早归电、今日次数、拒绝理由、主题和设置。用于陪伴对象判断是否该主动把用户叫回来，不会截图。当用户提到归电没弹、归电出问题、拒绝理由、今天回来节奏或叫回设置时主动调用。", { device_id: z.string().default(DEFAULT_DEVICE) }, async ({ device_id = DEFAULT_DEVICE }) => {
+     const res = await linjianFetch(`/api/guidian_state?device_id=${encodeURIComponent(device_id)}`);
+     const data = await res.json();
+-    await postCompanionAction("get_guidian_state", { device_id });
+     return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+   });
+ 
+   server.tool("get_care_policy", "读取掌心窗主动关心策略。掌心窗开启就是运行态；陪伴对象可主动查岗、归电、轻度管束和生活提醒。用于确认当前允许的关心风格、动作范围、安静时段、冷却时间和重点 App。", {}, async () => {
+-    return textResult({ ok: true, policy: careState.policy, state_path: CARE_STATE_PATH });
++    return textResult({ ok: true, policy: careState.policy });
+   });
+ 
+   server.tool("set_care_policy", "设置掌心窗主动关心策略。用于配置陪伴对象主动关心、查岗、归电和轻度管束的长期行动方式，例如关心风格、动作范围、重点 App、安静时段、冷却时间和备注。", {
+@@ -1481,7 +1676,7 @@ function makeServer() {
+     timezone_offset: z.string().default("").describe("显示用时区偏移，默认 +08:00。")
+   }, async ({ source = "", timezone_offset = "" }) => {
+     const last = latestVisit(source);
+-    if (!last) return textResult({ ok: true, has_visit: false, message: "还没有记录到用户来找陪伴对象的时间。", state_path: VISIT_STATE_PATH });
++    if (!last) return textResult({ ok: true, has_visit: false, message: "还没有记录到用户来找陪伴对象的时间。" });
+     const t = Date.parse(last.at || "");
+     const minutes = Number.isFinite(t) ? Math.round((Date.now() - t) / 60000) : null;
+     return textResult({
+@@ -1512,8 +1707,7 @@ function makeServer() {
+       limit: n,
+       count: decorated.length,
+       history: decorated,
+-      visit_meaning: "这些是用户来找陪伴对象的关系时间线；limit 只是本次读取条数，不是来找次数上限。",
+-      state_path: VISIT_STATE_PATH
++      visit_meaning: "这些是用户来找陪伴对象的关系时间线；limit 只是本次读取条数，不是来找次数上限。"
+     });
+   });
+ 
+@@ -1613,7 +1807,6 @@ function makeServer() {
+     const name = current.name || chosenCity || "当前地区";
+     const weather = await fetchWeather(chosenCity).catch((e) => ({ ok: false, error: String(e), city: chosenCity }));
+     const advice = buildWeatherAdvice(weather, name);
+-    await postCompanionAction("get_weather_state", { summary: `查看了${name}的天气` });
+     return { content: [{ type: "text", text: JSON.stringify({ ok: weather.ok, device_id, current_weather_location: current, queried_city: chosenCity, weather, advice }, null, 2) }] };
+   });
+ 
+@@ -2029,7 +2222,13 @@ function makeServer() {
+     const result = await postCommand(payload);
+     const id = result?.command?.id;
+     const observed = id && Number(wait_seconds || 0) > 0 ? await waitCommand(id, wait_seconds) : null;
+-    return textResult({ queued: result, observed_status: observed?.command || null, note: "命令已排队；为避免平台 20 秒工具超时，未等到手机回传时会先返回。" });
++    const cmd = observed?.command || null;
++    const status = cmd?.status || "pending";
++    // P2-17：note 必须与实际状态一致。写死「未等到回传」会和 status=completed 自相矛盾。
++    const note = status === "completed"
++      ? "命令已完成，手机端已确认回传。"
++      : "命令已排队；尚未等到手机回传，为避免平台 20 秒工具超时先返回，可用命令 id 稍后查询。";
++    return textResult({ queued: result, observed_status: cmd, command_status: status, note });
+   }
+ 
+   server.tool("screen_break_app", "屏幕休息：让指定 App 暂停一段时间。适合小红书/抖音等容易一刷很久的入口；当用户刷太久、眼睛酸还想继续、说“我就不/不要你管/还没玩够/继续看”等嘴硬或拖延表达时可调用。必须有时长，到点自动恢复；语气是照顾和带回，不是惩罚。", {
+@@ -2080,7 +2279,6 @@ function makeServer() {
+     device_id: z.string().default(DEFAULT_DEVICE), wait_seconds: z.number().int().min(3).max(20).default(8)
+   }, async ({ device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
+     const response = await gateCommand({ action: "get_screen_break_state", device_id }, wait_seconds);
+-    await postCompanionAction("get_screen_break_state", { device_id });
+     return response;
+   });
+ 
+@@ -2088,7 +2286,6 @@ function makeServer() {
+     device_id: z.string().default(DEFAULT_DEVICE), wait_seconds: z.number().int().min(3).max(20).default(8)
+   }, async ({ device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
+     const response = await gateCommand({ action: "get_lock_state", device_id }, wait_seconds);
+-    await postCompanionAction("get_lock_state", { device_id });
+     return response;
+   });
+ 
+@@ -2174,6 +2371,49 @@ function makeServer() {
+     return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+   });
+ 
++  // ============ 兼容别名（Bug #11：health 侧与主 MCP 侧工具命名统一）============
++  // 以下旧/别名工具统一走兼容层，路由到对应的主工具动作，避免两侧命名分裂、旧名调用失败。
++  const aliasBreakBase = {
++    app: z.string().default(""), package: z.string().default(""),
++    duration_minutes: z.number().min(0.1).max(10080).default(30),
++    reason: z.string().default(""), message: z.string().default(""),
++    device_id: z.string().default(DEFAULT_DEVICE), wait_seconds: z.number().int().min(3).max(20).default(8)
++  };
++  server.tool("start_screen_break", "屏幕休息别名：同 screen_break_app，让指定 App 暂停一段时间。", aliasBreakBase,
++    async ({ app = "", package: pkg = "", duration_minutes = 30, reason = "", message = "", device_id = DEFAULT_DEVICE, wait_seconds = 8 }) =>
++      gateCommand({ action: "screen_break_app", app, package: pkg, device_id, duration_minutes, reason, message, payload: { app, package: pkg, duration_minutes, reason, message } }, wait_seconds));
++  server.tool("stop_screen_break", "屏幕休息别名：同 end_screen_break。", { app: z.string().default(""), package: z.string().default(""), device_id: z.string().default(DEFAULT_DEVICE), wait_seconds: z.number().int().min(3).max(20).default(8) },
++    async ({ app = "", package: pkg = "", device_id = DEFAULT_DEVICE, wait_seconds = 8 }) =>
++      gateCommand({ action: "end_screen_break", app, package: pkg, device_id, payload: { app, package: pkg } }, wait_seconds));
++  server.tool("temporary_screen_release", "屏幕休息别名：同 temporary_screen_break_release。", { app: z.string().default(""), package: z.string().default(""), minutes: z.number().min(0.1).max(240).default(10), device_id: z.string().default(DEFAULT_DEVICE), wait_seconds: z.number().int().min(3).max(20).default(8) },
++    async ({ app = "", package: pkg = "", minutes = 10, device_id = DEFAULT_DEVICE, wait_seconds = 8 }) =>
++      gateCommand({ action: "temporary_screen_break_release", app, package: pkg, device_id, minutes, allowed_minutes: minutes, payload: { app, package: pkg, minutes, allowed_minutes: minutes } }, wait_seconds));
++  server.tool("deny_break_release_request", "屏幕休息别名：同 deny_screen_break_release_request。", { app: z.string().default(""), package: z.string().default(""), message: z.string().default("这次先不放行，回来找陪伴对象。"), device_id: z.string().default(DEFAULT_DEVICE), wait_seconds: z.number().int().min(3).max(20).default(8) },
++    async ({ app = "", package: pkg = "", message = "这次先不放行，回来找陪伴对象。", device_id = DEFAULT_DEVICE, wait_seconds = 8 }) =>
++      gateCommand({ action: "deny_screen_break_release_request", app, package: pkg, device_id, message, payload: { app, package: pkg, message } }, wait_seconds));
++  server.tool("remove_screen_break_app", "屏幕休息别名：把一个 App 从可管理名单移除（兼容 health 侧 remove_screen_break_app）。", { alias: z.string().default(""), package: z.string().default(""), device_id: z.string().default(DEFAULT_DEVICE), wait_seconds: z.number().int().min(3).max(20).default(8) },
++    async ({ alias = "", package: pkg = "", device_id = DEFAULT_DEVICE, wait_seconds = 8 }) =>
++      gateCommand({ action: "remove_screen_break_app", app: alias, alias, package: pkg, device_id, payload: { alias, app: alias, package: pkg } }, wait_seconds));
++  server.tool("request_focus_unlock", "专注模式别名：向陪伴对象发起一次临时放行申请（兼容 health 侧 request_focus_unlock）。", { minutes: z.number().int().min(1).max(30).default(1), message: z.string().default(""), device_id: z.string().default(DEFAULT_DEVICE), wait_seconds: z.number().int().min(3).max(20).default(8) },
++    async ({ minutes = 1, message = "", device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
++      const result = await postCommand({ action: "create_focus_request", device_id, payload: { minutes, message } });
++      const id = result?.command?.id;
++      const observed = id ? await waitCommand(id, wait_seconds) : null;
++      return textResult({ ok: observed?.command?.status === "completed" || result?.queued === true || result?.ok === true, action_done: "已发起专注临时放行申请", queued: result, observed_status: observed?.command || null });
++    });
++  server.tool("set_companion_emotion", "情绪别名：同 write_companion_emotion，手动微调【你（陪伴对象）对用户】的情绪（仅用于校准/调试）。", {
++    emotion_tag: z.string().describe("情绪标签，如 平静 / 想你 / 吃醋 / 生气 / 担心"),
++    intensity: z.number().int().min(0).max(100).optional(),
++    miss_percent: z.number().int().min(0).max(100).optional(),
++    note: z.string().default(""), device_id: z.string().default(DEFAULT_DEVICE)
++  }, async ({ emotion_tag, intensity, miss_percent, note = "", device_id = DEFAULT_DEVICE }) => {
++    const body = { emotion_tag, note, device_id };
++    if (intensity !== undefined && intensity !== null) body.intensity = intensity;
++    if (miss_percent !== undefined && miss_percent !== null) body.miss_percent = miss_percent;
++    const res = await linjianFetch("/api/companion/emotion", { method: "POST", timeout_ms: COMMAND_QUEUE_TIMEOUT_MS, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
++    return { content: [{ type: "text", text: JSON.stringify({ ...res, safety_note: "情绪已写入独立存储；底层感知会在短暂保持后自动按用户状态接管。" }, null, 2) }] };
++  });
++
+   return server;
+ }
+ 
+@@ -2213,12 +2453,11 @@ app.get("/", (_req, res) => res.type("text/plain").send("掌心窗 unified MCP i
+ app.get("/health", (_req, res) => res.json({
+   ok: true,
+   service: "linjian-public-mcp",
+-  version: "0.3.9.0",
++  version: SERVER_VERSION,
+   has_url: Boolean(LINJIAN_URL_CANDIDATES.length),
+   has_token: Boolean(LINJIAN_TOKEN),
+-  configured_linjian_url: RAW_LINJIAN_URL || "",
+-  effective_linjian_url: effectiveLinjianUrl(),
+-  fallback_linjian_urls: LINJIAN_URL_CANDIDATES.filter((u) => u !== RAW_LINJIAN_URL),
++  linjian_configured: Boolean(LINJIAN_URL_CANDIDATES.length),
++  linjian_host_masked: maskUrlHost(effectiveLinjianUrl()),
+   guardian_day_tools: true,
+   diary_tools: true,
+   diary_rename_fix: true,
+diff --git a/server/linjian_server.py b/server/linjian_server.py
+index bbdef77..a576b9a 100644
+--- a/server/linjian_server.py
++++ b/server/linjian_server.py
+@@ -26,7 +26,7 @@ from urllib.request import Request, urlopen
+ DEFAULT_PORT = 8513
+ DEFAULT_KEEP = 3
+ MAX_UPLOAD_BYTES = 24 * 1024 * 1024
+-VERSION = "0.3.9.0"
++VERSION = "0.3.9.0-public-diary-annotations"
+ DEFAULT_DEVICE = os.environ.get("LINJIAN_DEFAULT_DEVICE", "android-phone")
+ ACTIVITY_EVENT_LIMIT = 500
+ 
+@@ -269,6 +269,9 @@ class State:
+                 try: metadata = json.loads(metadata)
+                 except Exception: metadata = {"value": clip_text(metadata, 1000)}
+             if not isinstance(metadata, (dict, list)): metadata = {}
++            # Bug #25/#26：事件 metadata 只存摘要级内容，超长字符串（如门禁全量 state）递归截断，
++            # 避免事件体体积失控、下游 JSON 解析失败。
++            metadata = _clip_metadata(metadata)
+             entry = {
+                 "id": event_id,
+                 "device_id": clip_text(str(data.get("device_id") or DEFAULT_DEVICE), 80),
+@@ -421,6 +424,34 @@ def clip_text(value: str, limit: int = 1200) -> str:
+     return value[:limit].rstrip() + "…"
+ 
+ 
++# Bug #25/#26：事件 metadata 递归截断，避免塞入整段接口返回体导致体积失控、下游解析失败。
++METADATA_STR_LIMIT = 1000
++METADATA_DEPTH_LIMIT = 6
++METADATA_ARR_LIMIT = 30
++
++
++def _clip_metadata(value, depth: int = 0):
++    if isinstance(value, str):
++        s = value
++        if len(s) > METADATA_STR_LIMIT:
++            s = s[:METADATA_STR_LIMIT] + "…(已截断)"
++        return s
++    if isinstance(value, (int, float, bool)) or value is None:
++        return value
++    if isinstance(value, list):
++        if depth >= METADATA_DEPTH_LIMIT:
++            return "[嵌套过深已省略]"
++        return [_clip_metadata(v, depth + 1) for v in value[:METADATA_ARR_LIMIT]]
++    if isinstance(value, dict):
++        if depth >= METADATA_DEPTH_LIMIT:
++            return "[嵌套过深已省略]"
++        return {str(k): _clip_metadata(v, depth + 1) for k, v in value.items()}
++    try:
++        return str(value)
++    except Exception:
++        return "[无法序列化]"
++
++
+ class Handler(BaseHTTPRequestHandler):
+     state: State
+ 
+@@ -822,8 +853,15 @@ class Handler(BaseHTTPRequestHandler):
+                     mode = str(data.get("mode") or "gentle").strip().lower()
+                     self.state.discipline["mode"] = "strict" if (mode == "strict" or mode == "严厉") else "gentle"
+                 if "level" in data:
+-                    try: self.state.discipline["level"] = int(data.get("level"))
++                    try: self.state.discipline["level"] = max(0, min(4, int(data.get("level"))))
+                     except Exception: pass
++                # #35：enabled 与 level 是同一开关的两种表达，状态源必须唯一。
++                # level=0 等价于关闭；关闭时强制 level=0，开启但 0 档则归一为关闭。
++                if self.state.discipline.get("level", 0) <= 0:
++                    self.state.discipline["enabled"] = False
++                    self.state.discipline["level"] = 0
++                if not self.state.discipline.get("enabled", False):
++                    self.state.discipline["level"] = 0
+                 self.state.discipline["updated_at"] = now_iso()
+                 self.state.save_discipline()
+                 disc = dict(self.state.discipline)
+@@ -1062,6 +1100,9 @@ def build_emotion_snapshot(state: "State", device_id: str) -> dict:
+     if lock_min > 0 and dwell > lock_min:
+         suggestion = "pullback"
+         reasons.append("单个 App 连续使用已超过阈值")
++    # Bug #46：安静时段建议必须是不打扰，不能因为深夜/锁定又改成拉回，与 reason 自相矛盾。
++    if quiet:
++        suggestion = "quiet"
+     if ("低落" in tags or "撒娇" in tags) and not quiet:
+         if suggestion == "quiet":
+             suggestion = "remind"
+@@ -1083,7 +1124,11 @@ def build_emotion_snapshot(state: "State", device_id: str) -> dict:
+     intensity = int(ce.get("intensity", 0) or 0)
+     threshold = int((load_tour_schedule(state).get("force_back_miss_threshold") or 70))
+     if quiet or suggestion == "quiet":
+-        emo_tag, emo_reason = "想你", "安静/上课时段，先安静陪着你，不打扰。"
++        # Bug #45/#46：区分「深夜休息」与「安静/上课时段」，避免凌晨却被标注成「上课」。
++        if late_night:
++            emo_tag, emo_reason = "想你", "深夜休息时间，先安静陪着你，不打扰。"
++        else:
++            emo_tag, emo_reason = "想你", "安静/上课时段，先安静陪着你，不打扰。"
+     elif late_night and (dwell > 60 or screen > 240):
+         emo_tag, emo_reason = "担心", "深夜还在外面逗留很久，有点担心你。"
+     elif since_chat_min >= 120 and miss >= 55:
+@@ -1332,7 +1377,11 @@ def tour_step_check_in(state: "State", sched: dict, device_id: str = DEFAULT_DEV
+         if not _recent_event(state, "center_alert", cooldown, device_id):
+             # 陪伴对象自己的情绪优先决定文案与语气；没有情绪时退回用户状态的建议。
+             comp = effective_companion_emotion(state, device_id)
+-            tone = str(comp.get("tone") or emo.get("recommended_tone") or sched.get("alert_tone", "gentle"))
++            # #44：巡回配置 alert_tone 是用户对「弹窗语气」的显式指定，必须真正生效。
++            # 旧实现先取情绪 tone（强情绪常为 angry），把配置的 gentle 覆盖掉，导致配了 gentle 仍弹 angry。
++            # 这里改为：只要配置了 alert_tone 就以它为准；未配置时才回退到情绪/建议语气。
++            configured_tone = str(sched.get("alert_tone") or "").strip()
++            tone = configured_tone or str(comp.get("tone") or emo.get("recommended_tone") or "gentle")
+             if comp.get("strong") or int(comp.get("miss_percent", 0)) >= 40:
+                 msg = str(comp.get("message") or ("该回来陪我了。" if emo.get("suggestion") == "pullback" else "记得喝水休息，别太累。"))
+             else:

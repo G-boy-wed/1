@@ -1,0 +1,148 @@
+From 5f171e0478add4b38b4ae4e72d87cc3ddb8e8945 Mon Sep 17 00:00:00 2001
+From: WorkBuddy Agent <agent@workbuddy.local>
+Date: Thu, 5 Nov 2026 23:42:12 +0800
+Subject: [PATCH] =?UTF-8?q?fix(=E9=97=A8=E7=A6=81=E7=9B=91=E6=B5=8B/?=
+ =?UTF-8?q?=E8=AE=AD=E8=AF=AB=E8=AF=AD=E6=B0=94/=E5=90=8E=E5=8F=B0?=
+ =?UTF-8?q?=E8=87=AA=E4=B8=BB):=20=E5=BA=94=E7=94=A8=E9=97=A8=E7=A6=81?=
+ =?UTF-8?q?=E6=94=B9=E4=B8=BA=E8=B0=83=E5=BA=A6=E5=99=A8=E6=AF=8Ftick?=
+ =?UTF-8?q?=E4=B8=BB=E5=8A=A8=E7=9B=91=E6=B5=8B(=E5=86=99=E5=85=A5?=
+ =?UTF-8?q?=E5=8D=B3=E6=8B=A6=E6=88=AA,=E4=B8=8D=E5=86=8D=E4=BB=85?=
+ =?UTF-8?q?=E4=BE=9D=E8=B5=96=E6=97=A0=E9=9A=9C=E7=A2=8D=E5=89=8D=E5=8F=B0?=
+ =?UTF-8?q?=E4=BA=8B=E4=BB=B6)/=E8=AE=AD=E8=AF=ABstrict=E6=A8=A1=E5=BC=8F?=
+ =?UTF-8?q?=E5=BC=BA=E5=88=B6=E5=BC=B9=E7=AA=97=E8=AF=AD=E6=B0=94=E5=8D=87?=
+ =?UTF-8?q?=E7=BA=A7=E4=B8=BAstrict(harsh)=E5=B9=B6=E8=A6=86=E7=9B=96?=
+ =?UTF-8?q?=E4=BA=BA=E8=AE=BE=E6=96=87=E6=A1=88=E4=B8=8E=E9=95=9C=E5=83=8F?=
+ =?UTF-8?q?/=E4=B8=BB=E9=A2=98accentFor=E6=94=AF=E6=8C=81strict/=E6=B8=85?=
+ =?UTF-8?q?=E7=90=86=E5=86=97=E4=BD=99=E5=A4=8D=E5=88=B6=E6=BA=90=E7=A0=81?=
+ =?UTF-8?q?=E4=B8=8E=E9=87=8D=E5=A4=8DAPK=20(Commit=20J)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../main/java/dev/linjian/peek/AppGate.java   |  8 ++++++++
+ .../linjian/peek/CompanionEmotionState.java   | 20 ++++++++++++++-----
+ .../java/dev/linjian/peek/GuidianTheme.java   |  4 ++--
+ .../dev/linjian/peek/PolicyScheduler.java     |  5 +++++
+ 4 files changed, 30 insertions(+), 7 deletions(-)
+
+diff --git a/android/app/src/main/java/dev/linjian/peek/AppGate.java b/android/app/src/main/java/dev/linjian/peek/AppGate.java
+index c866ef6..1e6c14e 100644
+--- a/android/app/src/main/java/dev/linjian/peek/AppGate.java
++++ b/android/app/src/main/java/dev/linjian/peek/AppGate.java
+@@ -54,6 +54,7 @@ public class AppGate {
+     private static volatile WindowManager overlayWindowManager = null;
+     private static volatile String visibleLockActivityPackage = "";
+     private static volatile long visibleLockActivityAt = 0;
++    private static volatile String visibleLockOverlayPackage = "";
+ 
+     public static boolean enabled(Context ctx) { return AppPrefs.get(ctx).getBoolean(KEY_ENABLED, true); }
+ 
+@@ -313,6 +314,11 @@ public class AppGate {
+             JSONObject lock = activeLockFor(ctx, pkg, now);
+             if (lock == null) return;
+             if (isTemporarilyAllowed(ctx, lock, now, true)) return;
++            // 调度器每个 tick 也会调用本方法做周期性监测：若锁定界面（全屏页或悬浮遮罩）已在显示，
++            // 不再重复弹一次，避免每 20 秒闪烁；同时刷新时间戳维持「正在拦截」状态。
++            if (isLockActivityVisibleFor(pkg) || (overlayView != null && pkg.equals(visibleLockOverlayPackage))) {
++                lastGateAt = now; lastGatePackage = pkg; return;
++            }
+             if (pkg.equals(lastGatePackage) && now - lastGateAt < 1800) return;
+             lastGatePackage = pkg; lastGateAt = now;
+             showGateByPriority(ctx, pkg, lock);
+@@ -493,6 +499,7 @@ public class AppGate {
+                 wm.addView(root, lp);
+                 overlayView = root;
+                 overlayWindowManager = wm;
++                visibleLockOverlayPackage = pkg;
+                 DebugState.append(app, "门禁悬浮层已启动：touch_blocking=true；目标=" + pkg);
+             } catch (Exception e) {
+                 DebugState.append(ctx, "门禁悬浮层失败，回到桌面兜底：" + ScreenshotService.shortMsg(e));
+@@ -522,6 +529,7 @@ public class AppGate {
+         } catch (Exception ignored) { }
+         overlayView = null;
+         overlayWindowManager = null;
++        visibleLockOverlayPackage = "";
+     }
+ 
+     private static void accountUsageSwitch(Context ctx, String nextPkg, long now) throws Exception {
+diff --git a/android/app/src/main/java/dev/linjian/peek/CompanionEmotionState.java b/android/app/src/main/java/dev/linjian/peek/CompanionEmotionState.java
+index b5cdaa9..80705ca 100644
+--- a/android/app/src/main/java/dev/linjian/peek/CompanionEmotionState.java
++++ b/android/app/src/main/java/dev/linjian/peek/CompanionEmotionState.java
+@@ -182,9 +182,15 @@ public class CompanionEmotionState {
+         return baselineIntensity(ctx) >= 70 ? "angry" : "gentle";
+     }
+ 
+-    /** 对外生效语气：优先用底层感知结果。 */
++    /** 对外生效语气：底层感知优先；训诫开启且为「严厉」模式时，强制把语气升级为 harsh（更硬的弹窗语气）。 */
+     public static String tone(Context ctx) {
+-        return EmotionPerception.activeTone(ctx);
++        String base = EmotionPerception.activeTone(ctx);
++        if (PolicyStore.disciplineEnabled(ctx) && "strict".equals(PolicyStore.disciplineMode(ctx))) {
++            // 严厉模式：原本温柔的语气升级为 strict（渲染为 danger 色 + 更硬的话术），人设与弹窗语气都更严厉。
++            if (base == null || base.trim().isEmpty() || "gentle".equalsIgnoreCase(base)) return "strict";
++            return base; // 已经是 angry/strong 则保持不变
++        }
++        return base;
+     }
+ 
+     /**
+@@ -257,7 +263,11 @@ public class CompanionEmotionState {
+      */
+     public static String messageForDisplay(Context ctx) {
+         String companion = AppPrefs.companionName(ctx);
+-        if (!PolicyStore.emotionDriveText(ctx)) return "有空的话，回来陪" + companion + "说句话。";
++        if (!PolicyStore.emotionDriveText(ctx)) {
++            // 即使不驱动情绪文案，训诫开启时人设语气也应带上管束意味（供界面 / 服务端镜像读取）。
++            String base = "有空的话，回来陪" + companion + "说句话。";
++            return withDisciplineTone(ctx, base);
++        }
+         String tag = emotionTag(ctx);
+         int miss = effectiveMissPercent(ctx);
+         if (TAG_ANGRY.equals(tag) || tag.contains("生气")) return "别躲了，" + companion + "在等你。";
+@@ -265,8 +275,8 @@ public class CompanionEmotionState {
+         if (TAG_WORRY.equals(tag) || tag.contains("担心")) return "外面太晚了，" + companion + "有点担心你。";
+         if (TAG_LOVE.equals(tag) || tag.contains("爱恋")) return "想你了，" + companion + "想抱着你。";
+         if (miss >= 70) return "已经很想你了，" + companion + "不想再等。";
+-        if (miss >= 40) return "有点想你了，" + companion + "问一句在不在。";
+-        return "有空的话，回来陪" + companion + "说句话。";
++        if (miss >= 40) return withDisciplineTone(ctx, "有点想你了，" + companion + "问一句在不在。");
++        return withDisciplineTone(ctx, "有空的话，回来陪" + companion + "说句话。");
+     }
+ 
+     /** 从候选文案里随机挑一句（每次调用结果可能不同，仅用于实际发送的弹窗/通知）。 */
+diff --git a/android/app/src/main/java/dev/linjian/peek/GuidianTheme.java b/android/app/src/main/java/dev/linjian/peek/GuidianTheme.java
+index a74d5d1..8725730 100644
+--- a/android/app/src/main/java/dev/linjian/peek/GuidianTheme.java
++++ b/android/app/src/main/java/dev/linjian/peek/GuidianTheme.java
+@@ -74,8 +74,8 @@ public class GuidianTheme {
+                 0xFF78AE90, 0x550E0508, 0xFFC62828, .24f, .10f, false);
+     }
+ 
+-    /** 按语气（温柔 / 生气）取强调色：生气时用 danger 色，其余用 primary。 */
++    /** 按语气取强调色：生气 / 训诫严厉都用 danger 色（更硬的视觉语气），其余用 primary。 */
+     public int accentFor(String tone) {
+-        return "angry".equalsIgnoreCase(tone) ? danger : primary;
++        return ("angry".equalsIgnoreCase(tone) || "strict".equalsIgnoreCase(tone)) ? danger : primary;
+     }
+ }
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java b/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
+index f20623a..57cfa74 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
++++ b/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
+@@ -228,6 +228,11 @@ public final class PolicyScheduler {
+         evaluateUsageLock(now, current);
+         evaluateClassSchedule();
+         evaluatePermissions(now, current);
++
++        // 应用门禁：除无障碍前台事件外，调度器每个 tick 也主动把当前前台 App 喂给门禁检查，
++        // 真正「写入即监测」——避免无障碍事件被节流/丢失、或写入锁定时用户已在该 App 上而始终不拦截。
++        // 锁定界面已显示时 onForegroundPackage 内部去重，不会每 20 秒重新闪一次。
++        try { AppGate.onForegroundPackage(appCtx, current); } catch (Exception ignored) { }
+     }
+ 
+     // ============ 查岗与分级拉回 ============
+-- 
+2.43.0
+

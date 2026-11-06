@@ -1,0 +1,917 @@
+From 01a3d6b7d751698e50fdc1fc65c1cde5064c8c06 Mon Sep 17 00:00:00 2001
+From: WorkBuddy Agent <agent@workbuddy.local>
+Date: Thu, 5 Nov 2026 16:10:54 +0800
+Subject: [PATCH] =?UTF-8?q?fix(=E5=AE=88=E6=8A=A4=E5=BC=80=E5=85=B3?=
+ =?UTF-8?q?=E4=B8=8E=E5=BC=B9=E7=AA=97=E6=A0=87=E8=AF=86):=20=E5=AE=88?=
+ =?UTF-8?q?=E6=8A=A4=E9=A1=B5=E5=85=A8=E9=83=A8=E6=A0=87=E7=AD=BE=E6=96=B0?=
+ =?UTF-8?q?=E5=A2=9E=E7=9C=9F=E5=AE=9E=E7=94=9F=E6=95=88=E5=BC=80=E5=85=B3?=
+ =?UTF-8?q?/=E5=88=86=E5=BF=83=E6=9F=A5=E5=B2=97=E5=8F=AA=E5=9C=A8?=
+ =?UTF-8?q?=E7=9C=9F=E6=AD=A3=E5=BC=80=E5=A7=8B=E8=81=8A=E5=A4=A9(?=
+ =?UTF-8?q?=E5=81=9C=E7=95=99>=3D20s)=E5=90=8E=E5=88=87=E5=87=BA=E6=89=8D?=
+ =?UTF-8?q?=E8=AE=A1/=E6=89=80=E6=9C=89=E5=BC=B9=E7=AA=97=E5=B8=A6?=
+ =?UTF-8?q?=E7=B1=BB=E5=9E=8B=E5=BE=BD=E6=A0=87(=E6=9F=A5=E5=B2=97?=
+ =?UTF-8?q?=E6=8B=89=E5=9B=9E/=E5=88=86=E5=BF=83=E6=9F=A5=E5=B2=97/?=
+ =?UTF-8?q?=E6=83=85=E7=BB=AA=E6=84=9F=E7=9F=A5/=E4=B8=BB=E5=8A=A8?=
+ =?UTF-8?q?=E8=81=8A=E5=A4=A9/=E6=8F=90=E9=86=92)/=E4=B8=BB=E5=8A=A8?=
+ =?UTF-8?q?=E6=89=BE=E7=94=A8=E6=88=B7=E6=94=B9=E4=B8=BA=E5=BC=B9=E7=AA=97?=
+ =?UTF-8?q?=E5=8C=96=E4=B8=8D=E5=86=8D=E9=9D=99=E9=BB=98=E8=B7=B3=E8=BD=AC?=
+ =?UTF-8?q?/=E6=96=B0=E5=BC=80=E5=85=B3=E7=BA=B3=E5=85=A5MCP=E7=AD=96?=
+ =?UTF-8?q?=E7=95=A5=E8=AF=BB=E5=86=99=20(Commit=20I)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../java/dev/linjian/peek/ActiveReminder.java |   3 +-
+ .../dev/linjian/peek/AlertCenterActivity.java |  37 ++++++-
+ .../dev/linjian/peek/AlertCenterOverlay.java  |   7 +-
+ .../main/java/dev/linjian/peek/AppGate.java   |   8 ++
+ .../main/java/dev/linjian/peek/AppPrefs.java  |   2 +
+ .../java/dev/linjian/peek/CalendarState.java  |  23 +++-
+ .../dev/linjian/peek/ClassScheduleState.java  |  17 ++-
+ .../dev/linjian/peek/CompanionService.java    |  21 +++-
+ .../main/java/dev/linjian/peek/FocusMode.java |  27 +++++
+ .../java/dev/linjian/peek/MainActivity.java   | 103 +++++++++++++++---
+ .../java/dev/linjian/peek/PolicyCommand.java  |  25 +++++
+ .../dev/linjian/peek/PolicyScheduler.java     | 100 ++++++++++++++---
+ .../linjian/peek/PolicySettingsActivity.java  |   4 +-
+ .../java/dev/linjian/peek/PolicyStore.java    |  16 +++
+ .../java/dev/linjian/peek/PullBackCard.java   |  35 ++++++
+ .../dev/linjian/peek/SharedMemoryState.java   |  22 +++-
+ 16 files changed, 403 insertions(+), 47 deletions(-)
+
+diff --git a/android/app/src/main/java/dev/linjian/peek/ActiveReminder.java b/android/app/src/main/java/dev/linjian/peek/ActiveReminder.java
+index 6e50ffd..47aaa8d 100644
+--- a/android/app/src/main/java/dev/linjian/peek/ActiveReminder.java
++++ b/android/app/src/main/java/dev/linjian/peek/ActiveReminder.java
+@@ -84,7 +84,8 @@ public class ActiveReminder {
+             }
+ 
+             JSONObject weather = state.optJSONObject("current_weather_location");
+-            if (weather != null) {
++            // 天气地区开关（守护页卡片）：关闭后不再发天气提醒。
++            if (weather != null && p.getBoolean(AppPrefs.KEY_RULE_WEATHER, true)) {
+                 String note = weather.optString("note", "");
+                 if (note.length() > 0 && oncePerDayDue(p, "weather_" + note.hashCode(), now)) {
+                     if (note.contains("雨") || note.contains("雪") || note.contains("降温") || note.contains("冷") || note.contains("高温") || note.contains("热") || note.contains("大风") || note.contains("空气") || note.contains("霾")) {
+diff --git a/android/app/src/main/java/dev/linjian/peek/AlertCenterActivity.java b/android/app/src/main/java/dev/linjian/peek/AlertCenterActivity.java
+index 832a9cf..37a2c89 100644
+--- a/android/app/src/main/java/dev/linjian/peek/AlertCenterActivity.java
++++ b/android/app/src/main/java/dev/linjian/peek/AlertCenterActivity.java
+@@ -45,17 +45,24 @@ public class AlertCenterActivity extends Activity {
+         String message = getIntent().getStringExtra("message");
+         String tone = getIntent().getStringExtra("tone");
+         String buttonText = getIntent().getStringExtra("button_text");
++        String kind = getIntent().getStringExtra("kind");
+         if (title == null || title.isEmpty()) title = "掌心窗";
+         if (message == null || message.isEmpty()) message = AppPrefs.userName(this) + "，看一眼这里。";
+         if (buttonText == null || buttonText.isEmpty()) buttonText = "知道啦";
++        if (kind == null || kind.trim().isEmpty()) kind = "陪伴消息";
+ 
+-        bind(findViewById(R.id.root), title, message, tone, buttonText, new Runnable() {
++        bind(findViewById(R.id.root), kind, title, message, tone, buttonText, new Runnable() {
+             @Override public void run() { finish(); }
+         });
+     }
+ 
+-    /** 卡片绑定：Activity 与悬浮窗两条通道共用同一份样式与位置逻辑。 */
++    /** 兼容旧调用：不带类型标识时默认「陪伴消息」。 */
+     public static void bind(View root, String title, String message, String tone, String buttonText, final Runnable onDismiss) {
++        bind(root, "陪伴消息", title, message, tone, buttonText, onDismiss);
++    }
++
++    /** 卡片绑定：Activity 与悬浮窗两条通道共用同一份样式与位置逻辑；kindLabel 标明这是什么弹窗。 */
++    public static void bind(View root, String kindLabel, String title, String message, String tone, String buttonText, final Runnable onDismiss) {
+         if (root == null) return;
+         Context ctx = root.getContext();
+         boolean angry = "angry".equalsIgnoreCase(tone);
+@@ -68,6 +75,26 @@ public class AlertCenterActivity extends Activity {
+         LinearLayout card = root.findViewById(R.id.card);
+         FrameLayout rootFrame = root.findViewById(R.id.root);
+ 
++        // 弹窗类型徽标：插到卡片最上方，标明这是什么弹窗（陪伴消息 / 主动聊天 / 提醒…）。
++        if (card != null && kindLabel != null && !kindLabel.trim().isEmpty()) {
++            android.widget.TextView badge = new android.widget.TextView(ctx);
++            badge.setText(kindLabel.trim());
++            badge.setTextSize(10);
++            badge.setTextColor(accent);
++            badge.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
++            badge.setLetterSpacing(0.12f);
++            int pad = Math.round(10 * ctx.getResources().getDisplayMetrics().density);
++            badge.setPadding(pad / 2, pad / 4, pad / 2, pad / 4);
++            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
++            bg.setCornerRadius(12 * ctx.getResources().getDisplayMetrics().density);
++            bg.setColor(alterAlpha(accent, .14f));
++            bg.setStroke(Math.max(1, Math.round(ctx.getResources().getDisplayMetrics().density)), alterAlpha(accent, .5f));
++            badge.setBackground(bg);
++            LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(-2, -2);
++            badgeLp.bottomMargin = Math.round(6 * ctx.getResources().getDisplayMetrics().density);
++            card.addView(badge, 0, badgeLp);
++        }
++
+         if (t != null) { t.setText(title); t.setTextColor(accent); }
+         if (m != null) { m.setText(message); m.setTextColor(theme.text); }
+         if (b != null) {
+@@ -107,4 +134,10 @@ public class AlertCenterActivity extends Activity {
+                 Math.round(Color.green(from) * (1f - x) + Color.green(to) * x),
+                 Math.round(Color.blue(from) * (1f - x) + Color.blue(to) * x));
+     }
++
++    /** 同色换透明度（弹窗类型徽标用）。 */
++    private static int alterAlpha(int color, float alpha) {
++        return Color.argb(Math.round(255 * Math.max(0f, Math.min(1f, alpha))),
++                Color.red(color), Color.green(color), Color.blue(color));
++    }
+ }
+diff --git a/android/app/src/main/java/dev/linjian/peek/AlertCenterOverlay.java b/android/app/src/main/java/dev/linjian/peek/AlertCenterOverlay.java
+index 44790e8..0b0eff0 100644
+--- a/android/app/src/main/java/dev/linjian/peek/AlertCenterOverlay.java
++++ b/android/app/src/main/java/dev/linjian/peek/AlertCenterOverlay.java
+@@ -37,6 +37,10 @@ public class AlertCenterOverlay {
+ 
+     /** 显示居中弹窗；返回 false 表示没能用悬浮窗展示（调用方应改用 Activity）。 */
+     public static boolean show(final Context ctx, final String title, final String message, final String tone, final String buttonText) {
++        return show(ctx, title, message, tone, buttonText, "陪伴消息");
++    }
++
++    public static boolean show(final Context ctx, final String title, final String message, final String tone, final String buttonText, final String kindLabel) {
+         final Context appCtx = ctx.getApplicationContext();
+         try {
+             if (!canShow(appCtx)) return false;
+@@ -53,7 +57,8 @@ public class AlertCenterOverlay {
+                         String t = (title == null || title.trim().isEmpty()) ? "掌心窗" : title;
+                         String m = (message == null || message.trim().isEmpty()) ? AppPrefs.userName(appCtx) + "，看一眼这里。" : message;
+                         String b = (buttonText == null || buttonText.trim().isEmpty()) ? "知道啦" : buttonText;
+-                        AlertCenterActivity.bind(root, t, m, tone, b, new Runnable() {
++                        String k = (kindLabel == null || kindLabel.trim().isEmpty()) ? "陪伴消息" : kindLabel;
++                        AlertCenterActivity.bind(root, k, t, m, tone, b, new Runnable() {
+                             @Override public void run() { dismiss(); }
+                         });
+                         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+diff --git a/android/app/src/main/java/dev/linjian/peek/AppGate.java b/android/app/src/main/java/dev/linjian/peek/AppGate.java
+index edc5d03..c866ef6 100644
+--- a/android/app/src/main/java/dev/linjian/peek/AppGate.java
++++ b/android/app/src/main/java/dev/linjian/peek/AppGate.java
+@@ -57,6 +57,14 @@ public class AppGate {
+ 
+     public static boolean enabled(Context ctx) { return AppPrefs.get(ctx).getBoolean(KEY_ENABLED, true); }
+ 
++    /** 守护页「应用门禁」卡片的实际开关：关闭即停止门禁判定（锁着的 App 不再拦），打开即恢复。 */
++    public static void setEnabled(Context ctx, boolean v) {
++        try {
++            AppPrefs.get(ctx).edit().putBoolean(KEY_ENABLED, v).commit();
++            DebugState.append(ctx, v ? "应用门禁已开启：锁定的 App 恢复拦截" : "应用门禁已关闭：门禁判定暂停");
++        } catch (Exception ignored) { }
++    }
++
+     private static JSONObject state(Context ctx) {
+         try {
+             String raw = AppPrefs.get(ctx).getString(KEY_STATE, "");
+diff --git a/android/app/src/main/java/dev/linjian/peek/AppPrefs.java b/android/app/src/main/java/dev/linjian/peek/AppPrefs.java
+index 62826aa..406f525 100644
+--- a/android/app/src/main/java/dev/linjian/peek/AppPrefs.java
++++ b/android/app/src/main/java/dev/linjian/peek/AppPrefs.java
+@@ -35,6 +35,8 @@ public class AppPrefs {
+     public static final String KEY_WATER_INTERVAL_MIN = "rule_water_interval_min";
+     public static final String KEY_RULE_REST = "rule_rest_enabled";
+     public static final String KEY_REST_INTERVAL_MIN = "rule_rest_interval_min";
++    public static final String KEY_RULE_WEATHER = "rule_weather_enabled";          // 天气提醒开关（守护页「天气地区」卡片）
++    public static final String KEY_GUARD_CALENDAR_ENABLED = "guard_calendar_enabled"; // 守护日历总开关（关闭即停发横幅/提醒）
+     public static final String KEY_CYCLE_ENABLED = "cycle_enabled";
+     public static final String KEY_LAST_PERIOD_START = "cycle_last_period_start";
+     public static final String KEY_CYCLE_LENGTH = "cycle_length_days";
+diff --git a/android/app/src/main/java/dev/linjian/peek/CalendarState.java b/android/app/src/main/java/dev/linjian/peek/CalendarState.java
+index 0db92c1..a466be8 100644
+--- a/android/app/src/main/java/dev/linjian/peek/CalendarState.java
++++ b/android/app/src/main/java/dev/linjian/peek/CalendarState.java
+@@ -31,6 +31,20 @@ public class CalendarState {
+     private static int calendarVersion(Context ctx) {
+         try { return AppPrefs.get(ctx).getInt(KEY_CAL_VERSION, 0); } catch (Exception e) { return 0; }
+     }
++
++    // ============ 守护日历总开关（守护页卡片可实际操作）============
++    // 关闭后：横幅/临近提醒一律停发（collect 的 nearest/active_banners 为空、summary 标注已关闭）；
++    // 数据不删除，重新打开即恢复。
++    public static boolean enabled(Context ctx) {
++        try { return AppPrefs.get(ctx).getBoolean(AppPrefs.KEY_GUARD_CALENDAR_ENABLED, true); } catch (Exception e) { return true; }
++    }
++
++    public static void setEnabled(Context ctx, boolean v) {
++        try {
++            AppPrefs.get(ctx).edit().putBoolean(AppPrefs.KEY_GUARD_CALENDAR_ENABLED, v).commit();
++            DebugState.append(ctx, v ? "守护日历已开启：横幅与临近提醒恢复" : "守护日历已关闭：横幅与临近提醒停发");
++        } catch (Exception ignored) { }
++    }
+     private static int bumpCalendarVersion(Context ctx) {
+         try {
+             SharedPreferences p = AppPrefs.get(ctx);
+@@ -73,6 +87,7 @@ public class CalendarState {
+     public static JSONObject collect(Context ctx) {
+         JSONObject o = new JSONObject();
+         try {
++            boolean on = enabled(ctx);
+             List<Occurrence> occ = occurrences(ctx, false);
+             JSONArray nearest = new JSONArray();
+             JSONArray upcoming = new JSONArray();
+@@ -80,9 +95,10 @@ public class CalendarState {
+             for (Occurrence x : occ) {
+                 JSONObject item = x.toJson();
+                 // P2-15：已关横幅的课表/日子不再占据 nearest 与摘要的醒目位置
+-                if (x.bannerEnabled && nearest.length() < 3) nearest.put(item);
++                if (on && x.bannerEnabled && nearest.length() < 3) nearest.put(item);
+                 if (upcoming.length() < 12) upcoming.put(item);
+-                if (x.bannerEnabled && x.daysLeft >= 0 && x.daysLeft <= Math.max(0, x.remindDays)) banners.put(item);
++                // 守护日历总开关：关闭后不再产生任何横幅提醒（数据仍在，可随时打开恢复）。
++                if (on && x.bannerEnabled && x.daysLeft >= 0 && x.daysLeft <= Math.max(0, x.remindDays)) banners.put(item);
+             }
+             JSONArray customEvents = events(ctx);
+             // #70/#71：events 与 custom_events 不再同文重复。events=全部定义(自定义+内置节日)，
+@@ -90,7 +106,7 @@ public class CalendarState {
+             JSONArray allRawEvents = new JSONArray();
+             for (int i = 0; i < customEvents.length(); i++) allRawEvents.put(customEvents.opt(i));
+             for (JSONObject be : builtinEvents()) allRawEvents.put(be);
+-            o.put("enabled", true);
++            o.put("enabled", on);
+             o.put("version", calendarVersion(ctx));
+             o.put("theme_color", THEME_COLOR);
+             o.put("default_remind_days_before", DEFAULT_REMIND_DAYS);
+@@ -145,6 +161,7 @@ public class CalendarState {
+ 
+     public static String summaryLine(Context ctx) {
+         try {
++            if (!enabled(ctx)) return "守护日历 · 已关闭（横幅提醒停发）";
+             List<Occurrence> list = occurrences(ctx, false);
+             // P2-15：跳过已关闭横幅的项，避免关掉的课表占据摘要首位
+             Occurrence x = null;
+diff --git a/android/app/src/main/java/dev/linjian/peek/ClassScheduleState.java b/android/app/src/main/java/dev/linjian/peek/ClassScheduleState.java
+index 649e510..c60287d 100644
+--- a/android/app/src/main/java/dev/linjian/peek/ClassScheduleState.java
++++ b/android/app/src/main/java/dev/linjian/peek/ClassScheduleState.java
+@@ -24,6 +24,7 @@ public final class ClassScheduleState {
+ 
+     private static final String PREFS = "class_schedule_store";
+     private static final String KEY_ENTRIES = "entries_v1";
++    private static final String KEY_ENABLED = "class_schedule_enabled";
+     private static final long PRE_CLASS_MS = 5 * 60_000L;   // 课前 5 分钟提醒
+     private static final long POST_CLASS_MS = 5 * 60_000L;  // 下课 5 分钟提醒
+ 
+@@ -31,6 +32,19 @@ public final class ClassScheduleState {
+ 
+     private static SharedPreferences sp(Context ctx) { return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE); }
+ 
++    // ============ 课表作息总开关（守护页卡片可实际操作）============
++    // 关闭后：不再判定上课、上下课提醒停发、上课免打扰随之失效；课表数据保留，重新打开即恢复。
++    public static boolean enabled(Context ctx) {
++        try { return sp(ctx).getBoolean(KEY_ENABLED, true); } catch (Exception e) { return true; }
++    }
++
++    public static void setEnabled(Context ctx, boolean v) {
++        try {
++            sp(ctx).edit().putBoolean(KEY_ENABLED, v).commit();
++            DebugState.append(ctx, v ? "课表作息已开启：上课判定与上下课提醒恢复" : "课表作息已关闭：上课判定与上下课提醒停发");
++        } catch (Exception ignored) { }
++    }
++
+     /** 全部课表条目（按 weekday、start 排序无关的 JSONArray）。 */
+     public static JSONArray getEntries(Context ctx) {
+         try { return new JSONArray(sp(ctx).getString(KEY_ENTRIES, "[]")); }
+@@ -103,7 +117,7 @@ public final class ClassScheduleState {
+ 
+     /** 当前是否处于上课状态（今天、当前时间在某一节课 [start, end) 内）。 */
+     public static boolean isInClassNow(Context ctx) {
+-        return currentClass(ctx) != null;
++        return enabled(ctx) && currentClass(ctx) != null;
+     }
+ 
+     /** 返回当前正在上的课（不在上课返回 null）。 */
+@@ -153,6 +167,7 @@ public final class ClassScheduleState {
+ 
+     /** 调度器每个 Tick 调用：上课期间提醒调用方静默；并触发课前/下课联动提醒。返回是否处于上课（供调度器免打扰）。 */
+     public static boolean evaluate(Context ctx) {
++        if (!enabled(ctx)) { lastPreNotifyKey = 0; lastPostNotifyAt = 0; return false; }
+         JSONObject cur = currentClass(ctx);
+         if (cur != null) {
+             // 上课中：静默守护（调度器据此不主动打扰）。
+diff --git a/android/app/src/main/java/dev/linjian/peek/CompanionService.java b/android/app/src/main/java/dev/linjian/peek/CompanionService.java
+index c41f578..6964682 100644
+--- a/android/app/src/main/java/dev/linjian/peek/CompanionService.java
++++ b/android/app/src/main/java/dev/linjian/peek/CompanionService.java
+@@ -270,7 +270,10 @@ public class CompanionService extends Service {
+             if ("show_center_alert".equals(action)) {
+                 String tone = cmd.optString("tone", "gentle");
+                 String buttonText = cmd.optString("button_text", "知道啦");
+-                CompanionService.showCenterAlert(ctx, title, message, tone, buttonText);
++                // 弹窗类型标识：服务端/MCP 可用 kind 或 alert_kind 标明这是什么弹窗，默认「陪伴消息」。
++                String kind = cmd.optString("kind", cmd.optString("alert_kind", "陪伴消息"));
++                if (kind.trim().isEmpty()) kind = "陪伴消息";
++                CompanionService.showCenterAlert(ctx, title, message, tone, buttonText, kind);
+                 try { reportCommand(ctx, serverUrl, token, id, true, "center_alert_shown"); } catch (Exception ignored) { }
+                 return;
+             }
+@@ -527,9 +530,13 @@ public class CompanionService extends Service {
+ 
+     /** 屏幕正中弹窗：优先用悬浮窗直接盖在当前 App 之上；没有悬浮窗权限或失败时退回 Activity 兜底。 */
+     public static void showCenterAlert(Context ctx, String title, String message, String tone, String buttonText) {
++        showCenterAlert(ctx, title, message, tone, buttonText, "陪伴消息");
++    }
++
++    public static void showCenterAlert(Context ctx, String title, String message, String tone, String buttonText, String kindLabel) {
+         try {
+-            if (AlertCenterOverlay.canShow(ctx) && AlertCenterOverlay.show(ctx, title, message, tone, buttonText)) {
+-                DebugState.append(ctx, "屏幕居中弹窗已下发（悬浮窗）：" + (title == null ? "" : title));
++            if (AlertCenterOverlay.canShow(ctx) && AlertCenterOverlay.show(ctx, title, message, tone, buttonText, kindLabel)) {
++                DebugState.append(ctx, "屏幕居中弹窗已下发（悬浮窗，类型=" + kindLabel + "）：" + (title == null ? "" : title));
+                 return;
+             }
+             // 没有悬浮窗权限或悬浮失败：退回 Activity 兜底，仍然弹得出。
+@@ -538,9 +545,10 @@ public class CompanionService extends Service {
+             i.putExtra("message", message == null ? "" : message);
+             i.putExtra("tone", tone == null ? "gentle" : tone);
+             i.putExtra("button_text", buttonText == null ? "知道啦" : buttonText);
++            i.putExtra("kind", kindLabel == null ? "陪伴消息" : kindLabel);
+             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+             ctx.startActivity(i);
+-            DebugState.append(ctx, "屏幕居中弹窗已下发（Activity 兜底）：" + (title == null ? "" : title));
++            DebugState.append(ctx, "屏幕居中弹窗已下发（Activity 兜底，类型=" + kindLabel + "）：" + (title == null ? "" : title));
+         } catch (Exception e) { DebugState.append(ctx, "居中弹窗异常：" + ScreenshotService.shortMsg(e)); }
+     }
+ 
+@@ -615,6 +623,11 @@ public class CompanionService extends Service {
+             cfg.put("title", title);
+             cfg.put("message", message);
+             cfg.put("tone", strong ? "angry" : CompanionEmotionState.tone(ctx));
++            // 弹窗类型标识：服务端下发 / MCP 触发的远程查岗拉回（payload 可用 kind_label 覆盖）。
++            cfg.put("kind", "remote_checkin");
++            cfg.put("kind_label", payload != null && payload.has("kind_label")
++                    ? payload.optString("kind_label", "查岗拉回") : "查岗拉回");
++            if (cmd.has("kind_label")) cfg.put("kind_label", cmd.optString("kind_label", "查岗拉回"));
+         } catch (Exception e) {
+             DebugState.append(ctx, "拉回配置组装异常：" + ScreenshotService.shortMsg(e));
+         }
+diff --git a/android/app/src/main/java/dev/linjian/peek/FocusMode.java b/android/app/src/main/java/dev/linjian/peek/FocusMode.java
+index d3e8dbc..fe0b3a7 100644
+--- a/android/app/src/main/java/dev/linjian/peek/FocusMode.java
++++ b/android/app/src/main/java/dev/linjian/peek/FocusMode.java
+@@ -244,6 +244,33 @@ public class FocusMode {
+         } catch (Exception e) { return false; }
+     }
+ 
++    /** 专注模式是否处于「已开启」状态（守护页开关读取值；active 或 enabled 任一为真即视为开）。 */
++    public static boolean isOn(Context ctx) {
++        try { return isActive(ctx) || state(ctx).optBoolean("enabled", false); } catch (Exception e) { return false; }
++    }
++
++    /**
++     * 守护页「专注模式」卡片的实际开关：
++     * 关 → 解除全机锁定并置 enabled=false；开 → 按默认 30 分钟开始一次专注托管。
++     */
++    public static JSONObject toggleFromGuard(Context ctx, boolean on) {
++        if (on) {
++            try {
++                JSONObject cmd = new JSONObject().put("action", "start_focus_mode").put("duration_minutes", 30);
++                return start(ctx, cmd);
++            } catch (Exception e) { return put(new JSONObject(), false, ScreenshotService.shortMsg(e)); }
++        }
++        JSONObject r;
++        try {
++            r = end(ctx, "守护页开关关闭");
++            JSONObject s = state(ctx);
++            s.put("enabled", false);
++            s.put("active", false);
++            save(ctx, s);
++        } catch (Exception e) { return put(new JSONObject(), false, ScreenshotService.shortMsg(e)); }
++        return r;
++    }
++
+     private static boolean isActiveRaw(JSONObject s, long now) throws Exception {
+         if (s == null || !s.optBoolean("active", false)) return false;
+         long until = s.optLong("until_ms", 0L);
+diff --git a/android/app/src/main/java/dev/linjian/peek/MainActivity.java b/android/app/src/main/java/dev/linjian/peek/MainActivity.java
+index 5e5cbbb..e384003 100644
+--- a/android/app/src/main/java/dev/linjian/peek/MainActivity.java
++++ b/android/app/src/main/java/dev/linjian/peek/MainActivity.java
+@@ -41,6 +41,7 @@ import android.widget.Button;
+ import android.widget.CheckBox;
+ import android.widget.EditText;
+ import android.widget.RadioButton;
++import android.widget.Switch;
+ import android.widget.TextView;
+ import android.widget.LinearLayout;
+ import android.widget.ImageView;
+@@ -1120,31 +1121,63 @@ public class MainActivity extends Activity {
+ 
+         root.addView(sectionHeading("守护功能"), marginBottom(8));
+ 
++        // 每张守护卡片右侧都带一个真实生效的开关：关掉即停用该能力，打开即恢复；
++        // 开关写入的是各能力底层存储（与设置页、MCP 同一份数据），点卡片本体仍可进详细设置。
+         root.addView(label("查岗与管束", 9), marginBottom(6));
+-        root.addView(actionSettingBlock("查岗拉回", "查岗周期、拉回用户的分级与弹窗", R.drawable.ic_shield, () -> openPolicySettings("checkin")), marginBottom(7));
+-        root.addView(actionSettingBlock("分心强拉回", "切出去又立马切回来，来回几次算分心；按拉回阈值分级弹窗", R.drawable.ic_shield, () -> openPolicySettings("distraction")), marginBottom(7));
+-        root.addView(actionSettingBlock("训诫", "小圈管束设定与话语，温柔 / 严厉两种语气", R.drawable.ic_shield, () -> openPolicySettings("discipline")), marginBottom(11));
++        root.addView(actionSettingBlockWithSwitch("查岗拉回", "查岗周期、拉回用户的分级与弹窗", R.drawable.ic_shield,
++                PolicyStore.checkinEnabled(this), (c) -> PolicyStore.setCheckinEnabled(this, c),
++                () -> openPolicySettings("checkin")), marginBottom(7));
++        root.addView(actionSettingBlockWithSwitch("分心强拉回", "开始聊天后切出去又立马切回来，来回几次算分心；按拉回阈值分级弹窗", R.drawable.ic_shield,
++                PolicyStore.distractionEnabled(this), (c) -> PolicyStore.setDistractionEnabled(this, c),
++                () -> openPolicySettings("distraction")), marginBottom(7));
++        root.addView(actionSettingBlockWithSwitch("训诫", "小圈管束设定与话语，温柔 / 严厉两种语气", R.drawable.ic_shield,
++                PolicyStore.disciplineEnabled(this), (c) -> PolicyStore.setDisciplineEnabled(this, c),
++                () -> openPolicySettings("discipline")), marginBottom(11));
+ 
+         root.addView(label("情绪与陪伴", 9), marginBottom(6));
+-        root.addView(actionSettingBlock("情绪感知", "你对用户的情绪：达标自动弹窗、情绪标签与想你程度", R.drawable.ic_heart_wave, () -> openPolicySettings("emotion")), marginBottom(7));
+-        root.addView(actionSettingBlock("主动找用户", "太久没发消息就主动找你", R.drawable.ic_heart_wave, () -> openPolicySettings("initiative")), marginBottom(11));
++        root.addView(actionSettingBlockWithSwitch("情绪感知", "你对用户的情绪：达标自动弹窗、情绪标签与想你程度", R.drawable.ic_heart_wave,
++                PolicyStore.emotionPopupEnabled(this), (c) -> PolicyStore.setEmotionPopupEnabled(this, c),
++                () -> openPolicySettings("emotion")), marginBottom(7));
++        root.addView(actionSettingBlockWithSwitch("主动找用户", "太久没发消息就在当前 App 上弹「主动聊天」弹窗", R.drawable.ic_heart_wave,
++                PolicyStore.initiativeEnabled(this), (c) -> PolicyStore.setInitiativeEnabled(this, c),
++                () -> openPolicySettings("initiative")), marginBottom(11));
+ 
+         root.addView(label("管束与提醒", 9), marginBottom(6));
+-        root.addView(actionSettingBlock("应用门禁", "锁 App 时长、自主添加受限应用", R.drawable.ic_shield, () -> openPolicySettings("appgate")), marginBottom(7));
+-        root.addView(actionSettingBlock("主动提醒", "电量、屏幕、喝水、休息、周期", R.drawable.ic_clock, () -> openPolicySettings("reminder")), marginBottom(7));
+-        root.addView(actionSettingBlock("专注模式", "全机专注、应急放行与留言", R.drawable.ic_shield, this::showFocusModePanel), marginBottom(11));
++        root.addView(actionSettingBlockWithSwitch("应用门禁", "锁 App 时长、自主添加受限应用；关闭即暂停拦截", R.drawable.ic_shield,
++                AppGate.enabled(this), (c) -> AppGate.setEnabled(this, c),
++                () -> openPolicySettings("appgate")), marginBottom(7));
++        root.addView(actionSettingBlockWithSwitch("主动提醒", "电量、屏幕、喝水、休息、周期；一键开关全部提醒", R.drawable.ic_clock,
++                PolicyStore.anyPermEnabled(this), (c) -> PolicyStore.setAllPermEnabled(this, c),
++                () -> openPolicySettings("reminder")), marginBottom(7));
++        root.addView(actionSettingBlockWithSwitch("专注模式", "全机专注、应急放行与留言；关闭即解除全机锁定", R.drawable.ic_shield,
++                FocusMode.isOn(this), (c) -> FocusMode.toggleFromGuard(this, c),
++                this::showFocusModePanel), marginBottom(11));
+ 
+         root.addView(label("日子与作息", 9), marginBottom(6));
+-        root.addView(actionSettingBlock("守护日历", "纪念日、节日和倒数日", R.drawable.ic_clock, this::showGuardianCalendarDetailPage), marginBottom(7));
+-        root.addView(actionSettingBlock("课表作息", "上课静默守护与提醒", R.drawable.ic_clock, () -> openPolicySettings("schedule")), marginBottom(7));
+-        root.addView(actionSettingBlock("共同记忆", "双方可改的共享记忆", R.drawable.ic_heart_wave, () -> openPolicySettings("memory")), marginBottom(7));
+-        root.addView(actionSettingBlock("识图感知", "从当前屏幕读取文字", R.drawable.ic_eye, () -> openPolicySettings("ocr")), marginBottom(7));
++        root.addView(actionSettingBlockWithSwitch("守护日历", "纪念日、节日和倒数日；关闭即停发横幅提醒", R.drawable.ic_clock,
++                CalendarState.enabled(this), (c) -> CalendarState.setEnabled(this, c),
++                this::showGuardianCalendarDetailPage), marginBottom(7));
++        root.addView(actionSettingBlockWithSwitch("课表作息", "上课静默守护与提醒；关闭即停判定、停提醒", R.drawable.ic_clock,
++                ClassScheduleState.enabled(this), (c) -> ClassScheduleState.setEnabled(this, c),
++                () -> openPolicySettings("schedule")), marginBottom(7));
++        root.addView(actionSettingBlockWithSwitch("共同记忆", "双方可改的共享记忆；关闭后进入只读保护", R.drawable.ic_heart_wave,
++                SharedMemoryState.enabled(this), (c) -> SharedMemoryState.setEnabled(this, c),
++                () -> openPolicySettings("memory")), marginBottom(7));
++        root.addView(actionSettingBlockWithSwitch("识图感知", "从当前屏幕读取文字", R.drawable.ic_eye,
++                PolicyStore.ocrEnabled(this), (c) -> PolicyStore.setOcrEnabled(this, c),
++                () -> openPolicySettings("ocr")), marginBottom(7));
+         root.addView(actionSettingBlock("插件分类", "全部扩展能力归类总览", R.drawable.ic_shield, this::showPluginRegistryFromGuard), marginBottom(11));
+ 
+         root.addView(label("地点与设备", 9), marginBottom(6));
+-        root.addView(actionSettingBlock("天气地区", "家与常用地点", R.drawable.ic_cloud, () -> openPolicySettings("weather")), marginBottom(7));
+-        root.addView(actionSettingBlock("回家模式", "回来时打开熟悉的窗", R.drawable.ic_home, () -> openPolicySettings("homemode")), marginBottom(7));
+-        root.addView(actionSettingBlock("归电设置", "间隔 / 冷却 / 安静时段等时间项，可点开设置、保存后立即生效", R.drawable.ic_clock, this::openGuidianSettingsFromGuard), marginBottom(10));
++        root.addView(actionSettingBlockWithSwitch("天气地区", "家与常用地点；关闭即停发天气提醒", R.drawable.ic_cloud,
++                AppPrefs.get(this).getBoolean(AppPrefs.KEY_RULE_WEATHER, true), (c) -> AppPrefs.get(this).edit().putBoolean(AppPrefs.KEY_RULE_WEATHER, c).commit(),
++                () -> openPolicySettings("weather")), marginBottom(7));
++        root.addView(actionSettingBlockWithSwitch("回家模式", "回来时打开熟悉的窗", R.drawable.ic_home,
++                AppPrefs.get(this).getBoolean(AppPrefs.KEY_HOME_MODE_ENABLED, false), (c) -> AppPrefs.get(this).edit().putBoolean(AppPrefs.KEY_HOME_MODE_ENABLED, c).commit(),
++                () -> openPolicySettings("homemode")), marginBottom(7));
++        root.addView(actionSettingBlockWithSwitch("归电设置", "间隔 / 冷却 / 安静时段等时间项；关闭后归电不再敲门", R.drawable.ic_clock,
++                GuidianState.prefs(this).getBoolean(GuidianState.KEY_ENABLED, true), (c) -> GuidianState.prefs(this).edit().putBoolean(GuidianState.KEY_ENABLED, c).commit(),
++                this::openGuidianSettingsFromGuard), marginBottom(10));
+ 
+         root.addView(buildEmotionCard(), marginBottom(11));
+ 
+@@ -1819,6 +1852,46 @@ public class MainActivity extends Activity {
+     private View featureRow(String name, String detail, int icon, Runnable click) { LinearLayout row = horizontal(); row.setPadding(dp(3), dp(10), dp(3), dp(10)); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); row.addView(iv, new LinearLayout.LayoutParams(dp(28), dp(28))); LinearLayout text = new LinearLayout(this); text.setOrientation(LinearLayout.VERTICAL); text.addView(title(name, 13)); text.addView(body(detail, 9), matchWrapTop(2)); row.addView(text, weightedWrap(1f, 10)); TextView arrow = label("›", 18); row.addView(arrow); row.setOnClickListener(v -> click.run()); row.setClickable(true); row.setFocusable(true); return row; }
+     private View guardSettingBlock(String name, String detail, int icon, View panel) { LinearLayout card = editorialCard(); card.setPadding(dp(14), dp(12), dp(14), dp(12)); LinearLayout row = horizontal(); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); iv.setBackground(UITheme.current(this).soft(18)); iv.setPadding(dp(8), dp(8), dp(8), dp(8)); iv.setTag("theme_icon"); row.addView(iv, new LinearLayout.LayoutParams(dp(38), dp(38))); LinearLayout copy = new LinearLayout(this); copy.setOrientation(LinearLayout.VERTICAL); copy.addView(title(name, 13)); copy.addView(body(detail, 8), matchWrapTop(2)); row.addView(copy, weightedWrap(1f, 11)); row.addView(label("›", 18)); card.addView(row); card.setOnClickListener(v -> showFeaturePanel(name, panel)); card.setClickable(true); card.setFocusable(true); return card; }
+     private View actionSettingBlock(String name, String detail, int icon, Runnable click) { LinearLayout card = editorialCard(); card.setPadding(dp(14), dp(12), dp(14), dp(12)); LinearLayout row = horizontal(); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); iv.setBackground(UITheme.current(this).soft(18)); iv.setPadding(dp(8), dp(8), dp(8), dp(8)); iv.setTag("theme_icon"); row.addView(iv, new LinearLayout.LayoutParams(dp(38), dp(38))); LinearLayout copy = new LinearLayout(this); copy.setOrientation(LinearLayout.VERTICAL); copy.addView(title(name, 13)); copy.addView(body(detail, 8), matchWrapTop(2)); row.addView(copy, weightedWrap(1f, 11)); row.addView(label("›", 18)); card.addView(row); card.setOnClickListener(v -> click.run()); card.setClickable(true); card.setFocusable(true); return card; }
++
++    /**
++     * 守护页卡片 + 真实生效的开关：右侧 Switch 直接写入该能力底层存储（与设置页/MCP 同一份），
++     * 切换即时生效；点卡片本体仍进入对应设置。开关点击事件被消费，不会触发卡片的进入跳转。
++     */
++    private View actionSettingBlockWithSwitch(String name, String detail, int icon, boolean checked, java.util.function.Consumer<Boolean> onToggle, Runnable click) {
++        LinearLayout card = editorialCard();
++        card.setPadding(dp(14), dp(12), dp(14), dp(12));
++        LinearLayout row = horizontal();
++        ImageView iv = new ImageView(this);
++        iv.setImageResource(icon);
++        iv.setColorFilter(UITheme.current(this).primary);
++        iv.setBackground(UITheme.current(this).soft(18));
++        iv.setPadding(dp(8), dp(8), dp(8), dp(8));
++        iv.setTag("theme_icon");
++        row.addView(iv, new LinearLayout.LayoutParams(dp(38), dp(38)));
++        LinearLayout copy = new LinearLayout(this);
++        copy.setOrientation(LinearLayout.VERTICAL);
++        copy.addView(title(name, 13));
++        copy.addView(body(detail, 8), matchWrapTop(2));
++        row.addView(copy, weightedWrap(1f, 11));
++        row.addView(label("›", 18));
++        Switch sw = new Switch(this);
++        sw.setChecked(checked);
++        sw.setTag("guard_switch");
++        sw.setOnClickListener(v -> {
++            boolean on = sw.isChecked();
++            try { onToggle.accept(on); } catch (Exception e) { sw.setChecked(!on); Toast.makeText(this, "开关写入失败：" + ScreenshotService.shortMsg(e), Toast.LENGTH_SHORT).show(); return; }
++            Toast.makeText(this, name + (on ? " 已开启" : " 已关闭"), Toast.LENGTH_SHORT).show();
++        });
++        LinearLayout.LayoutParams swLp = new LinearLayout.LayoutParams(-2, -2);
++        swLp.leftMargin = dp(8);
++        row.addView(sw, swLp);
++        card.addView(row);
++        // 点开关本身不触发进设置；点卡片其余区域进入设置。
++        card.setOnClickListener(v -> click.run());
++        card.setClickable(true);
++        card.setFocusable(true);
++        return card;
++    }
+     private View quickAction(String name, String detail, int icon, Runnable click) { LinearLayout card = editorialCard(); card.setGravity(Gravity.CENTER); card.setPadding(dp(8), dp(11), dp(8), dp(9)); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); card.addView(iv, new LinearLayout.LayoutParams(dp(28), dp(28))); TextView n = title(name, 12); n.setGravity(Gravity.CENTER); card.addView(n, matchWrapTop(5)); TextView d = body(detail, 8); d.setGravity(Gravity.CENTER); card.addView(d, matchWrapTop(2)); card.setOnClickListener(v -> click.run()); card.setClickable(true); return card; }
+     private Button actionButton(String text, boolean primary) { Button b = new Button(this); b.setText(text); b.setTextSize(10); b.setAllCaps(false); b.setMinHeight(dp(29)); UITheme t = UITheme.current(this); b.setBackground(primary ? t.pill(true) : t.chip(false)); b.setTextColor(primary ? Color.WHITE : t.text); return b; }
+     private Button iconButton(String text, String description) { Button b = actionButton(text, false); b.setContentDescription(description); b.setTextSize(16); b.setPadding(0, 0, 0, 0); return b; }
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicyCommand.java b/android/app/src/main/java/dev/linjian/peek/PolicyCommand.java
+index 1cc96a7..63c05ee 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PolicyCommand.java
++++ b/android/app/src/main/java/dev/linjian/peek/PolicyCommand.java
+@@ -87,6 +87,15 @@ public final class PolicyCommand {
+         a.put(meta("quiet_end", "string", 0, 0, "08:00", "安静时段结束 HH:mm"));
+         a.put(meta("night_start", "string", 0, 0, "23:00", "深夜时段开始 HH:mm"));
+         a.put(meta("night_end", "string", 0, 0, "06:00", "深夜时段结束 HH:mm"));
++
++        // —— 守护页各标签开关（与守护页卡片开关同一份底层存储）——
++        a.put(meta("app_gate_enabled", "bool", 0, 0, true, "应用门禁开关（关闭即暂停拦截）"));
++        a.put(meta("class_schedule_enabled", "bool", 0, 0, true, "课表作息开关（关闭即停判定停提醒）"));
++        a.put(meta("guard_calendar_enabled", "bool", 0, 0, true, "守护日历开关（关闭即停发横幅提醒）"));
++        a.put(meta("shared_memory_enabled", "bool", 0, 0, true, "共同记忆开关（关闭即只读保护）"));
++        a.put(meta("weather_reminder_enabled", "bool", 0, 0, true, "天气提醒开关"));
++        a.put(meta("home_mode_enabled", "bool", 0, 0, false, "回家模式开关"));
++        a.put(meta("guidian_enabled", "bool", 0, 0, true, "归电开关（关闭后归电不再敲门）"));
+         return a;
+     }
+ 
+@@ -237,6 +246,14 @@ public final class PolicyCommand {
+             case "quiet_end": return PolicyStore.quietEnd(ctx);
+             case "night_start": return PolicyStore.nightStart(ctx);
+             case "night_end": return PolicyStore.nightEnd(ctx);
++            // 守护页各标签开关
++            case "app_gate_enabled": return AppGate.enabled(ctx);
++            case "class_schedule_enabled": return ClassScheduleState.enabled(ctx);
++            case "guard_calendar_enabled": return CalendarState.enabled(ctx);
++            case "shared_memory_enabled": return SharedMemoryState.enabled(ctx);
++            case "weather_reminder_enabled": return AppPrefs.get(ctx).getBoolean(AppPrefs.KEY_RULE_WEATHER, true);
++            case "home_mode_enabled": return AppPrefs.get(ctx).getBoolean(AppPrefs.KEY_HOME_MODE_ENABLED, false);
++            case "guidian_enabled": return GuidianState.prefs(ctx).getBoolean(GuidianState.KEY_ENABLED, true);
+             default: return JSONObject.NULL;
+         }
+     }
+@@ -331,6 +348,14 @@ public final class PolicyCommand {
+             case "quiet_end": PolicyStore.setQuietEnd(ctx, asString(raw)); return 0;
+             case "night_start": PolicyStore.setNightStart(ctx, asString(raw)); return 0;
+             case "night_end": PolicyStore.setNightEnd(ctx, asString(raw)); return 0;
++            // 守护页各标签开关
++            case "app_gate_enabled": AppGate.setEnabled(ctx, asBool(raw)); return 0;
++            case "class_schedule_enabled": ClassScheduleState.setEnabled(ctx, asBool(raw)); return 0;
++            case "guard_calendar_enabled": CalendarState.setEnabled(ctx, asBool(raw)); return 0;
++            case "shared_memory_enabled": SharedMemoryState.setEnabled(ctx, asBool(raw)); return 0;
++            case "weather_reminder_enabled": AppPrefs.get(ctx).edit().putBoolean(AppPrefs.KEY_RULE_WEATHER, asBool(raw)).commit(); return 0;
++            case "home_mode_enabled": AppPrefs.get(ctx).edit().putBoolean(AppPrefs.KEY_HOME_MODE_ENABLED, asBool(raw)).commit(); return 0;
++            case "guidian_enabled": GuidianState.prefs(ctx).edit().putBoolean(GuidianState.KEY_ENABLED, asBool(raw)).commit(); return 0;
+             default: return 1;
+         }
+     }
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java b/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
+index ec3a132..f20623a 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
++++ b/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
+@@ -89,6 +89,12 @@ public final class PolicyScheduler {
+     private String lastDistractionPkg = "";
+     private long lastDistractSwitchAt = 0;   // 最近一次「切出」时刻，用于和「切回」配对
+     private int distractLoopCount = 0;        // 切出→切回 的连续来回次数
++    // 修复「点进聊天没有开始聊天、切出又开始计分心」：
++    // 只有真正开始聊天（在聊天界面连续停留达到 MIN_CHAT_STAY_MS）后，切出才计入分心。
++    private static final long MIN_CHAT_STAY_MS = 20_000L; // 在聊天界面停留 ≥20 秒视为「开始聊天」
++    private boolean inChatNow = false;        // 上一 tick 是否在聊天界面
++    private long chatEnterAt = 0;             // 本次进入聊天的时刻
++    private boolean chatArmed = false;        // 最近一次聊天会话是否算「真正开始聊天」
+     private long screenOnSince = 0;
+     private long lastDrinkAt = 0;
+     private long lastSitAt = 0;
+@@ -269,6 +275,9 @@ public final class PolicyScheduler {
+             cfg.put("message", CompanionEmotionState.message(appCtx));
+             cfg.put("tone", strong ? "angry" : CompanionEmotionState.tone(appCtx));
+             cfg.put("from", "local_checkin");
++            // 弹窗类型标识：查岗拉回
++            cfg.put("kind", "checkin");
++            cfg.put("kind_label", "查岗拉回");
+         } catch (Exception ignored) { }
+ 
+         PullBackActivity.show(appCtx, cfg);
+@@ -322,6 +331,9 @@ public final class PolicyScheduler {
+             cfg.put("message", CompanionEmotionState.message(appCtx)); // 随机文案，每次不同
+             cfg.put("tone", strong ? "angry" : CompanionEmotionState.tone(appCtx));
+             cfg.put("from", "emotion_popup");
++            // 弹窗类型标识：情绪感知
++            cfg.put("kind", "emotion");
++            cfg.put("kind_label", "情绪感知");
+         } catch (Exception ignored) { }
+ 
+         lastEmotionPopupAt = now;
+@@ -346,10 +358,30 @@ public final class PolicyScheduler {
+         if (limit > 0 && initiativeTodayCount >= limit) return;    // 当天已到上限
+ 
+         String message = composeInitiative();
+-        // 主动到 Kelivo（本机目标 App），并把这条主动消息写进日志。
+-        CompanionService.openPackageResult(appCtx, PolicyStore.targetPackage(appCtx));
+-        ActivityEventStore.recordForced(appCtx, "initiative_send", "主动找" + AppPrefs.companionName(appCtx), message);
+-        DebugState.append(appCtx, "主动找她已发送（本机）：" + message);
++        // 主动聊天弹窗：不再静默跳走，改为在当前正在使用的 App 之上弹「主动聊天」弹窗；
++        // 用户点「去找 TA」才跳到目标 App，不跳掌心窗、不打断当前界面。
++        JSONObject cfg = new JSONObject();
++        try {
++            String companion = AppPrefs.companionName(appCtx);
++            cfg.put("level", "soft");
++            cfg.put("strong", false);
++            cfg.put("allow_decline", true);
++            cfg.put("emotion_tag", CompanionEmotionState.popupEmotionTag(appCtx));
++            cfg.put("miss_percent", CompanionEmotionState.effectiveMissPercent(appCtx));
++            cfg.put("intensity", CompanionEmotionState.effectiveIntensity(appCtx));
++            cfg.put("threshold", PolicyStore.forceBackThreshold(appCtx));
++            cfg.put("title", companion + "主动找你");
++            cfg.put("message", message);
++            cfg.put("tone", CompanionEmotionState.tone(appCtx));
++            cfg.put("from", "initiative");
++            cfg.put("kind", "initiative");
++            cfg.put("kind_label", "主动聊天");
++            cfg.put("accept_label", "去找 " + companion);
++            cfg.put("decline_label", "晚点再说");
++        } catch (Exception ignored) { }
++        PullBackActivity.show(appCtx, cfg);
++        ActivityEventStore.recordForced(appCtx, "initiative_send", "主动聊天（弹窗）", message);
++        DebugState.append(appCtx, "主动找她弹窗已发出（主动聊天）：" + message);
+ 
+         initiativeTodayCount++;
+         lastInitiativeAt = now;
+@@ -383,27 +415,54 @@ public final class PolicyScheduler {
+     /**
+      * 分心查岗定义：用户在聊天（掌心窗陪伴页 / 目标 App）切出去到其它 App，
+      * 又「立马切回来」，来回几次就是分心。检测始终开启（常开，不只在聊天时才开）。
++     * 修复误计：只有「真正开始聊天」——在聊天界面连续停留 ≥20 秒——之后切出去，
++     * 才计一次分心/来回；只是点进聊天看一眼（未开始聊天）就切出，不计分心、不累计来回。
+      * 命中后弹分级拉回：未达拉回阈值给「回到软件 / 拒绝并填写理由」两选项，
+-     * 达到阈值只给「回到软件」。弹窗悬浮在当前 App 之上，不拉起掌心窗、不自动跳转。
++     * 达到阈值只给「回到软件」。弹窗悬浮在当前 App 之上，不拉起掌心窗、不自动跳转，
++     * 弹窗上明确标注类型「分心查岗」。
+      */
+     private void evaluateDistraction(long now, String current) {
+-        if (!PolicyStore.distractionEnabled(appCtx)) return;
++        if (!PolicyStore.distractionEnabled(appCtx)) { inChatNow = false; chatArmed = false; return; }
+         if (current == null || current.isEmpty()) return;
+ 
+         boolean inChat = current.equals(SELF_PKG) || current.equals(PolicyStore.targetPackage(appCtx));
+         boolean systemLayer = isSystemExemptPackage(current);
+         boolean excluded = inChat || systemLayer;
+ 
++        // —— 聊天会话跟踪：判定「是否真正开始聊天」——
++        if (inChat) {
++            if (!inChatNow) {
++                inChatNow = true;
++                // 带着一次已计的「切出」回到聊天：本次会话延续之前已武装的聊天（切回即刻算聊天中）；
++                // 普通进入（没有待配对的切出）：从现在起重新计时，停留够 20 秒才算开始聊天。
++                boolean pairingBack = lastDistractionPkg != null && !lastDistractionPkg.isEmpty() && chatArmed;
++                chatEnterAt = pairingBack ? now - MIN_CHAT_STAY_MS : now;
++            }
++        } else if (inChatNow) {
++            inChatNow = false;
++            long dwell = chatEnterAt > 0 ? now - chatEnterAt : 0;
++            chatEnterAt = 0;
++            if (dwell >= MIN_CHAT_STAY_MS) {
++                chatArmed = true; // 真正开始聊天过：接下来切出才计分心
++            } else {
++                // 只是点进聊天看一眼就切出：不计分心，清空待配对状态与来回累计。
++                chatArmed = false;
++                distractLoopCount = 0;
++                lastDistractionPkg = "";
++                lastDistractSwitchAt = 0;
++            }
++        }
++
+         if (!excluded) {
+-            // 切到其它 App：记一次「切出」；同一个 App 不重复计。
+-            if (!current.equals(lastDistractionPkg)) {
++            // 切到其它 App：只有聊天已武装（真正开始聊天过）才记一次「切出」；同一个 App 不重复计。
++            if (chatArmed && !current.equals(lastDistractionPkg)) {
+                 lastDistractionPkg = current;
+                 lastDistractSwitchAt = now;
+                 String app = appLabel(current);
+                 int cnt = PolicyStore.distractionCount(appCtx) + 1;
+                 PolicyStore.setDistractionCount(appCtx, cnt);
+                 ActivityEventStore.recordPhone(appCtx, "distraction", "分心到" + app + "（累计 " + cnt + " 次）", current);
+-                DebugState.append(appCtx, "检测到切屏分心：" + app + "（累计 " + cnt + " 次）");
++                DebugState.append(appCtx, "检测到切屏分心（已开始聊天后切出）：" + app + "（累计 " + cnt + " 次）");
+                 if (PolicyStore.disciplineEnabled(appCtx)) discipline("distraction", "切到" + app);
+             }
+         } else if (inChat) {
+@@ -423,7 +482,7 @@ public final class PolicyScheduler {
+                     boolean strong = strongByThreshold();
+                     String msg = CompanionEmotionState.message(appCtx)
+                             + "\n（刚才切出去又切回来了 " + loopTimes + " 次，是在分心吗？）";
+-                    showPullBack(strong, "distraction_loop", msg);
++                    showPullBack(strong, "distraction_loop", "分心查岗", msg);
+                     PolicyStore.markAction(appCtx);
+                     ActivityEventStore.recordForced(appCtx, "distraction_pull_back",
+                             "分心查岗拉回(" + (strong ? "强制" : "可拒绝") + ")", "切出切回 " + loopTimes + " 次");
+@@ -432,8 +491,9 @@ public final class PolicyScheduler {
+         }
+ 
+         // 兼容旧逻辑：每次切屏都拉回 / 累计超阈值也弹一次。
+-        // 必须限定在「确实处于其它 App」时才触发，避免用户在聊天界面内被误拉回。
+-        if (!excluded) {
++        // 必须限定在「确实处于其它 App」且聊天已武装（真正开始聊天过）时才触发，
++        // 避免用户从未聊天、或只是路过聊天界面时被误拉回。
++        if (!excluded && chatArmed) {
+             boolean every = PolicyStore.distractionEveryTime(appCtx);
+             boolean byAccumulated = PolicyStore.distractionAutoPullback(appCtx)
+                     && PolicyStore.distractionCount(appCtx) >= PolicyStore.distractionThreshold(appCtx);
+@@ -445,7 +505,7 @@ public final class PolicyScheduler {
+                 String msg = byAccumulated
+                         ? ("已经分心 " + cnt + " 次了，先回来陪" + AppPrefs.companionName(appCtx) + "。")
+                         : CompanionEmotionState.message(appCtx);
+-                showPullBack(strong, byAccumulated ? "distraction_accumulated" : "distraction", msg);
++                showPullBack(strong, byAccumulated ? "distraction_accumulated" : "distraction", "分心查岗", msg);
+                 PolicyStore.markAction(appCtx);
+                 if (byAccumulated) PolicyStore.setDistractionCount(appCtx, 0);
+                 ActivityEventStore.recordForced(appCtx, "distraction_pull_back",
+@@ -459,8 +519,8 @@ public final class PolicyScheduler {
+         return EmotionPerception.isStrongNow(appCtx);
+     }
+ 
+-    /** 统一组装分级拉回配置并显示：悬浮在当前 App 之上，不拉起掌心窗、不自动跳转。 */
+-    private void showPullBack(boolean strong, String from, String message) {
++    /** 统一组装分级拉回配置并显示：悬浮在当前 App 之上，不拉起掌心窗、不自动跳转；kindLabel 标明弹窗类型。 */
++    private void showPullBack(boolean strong, String from, String kindLabel, String message) {
+         JSONObject cfg = new JSONObject();
+         try {
+             cfg.put("level", strong ? "strong" : "soft");
+@@ -474,6 +534,9 @@ public final class PolicyScheduler {
+             cfg.put("message", (message != null && !message.trim().isEmpty()) ? message : CompanionEmotionState.message(appCtx));
+             cfg.put("tone", strong ? "angry" : CompanionEmotionState.tone(appCtx));
+             cfg.put("from", from);
++            // 弹窗类型标识：卡片顶部会显示这个徽标，让用户一眼知道这是什么弹窗。
++            cfg.put("kind", from);
++            cfg.put("kind_label", kindLabel == null || kindLabel.trim().isEmpty() ? "守护提醒" : kindLabel);
+         } catch (Exception ignored) { }
+         PullBackActivity.show(appCtx, cfg);
+     }
+@@ -642,8 +705,11 @@ public final class PolicyScheduler {
+     // ============ 工具 ============
+ 
+     private boolean notify(String title, String message) {
+-        boolean ok = CompanionService.showReminderNotification(appCtx, title, message);
+-        if (!ok) DebugState.append(appCtx, "权限提醒未发出（通知权限缺失）：" + title);
++        // 弹窗/通知类型标识：提醒类通知标题统一带「提醒 · 」前缀（本身已含“提醒”字样的不重复加）。
++        String t = title == null ? "" : title.trim();
++        if (!t.contains("提醒")) t = "提醒 · " + t;
++        boolean ok = CompanionService.showReminderNotification(appCtx, t, message);
++        if (!ok) DebugState.append(appCtx, "权限提醒未发出（通知权限缺失）：" + t);
+         return ok;
+     }
+ 
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java b/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java
+index ddd4dc0..4b1b916 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java
++++ b/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java
+@@ -159,8 +159,8 @@ public class PolicySettingsActivity extends Activity {
+         g4.addView(rowSwitch("强视觉警示标志", "打开后界面明确显示「训诫已开启」警示，让你随时知道状态。", PolicyStore.disciplineBadge(this), (v, c) -> PolicyStore.setDisciplineBadge(this, c)));
+         g4.addView(rowText("说明", "SM 小圈训诫管束风格：仅本人可开、不设安全词、不写日志，但界面必须有明确开启标志。", "仅本人可开", s -> { }));
+ 
+-        LinearLayout g5 = card(container, "分心查岗（常开）", "分心检测始终开启，不只在聊天时。定义：聊天中切出去到其它 App，又立马切回来，来回几次算分心；未达拉回阈值给两选项，达到阈值只能回到软件。", "distraction");
+-        g5.addView(rowSwitch("切屏算分心", "常开检测：聊天中切到其它 App 标记为分心。默认开启。", PolicyStore.distractionEnabled(this), (v, c) -> PolicyStore.setDistractionEnabled(this, c)));
++        LinearLayout g5 = card(container, "分心查岗（常开）", "分心检测始终开启，不只在聊天时。定义：真正开始聊天（在聊天界面停留约 20 秒以上）后切出去到其它 App，又立马切回来，来回几次算分心；只是点进聊天看一眼、没开始聊天就切出，不计分心。未达拉回阈值给两选项，达到阈值只能回到软件。弹窗在当前正在使用的 App 上悬浮显示，并标注「分心查岗」。", "distraction");
++        g5.addView(rowSwitch("切屏算分心", "常开检测：开始聊天后切到其它 App 才标记为分心。默认开启。", PolicyStore.distractionEnabled(this), (v, c) -> PolicyStore.setDistractionEnabled(this, c)));
+         g5.addView(rowSwitch("切出切回算分心", "按「切出去 → 立马切回来」的来回次数判定分心。默认开启。", PolicyStore.distractionLoopEnabled(this), (v, c) -> PolicyStore.setDistractionLoopEnabled(this, c)));
+         g5.addView(rowNumber("分心来回次数", "切出切回累计达到该次数弹一次拉回弹窗。默认 2。", PolicyStore.distractionLoopTimes(this), 1, 99, v -> PolicyStore.setDistractionLoopTimes(this, v)));
+         g5.addView(rowNumber("来回时间窗口（秒）", "切出后多少秒内切回来才算一次来回，超时重新计。默认 90。", PolicyStore.distractionLoopWindowSec(this), 5, 3600, v -> PolicyStore.setDistractionLoopWindowSec(this, v)));
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicyStore.java b/android/app/src/main/java/dev/linjian/peek/PolicyStore.java
+index 993d7ca..1e215a9 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PolicyStore.java
++++ b/android/app/src/main/java/dev/linjian/peek/PolicyStore.java
+@@ -363,6 +363,22 @@ public final class PolicyStore {
+     public static String permValue(Context ctx, String key) { return getString(ctx, key + "_val", ""); }
+     public static void setPermValue(Context ctx, String key, String v) { putString(ctx, key + "_val", v, permLabel(key) + "参数"); }
+ 
++    /** 守护页「主动提醒」卡片的组开关：任一提醒开着即视为开；关闭时全部停发，打开时全部恢复。 */
++    public static boolean anyPermEnabled(Context ctx) {
++        String[] keys = {KEY_PERM_SCREEN_TIME, KEY_PERM_SLEEP, KEY_PERM_CURFEW, KEY_PERM_STUDY,
++                KEY_PERM_DRINK, KEY_PERM_SIT, KEY_PERM_WEEKLY, KEY_PERM_HOME, KEY_PERM_PERIOD};
++        for (String k : keys) if (permEnabled(ctx, k)) return true;
++        return false;
++    }
++
++    /** 一键开/关全部主动提醒（逐项真实写入各自的 _on 键，逐项生效）。 */
++    public static void setAllPermEnabled(Context ctx, boolean v) {
++        String[] keys = {KEY_PERM_SCREEN_TIME, KEY_PERM_SLEEP, KEY_PERM_CURFEW, KEY_PERM_STUDY,
++                KEY_PERM_DRINK, KEY_PERM_SIT, KEY_PERM_WEEKLY, KEY_PERM_HOME, KEY_PERM_PERIOD};
++        for (String k : keys) setPermEnabled(ctx, k, v);
++        DebugState.append(ctx, v ? "主动提醒已全部开启" : "主动提醒已全部关闭");
++    }
++
+     private static String permLabel(String key) {
+         if (KEY_PERM_SCREEN_TIME.equals(key)) return "屏幕时长上限";
+         if (KEY_PERM_SLEEP.equals(key)) return "睡前息屏";
+diff --git a/android/app/src/main/java/dev/linjian/peek/PullBackCard.java b/android/app/src/main/java/dev/linjian/peek/PullBackCard.java
+index 0e84072..913c840 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PullBackCard.java
++++ b/android/app/src/main/java/dev/linjian/peek/PullBackCard.java
+@@ -53,6 +53,24 @@ public class PullBackCard {
+         return base + tails[i];
+     }
+ 
++    /**
++     * 弹窗类型标识：优先取调用方写入的 kind_label；
++     * 没给时按 kind / from 推断（查岗拉回 / 分心查岗 / 情绪感知 / 主动聊天），
++     * 都认不出就显示「守护提醒」。返回空串表示不显示徽标。
++     */
++    private static String kindLabelOf(JSONObject cfg) {
++        String label = cfg == null ? "" : cfg.optString("kind_label", "").trim();
++        if (!label.isEmpty()) return label;
++        String kind = (cfg == null ? "" : cfg.optString("kind", "") + " " + cfg.optString("from", "")).trim();
++        if (kind.isEmpty()) return "守护提醒";
++        if (kind.contains("distraction")) return "分心查岗";
++        if (kind.contains("checkin") || kind.contains("force_back")) return "查岗拉回";
++        if (kind.contains("emotion")) return "情绪感知";
++        if (kind.contains("initiative")) return "主动聊天";
++        if (kind.contains("reminder")) return "提醒";
++        return "守护提醒";
++    }
++
+     /** 构建卡片视图；调用方负责把它放到屏幕的合适位置。 */
+     public static View build(final Context ctx, final JSONObject cfg, final Listener listener) {
+         // 弹窗配色：设置页若单独覆盖了就用覆盖值，否则跟随归电主题。
+@@ -81,6 +99,23 @@ public class PullBackCard {
+         card.setBackground(rounded(theme.panel, 26, theme.line, 1));
+         card.setElevation(dp(ctx, 10));
+ 
++        // 弹窗类型徽标：每个弹窗发出必须标明是什么弹窗（查岗拉回 / 分心查岗 / 情绪感知 /
++        // 主动聊天 / 提醒…）。优先读调用方给的 kind_label，否则按 from/kind 推断。
++        String kindLabel = kindLabelOf(cfg);
++        if (!kindLabel.isEmpty()) {
++            TextView kindBadge = text(ctx, kindLabel, 10, accent, true);
++            kindBadge.setLetterSpacing(.12f);
++            kindBadge.setGravity(Gravity.CENTER);
++            kindBadge.setBackground(rounded(withAlpha(accent, .14f), 12, withAlpha(accent, .5f), 1));
++            kindBadge.setPadding(dp(ctx, 10), dp(ctx, 4), dp(ctx, 10), dp(ctx, 4));
++            LinearLayout.LayoutParams kindLp = new LinearLayout.LayoutParams(-2, -2);
++            card.addView(kindBadge, kindLp);
++            TextView spacer = new TextView(ctx);
++            spacer.setIncludeFontPadding(false);
++            LinearLayout.LayoutParams spacerLp = new LinearLayout.LayoutParams(1, dp(ctx, 8));
++            card.addView(spacer, spacerLp);
++        }
++
+         TextView eyebrow = text(ctx, "来自 " + companion + " 的情绪", 10, theme.subtext, false);
+         card.addView(eyebrow, new LinearLayout.LayoutParams(-1, -2));
+ 
+diff --git a/android/app/src/main/java/dev/linjian/peek/SharedMemoryState.java b/android/app/src/main/java/dev/linjian/peek/SharedMemoryState.java
+index 2bee441..491155e 100644
+--- a/android/app/src/main/java/dev/linjian/peek/SharedMemoryState.java
++++ b/android/app/src/main/java/dev/linjian/peek/SharedMemoryState.java
+@@ -21,12 +21,27 @@ public final class SharedMemoryState {
+ 
+     private static final String PREFS = "shared_memory_store";
+     private static final String KEY_ITEMS = "items_v1";
++    private static final String KEY_ENABLED = "shared_memory_enabled";
+     private static final int MAX_ITEMS = 200;
+ 
+     private SharedMemoryState() { }
+ 
+     private static SharedPreferences sp(Context ctx) { return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE); }
+ 
++    // ============ 共同记忆总开关（守护页卡片可实际操作）============
++    // 关闭后：进入只读保护——新增/编辑/删除一律拒绝（本机与 MCP 均不可写入），
++    // 已有记忆不删除、可正常查看；重新打开即恢复写入。
++    public static boolean enabled(Context ctx) {
++        try { return sp(ctx).getBoolean(KEY_ENABLED, true); } catch (Exception e) { return true; }
++    }
++
++    public static void setEnabled(Context ctx, boolean v) {
++        try {
++            sp(ctx).edit().putBoolean(KEY_ENABLED, v).commit();
++            DebugState.append(ctx, v ? "共同记忆已开启：恢复写入" : "共同记忆已关闭：只读保护（不可新增/编辑/删除）");
++        } catch (Exception ignored) { }
++    }
++
+     /** 全部记忆条目（最新在前）。 */
+     public static JSONArray getItems(Context ctx) {
+         try { return new JSONArray(sp(ctx).getString(KEY_ITEMS, "[]")); }
+@@ -109,7 +124,12 @@ public final class SharedMemoryState {
+         try {
+             String action = cmd.optString("action", "");
+             if ("get_shared_memory".equals(action) || "list_shared_memory".equals(action)) {
+-                return out.put("ok", true).put("result", "shared_memory").put("items", getItems(ctx));
++                return out.put("ok", true).put("result", "shared_memory").put("items", getItems(ctx))
++                        .put("enabled", enabled(ctx));
++            }
++            if (!enabled(ctx)) {
++                return out.put("ok", false).put("result", "shared_memory_disabled")
++                        .put("error", "共同记忆开关已关闭（只读保护），请在守护页打开后再写入");
+             }
+             if ("add_shared_memory".equals(action) || "add_memory".equals(action)) {
+                 String author = cmd.optString("author", AppPrefs.userName(ctx));
+-- 
+2.43.0
+

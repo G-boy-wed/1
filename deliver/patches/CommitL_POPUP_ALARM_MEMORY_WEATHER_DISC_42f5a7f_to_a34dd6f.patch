@@ -1,0 +1,581 @@
+From a34dd6fbe9ea8599079666d27e0e332357651d95 Mon Sep 17 00:00:00 2001
+From: WorkBuddy Agent <agent@workbuddy.local>
+Date: Sat, 7 Nov 2026 03:11:44 +0800
+Subject: [PATCH] =?UTF-8?q?fix(=E5=BC=B9=E7=AA=97=E5=88=A4=E5=AE=9A/?=
+ =?UTF-8?q?=E9=97=B9=E9=92=9F=E6=84=8F=E5=9B=BE/=E8=AE=B0=E5=BF=86?=
+ =?UTF-8?q?=E8=90=BD=E7=9B=98/=E5=A4=A9=E6=B0=94=E5=8C=BA=E5=8E=BF/?=
+ =?UTF-8?q?=E8=AE=AD=E8=AF=AB=E8=AF=AD=E6=B0=94/=E5=86=99=E5=85=A5?=
+ =?UTF-8?q?=E9=97=A8=E6=8E=A7):=20=E8=81=8A=E5=A4=A9=E8=BD=AF=E4=BB=B6?=
+ =?UTF-8?q?=E5=86=85=E4=B8=8D=E5=86=8D=E5=BC=B9=E6=9F=A5=E5=B2=97=E6=8B=89?=
+ =?UTF-8?q?=E5=9B=9E/=E6=83=85=E7=BB=AA/=E4=B8=BB=E5=8A=A8=E8=81=8A?=
+ =?UTF-8?q?=E5=A4=A9(=E5=8F=AA=E5=9C=A8=E9=9D=9E=E8=81=8A=E5=A4=A9App?=
+ =?UTF-8?q?=E5=BC=B9)/=E5=BD=92=E7=94=B5=E5=BC=B9=E7=AA=97=E9=9A=8F?=
+ =?UTF-8?q?=E8=AE=AD=E8=AF=AB=E8=AF=AD=E6=B0=94=E5=8F=98=E4=B8=A5=E5=8E=89?=
+ =?UTF-8?q?/=E5=85=B1=E5=90=8C=E8=AE=B0=E5=BF=86=E5=86=99=E5=85=A5?=
+ =?UTF-8?q?=E6=94=B9commit=E5=8D=B3=E6=97=B6=E8=90=BD=E7=9B=98=E4=B8=94?=
+ =?UTF-8?q?=E6=89=8B=E6=9C=BA=E7=AB=AF=E5=91=BD=E4=BB=A4=E8=B7=AF=E7=94=B1?=
+ =?UTF-8?q?=E5=88=B0=E6=9C=AC=E6=9C=BA=E5=AD=98=E5=82=A8/=E5=A4=A9?=
+ =?UTF-8?q?=E6=B0=94=E6=94=AF=E6=8C=81=E5=8C=BA=E5=8E=BF(5=E6=AE=B5?=
+ =?UTF-8?q?=E6=A0=BC=E5=BC=8F+=E5=9C=B0=E7=90=86=E7=BC=96=E7=A0=81admin2)/?=
+ =?UTF-8?q?set=5Falarm=E4=B8=8E=E8=AE=B0=E5=BF=86=E6=97=A5=E5=8E=86?=
+ =?UTF-8?q?=E5=86=99=E5=85=A5=E9=9C=80explicit=E6=98=BE=E5=BC=8F=E6=84=8F?=
+ =?UTF-8?q?=E5=9B=BE=E5=90=A6=E5=88=99=E6=8B=92=E7=BB=9D/PolicyStore?=
+ =?UTF-8?q?=E7=94=A8=E6=88=B7=E5=86=99=E5=85=A5=E5=B7=B2commit=20(Commit?=
+ =?UTF-8?q?=20L)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../dev/linjian/peek/CompanionService.java    | 37 ++++++++++---
+ .../java/dev/linjian/peek/GuidianState.java   | 23 ++++++--
+ .../java/dev/linjian/peek/MainActivity.java   | 10 ++--
+ .../dev/linjian/peek/PolicyScheduler.java     | 15 ++++--
+ .../linjian/peek/PolicySettingsActivity.java  |  7 ++-
+ .../dev/linjian/peek/SharedMemoryState.java   |  6 +--
+ .../java/dev/linjian/peek/WeatherLive.java    | 53 ++++++++++++++-----
+ .../java/dev/linjian/peek/WeatherState.java   | 52 ++++++++++++------
+ .../app/src/main/res/layout/activity_main.xml |  1 +
+ 9 files changed, 149 insertions(+), 55 deletions(-)
+
+diff --git a/android/app/src/main/java/dev/linjian/peek/CompanionService.java b/android/app/src/main/java/dev/linjian/peek/CompanionService.java
+index 6964682..09821c2 100644
+--- a/android/app/src/main/java/dev/linjian/peek/CompanionService.java
++++ b/android/app/src/main/java/dev/linjian/peek/CompanionService.java
+@@ -183,6 +183,14 @@ public class CompanionService extends Service {
+             int index = cmd.optInt("index", 1);
+             boolean append = cmd.optBoolean("append", false);
+             if ("get_calendar_state".equals(action) || "upsert_calendar_event".equals(action) || "add_calendar_event".equals(action) || "delete_calendar_event".equals(action)) {
++                // 写入类日历操作（增/改/删）需用户明确请求（explicit），避免自动把内容写进日历。
++                boolean isWrite = !"get_calendar_state".equals(action);
++                if (isWrite && !cmd.optBoolean("explicit", false)) {
++                    String result = "calendar_write_requires_explicit_request";
++                    DebugState.append(ctx, "拒绝自动写入日历 " + action + "（缺少 explicit）");
++                    try { reportCommand(ctx, serverUrl, token, id, false, result); } catch (Exception ignored) { }
++                    return;
++                }
+                 JSONObject rr = CalendarState.handleCommand(ctx, cmd);
+                 boolean ok = rr.optBoolean("ok", false);
+                 String result = rr.optString("result", rr.toString());
+@@ -251,6 +259,14 @@ public class CompanionService extends Service {
+                 return;
+             }
+             if (action.contains("shared_memory")) {
++                // 写入类记忆操作（增/改/删）需用户明确请求（explicit），避免自动把内容写进共同记忆。
++                boolean isWrite = !("get_shared_memory".equals(action) || "list_shared_memory".equals(action));
++                if (isWrite && !cmd.optBoolean("explicit", false)) {
++                    String result = "memory_write_requires_explicit_request";
++                    DebugState.append(ctx, "拒绝自动写入共同记忆 " + action + "（缺少 explicit）");
++                    try { reportCommand(ctx, serverUrl, token, id, false, result); } catch (Exception ignored) { }
++                    return;
++                }
+                 JSONObject rr = SharedMemoryState.handleCommand(ctx, cmd);
+                 boolean ok = rr.optBoolean("ok", false);
+                 String result = rr.optString("result", rr.toString());
+@@ -320,7 +336,7 @@ public class CompanionService extends Service {
+                 executeSequence(ctx, id, cmd, serverUrl, token);
+                 return;
+             }
+-            executeCommand(ctx, id, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, skipUi, targetText, inputText, match, index, append);
++            executeCommand(ctx, id, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, skipUi, targetText, inputText, match, index, append, cmd.optBoolean("explicit", false));
+         } catch (Exception e) { DebugState.append(ctx, "命令解析异常：" + ScreenshotService.shortMsg(e)); }
+     }
+ 
+@@ -349,22 +365,22 @@ public class CompanionService extends Service {
+         return "lock_app".equals(action) || "unlock_app".equals(action) || "temporary_unlock_app".equals(action) || "extend_lock".equals(action) || "deny_unlock_request".equals(action) || "get_lock_state".equals(action) || "set_emergency_passphrase".equals(action) || "add_locked_app".equals(action) || "remove_locked_app".equals(action) || "list_lockable_apps".equals(action);
+     }
+     private static void executeCommand(Context ctx, String id, String action, String app, String pkg, float x, float y, float x1, float y1, float x2, float y2, long duration, int hour, int minute, String title, String message, boolean vibrate, String serverUrl, String token) {
+-        executeCommand(ctx, id, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, true, "", "", "contains", 1, false);
++        executeCommand(ctx, id, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, true, "", "", "contains", 1, false, false);
+     }
+ 
+     private static void executeCommand(Context ctx, String id, String action, String app, String pkg, float x, float y, float x1, float y1, float x2, float y2, long duration, int hour, int minute, String title, String message, boolean vibrate, String serverUrl, String token, boolean skipUi) {
+-        executeCommand(ctx, id, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, skipUi, "", "", "contains", 1, false);
++        executeCommand(ctx, id, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, skipUi, "", "", "contains", 1, false, false);
+     }
+ 
+-    private static void executeCommand(Context ctx, String id, String action, String app, String pkg, float x, float y, float x1, float y1, float x2, float y2, long duration, int hour, int minute, String title, String message, boolean vibrate, String serverUrl, String token, boolean skipUi, String targetText, String inputText, String match, int index, boolean append) {
+-        JSONObject one = performAction(ctx, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, skipUi, targetText, inputText, match, index, append);
++    private static void executeCommand(Context ctx, String id, String action, String app, String pkg, float x, float y, float x1, float y1, float x2, float y2, long duration, int hour, int minute, String title, String message, boolean vibrate, String serverUrl, String token, boolean skipUi, String targetText, String inputText, String match, int index, boolean append, boolean explicit) {
++        JSONObject one = performAction(ctx, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, skipUi, targetText, inputText, match, index, append, explicit);
+         boolean ok = one.optBoolean("ok", false);
+         String result = one.optString("result", one.toString());
+         DebugState.append(ctx, "执行命令 " + action + "：" + result);
+         try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, false); } catch (Exception ignored) { }
+     }
+ 
+-    private static JSONObject performAction(Context ctx, String action, String app, String pkg, float x, float y, float x1, float y1, float x2, float y2, long duration, int hour, int minute, String title, String message, boolean vibrate, String serverUrl, String token, boolean skipUi, String targetText, String inputText, String match, int index, boolean append) {
++    private static JSONObject performAction(Context ctx, String action, String app, String pkg, float x, float y, float x1, float y1, float x2, float y2, long duration, int hour, int minute, String title, String message, boolean vibrate, String serverUrl, String token, boolean skipUi, String targetText, String inputText, String match, int index, boolean append, boolean explicit) {
+         JSONObject out = new JSONObject();
+         boolean ok = false; String result = "";
+         try {
+@@ -403,7 +419,11 @@ public class CompanionService extends Service {
+             } else if ("screen_off".equals(action) || "turn_screen_off".equals(action) || "lock_screen".equals(action) || "phone_screen_off".equals(action)) { ok = svc != null && svc.doLockScreen(); result = ok ? "screen_off" : "screen_off_failed_or_accessibility_missing_or_android_too_old";
+             } else if ("tap".equals(action)) { ok = svc != null && svc.doTap(x, y); result = ok ? ("tap:" + x + "," + y) : "tap_failed_or_accessibility_missing";
+             } else if ("swipe".equals(action)) { ok = svc != null && svc.doSwipe(x1, y1, x2, y2, duration); result = ok ? "swipe" : "swipe_failed_or_accessibility_missing";
+-            } else if ("set_alarm".equals(action)) { ok = setAlarm(ctx, hour, minute, message, vibrate, skipUi); result = ok ? "alarm " + hour + ":" + minute : "cannot set alarm";
++            } else if ("set_alarm".equals(action)) {
++                // 定闹钟是强副作用：仅当命令明确带有 explicit（用户明确说「帮我定闹钟」并给出时间）时才执行；
++                // 任何自动/隐式触发的 set_alarm 一律拒绝，避免「没说要闹钟也被定」。
++                if (!explicit) { ok = false; result = "alarm_requires_explicit_request"; }
++                else { ok = setAlarm(ctx, hour, minute, message, vibrate, skipUi); result = ok ? "alarm " + hour + ":" + minute : "cannot set alarm"; }
+             } else if ("send_notification".equals(action)) { ok = showReminderNotification(ctx, title, message); result = ok ? "heads_up_notification_sent" : "notification permission missing";
+             } else if ("get_guidian_state".equals(action) || "set_guidian_config".equals(action) || "trigger_guidian".equals(action) || "mark_guidian_returned".equals(action)) { JSONObject rr = GuidianState.handleCommand(ctx, new JSONObject().put("action", action)); ok = rr.optBoolean("ok", false); result = rr.toString();
+             } else { ok = true; result = "noop"; }
+@@ -448,7 +468,8 @@ public class CompanionService extends Service {
+                 String match = step.optString("match", "contains");
+                 int textIndex = step.optInt("index", 1);
+                 boolean append = step.optBoolean("append", false);
+-                JSONObject r = performAction(ctx, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, skipUi, targetText, inputText, match, textIndex, append);
++                boolean explicit = step.optBoolean("explicit", false);
++                JSONObject r = performAction(ctx, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, skipUi, targetText, inputText, match, textIndex, append, explicit);
+                 int wait = clampWait(step.optInt("wait_ms", step.optInt("delay_ms", 0)));
+                 if (wait > 0) Thread.sleep(wait);
+                 String expect = step.optString("expect_app", "").trim();
+diff --git a/android/app/src/main/java/dev/linjian/peek/GuidianState.java b/android/app/src/main/java/dev/linjian/peek/GuidianState.java
+index 8d5898f..6874b44 100644
+--- a/android/app/src/main/java/dev/linjian/peek/GuidianState.java
++++ b/android/app/src/main/java/dev/linjian/peek/GuidianState.java
+@@ -354,15 +354,32 @@ public class GuidianState {
+         String[] lines = raw == null ? new String[0] : raw.split("\\n");
+         int usable = 0;
+         for (String line : lines) if (line != null && line.trim().length() > 0) usable++;
+-        if (usable == 0) return AppPrefs.userName(ctx) + "，好久没回来啦。";
++        if (usable == 0) return disciplineAdjustedPrompt(ctx, AppPrefs.userName(ctx) + "，好久没回来啦。");
+         int target = (int)((System.currentTimeMillis() / 60000L) % usable);
+         int idx = 0;
+         for (String line : lines) {
+             if (line == null || line.trim().length() == 0) continue;
+-            if (idx == target) return line.trim();
++            if (idx == target) return disciplineAdjustedPrompt(ctx, line.trim());
+             idx++;
+         }
+-        return AppPrefs.userName(ctx) + "，好久没回来啦。";
++        return disciplineAdjustedPrompt(ctx, AppPrefs.userName(ctx) + "，好久没回来啦。");
++    }
++
++    /**
++     * 训诫语气加工：训诫开启时，归电（敲门）文案随语气改变，不再一成不变。
++     *  - 严厉（strict）/ 中档及以上：加硬话后缀，质问式，强调「现在就回来」；
++     *  - 温柔：加一句带点小脾气的等待提示。
++     * 未经用户编辑过的默认「可编写文案」也照此加工，确保归电整体语气与训诫设定一致。
++     */
++    public static String disciplineAdjustedPrompt(Context ctx, String base) {
++        if (base == null) base = "";
++        if (!PolicyStore.disciplineEnabled(ctx)) return base;
++        String companion = AppPrefs.companionName(ctx);
++        boolean strict = "strict".equals(PolicyStore.disciplineMode(ctx)) || PolicyStore.disciplineLevel(ctx) >= 2;
++        if (strict) {
++            return base + "（" + companion + "不是在跟你商量，是让你现在就回来。）";
++        }
++        return base + "（" + companion + "在等你，别让我等太久。）";
+     }
+ 
+     public static String[] quickReasons(Context ctx) {
+diff --git a/android/app/src/main/java/dev/linjian/peek/MainActivity.java b/android/app/src/main/java/dev/linjian/peek/MainActivity.java
+index e384003..102e616 100644
+--- a/android/app/src/main/java/dev/linjian/peek/MainActivity.java
++++ b/android/app/src/main/java/dev/linjian/peek/MainActivity.java
+@@ -97,7 +97,7 @@ public class MainActivity extends Activity {
+     private View drawerTheme, drawerNowState, drawerConnection, drawerPermission, drawerControlTest, drawerKnownApps, drawerHomeMode, drawerGateAdd, drawerReminder, drawerCycle, drawerDebug, drawerAppGate, drawerWeather, drawerVersion;
+     private View drawerGuidian, drawerGuidianSettings, drawerCalendar;
+     private EditText serverUrl, tokenInput, deviceInput, intervalInput, cityInput, weatherInput, userNameInput, companionNameInput;
+-    private EditText weatherAliasInput, weatherCityInput, weatherNoteInput, calendarTitleInput, calendarDateInput, calendarGroupInput, calendarNoteInput;
++    private EditText weatherAliasInput, weatherCityInput, weatherDistrictInput, weatherNoteInput, calendarTitleInput, calendarDateInput, calendarGroupInput, calendarNoteInput;
+     private EditText batteryThresholdInput, screenThresholdInput, waterIntervalInput, restIntervalInput;
+     private EditText lastPeriodStartInput, cycleLengthInput, periodLengthInput, cycleRemindBeforeInput;
+     private EditText appAliasInput, appPackageInput, targetAppsInput, homeThresholdInput, homeCooldownInput, homeTargetInput, gateAliasInput, gatePackageInput;
+@@ -241,7 +241,7 @@ public class MainActivity extends Activity {
+         drawerTheme = findViewById(R.id.drawerTheme); drawerNowState = findViewById(R.id.drawerNowState); drawerConnection = findViewById(R.id.drawerConnection); drawerPermission = findViewById(R.id.drawerPermission); drawerControlTest = findViewById(R.id.drawerControlTest); drawerKnownApps = findViewById(R.id.drawerKnownApps); drawerHomeMode = findViewById(R.id.drawerHomeMode); drawerGateAdd = findViewById(R.id.drawerGateAdd); drawerReminder = findViewById(R.id.drawerReminder); drawerCycle = findViewById(R.id.drawerCycle); drawerDebug = findViewById(R.id.drawerDebug); drawerAppGate = findViewById(R.id.drawerAppGate); drawerWeather = findViewById(R.id.drawerWeather); drawerVersion = findViewById(R.id.drawerVersion);
+         drawerGuidian = findViewById(R.id.drawerGuidian); drawerGuidianSettings = findViewById(R.id.drawerGuidianSettings); drawerCalendar = findViewById(R.id.drawerCalendar);
+         serverUrl = findViewById(R.id.serverUrl); tokenInput = findViewById(R.id.tokenInput); deviceInput = findViewById(R.id.deviceInput); intervalInput = findViewById(R.id.intervalInput); cityInput = findViewById(R.id.cityInput); weatherInput = findViewById(R.id.weatherInput); userNameInput = findViewById(R.id.userNameInput); companionNameInput = findViewById(R.id.companionNameInput);
+-        weatherAliasInput = findViewById(R.id.weatherAliasInput); weatherCityInput = findViewById(R.id.weatherCityInput); weatherNoteInput = findViewById(R.id.weatherNoteInput); calendarTitleInput = findViewById(R.id.calendarTitleInput); calendarDateInput = findViewById(R.id.calendarDateInput); calendarGroupInput = findViewById(R.id.calendarGroupInput); calendarNoteInput = findViewById(R.id.calendarNoteInput);
++        weatherAliasInput = findViewById(R.id.weatherAliasInput); weatherCityInput = findViewById(R.id.weatherCityInput); weatherDistrictInput = findViewById(R.id.weatherDistrictInput); weatherNoteInput = findViewById(R.id.weatherNoteInput); calendarTitleInput = findViewById(R.id.calendarTitleInput); calendarDateInput = findViewById(R.id.calendarDateInput); calendarGroupInput = findViewById(R.id.calendarGroupInput); calendarNoteInput = findViewById(R.id.calendarNoteInput);
+         batteryThresholdInput = findViewById(R.id.batteryThresholdInput); screenThresholdInput = findViewById(R.id.screenThresholdInput); waterIntervalInput = findViewById(R.id.waterIntervalInput); restIntervalInput = findViewById(R.id.restIntervalInput);
+         lastPeriodStartInput = findViewById(R.id.lastPeriodStartInput); cycleLengthInput = findViewById(R.id.cycleLengthInput); periodLengthInput = findViewById(R.id.periodLengthInput); cycleRemindBeforeInput = findViewById(R.id.cycleRemindBeforeInput);
+         appAliasInput = findViewById(R.id.appAliasInput); appPackageInput = findViewById(R.id.appPackageInput); targetAppsInput = findViewById(R.id.targetAppsInput); homeThresholdInput = findViewById(R.id.homeThresholdInput); homeCooldownInput = findViewById(R.id.homeCooldownInput); homeTargetInput = findViewById(R.id.homeTargetInput); gateAliasInput = findViewById(R.id.gateAliasInput); gatePackageInput = findViewById(R.id.gatePackageInput);
+@@ -2034,6 +2034,7 @@ public class MainActivity extends Activity {
+         if (weatherInput != null) weatherInput.setText(prefs.getString(AppPrefs.KEY_WEATHER_NOTE, ""));
+         if (weatherAliasInput != null) weatherAliasInput.setText(WeatherState.currentLocation(this).optString("name", "家"));
+         if (weatherCityInput != null) weatherCityInput.setText(WeatherState.currentLocation(this).optString("city", ""));
++        if (weatherDistrictInput != null) weatherDistrictInput.setText(WeatherState.currentLocation(this).optString("district", ""));
+         if (weatherNoteInput != null) weatherNoteInput.setText(WeatherState.currentLocation(this).optString("note", ""));
+         if (foregroundPopupEnabled != null) foregroundPopupEnabled.setChecked(prefs.getBoolean(AppPrefs.KEY_FOREGROUND_POPUP, true));
+         if (remindersEnabled != null) remindersEnabled.setChecked(prefs.getBoolean(AppPrefs.KEY_ACTIVE_REMINDERS, true));
+@@ -2767,11 +2768,12 @@ public class MainActivity extends Activity {
+     }
+ 
+     private void addWeatherLocation(boolean makeCurrent) {
+-        String alias = weatherAliasInput == null ? "" : weatherAliasInput.getText().toString().trim();
++                String alias = weatherAliasInput == null ? "" : weatherAliasInput.getText().toString().trim();
+         String city = weatherCityInput == null ? "" : weatherCityInput.getText().toString().trim();
++        String district = weatherDistrictInput == null ? "" : weatherDistrictInput.getText().toString().trim();
+         String note = weatherNoteInput == null ? "" : weatherNoteInput.getText().toString().trim();
+         if (alias.isEmpty() && city.isEmpty()) { Toast.makeText(this, "先填地区名或城市", Toast.LENGTH_SHORT).show(); return; }
+-        WeatherState.saveLocation(this, alias, city, note, makeCurrent);
++        WeatherState.saveLocation(this, alias, city, district, note, makeCurrent);
+         DebugState.append(this, (makeCurrent ? "已设置当前天气地区：" : "已保存天气地区：") + (alias.isEmpty() ? city : alias));
+         Toast.makeText(this, makeCurrent ? "已设为当前地区" : "已保存地区", Toast.LENGTH_SHORT).show();
+         updateUI();
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java b/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
+index b6c38d0..c897ce1 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
++++ b/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
+@@ -229,12 +229,17 @@ public final class PolicyScheduler {
+         // 分心查岗 / 使用时长自动锁 / 权限提醒，全部跳过；课表评估始终运行（含上课检测与课前/下课提醒）。
+         // 课程结束后 inClass 置否，上述评估自动恢复（「课程结束后自动开启」）。
+         if (!inClass) {
+-            evaluateCheckIn(now, current);
+-            evaluateEmotionPopup(now);
+-            evaluateInitiative(now, current);
++            // 已在聊天陪伴页 / 目标聊天 App（inTarget）：用户本就在「该回去的地方」，
++            // 查岗拉回 / 情绪弹窗 / 主动找 一律不弹（否则会出现「在聊天软件里被拉回聊天」的荒谬弹窗）。
++            // 分心判定仍运行：它只在「离开聊天去了别的 App」时才计，不会在聊天里误弹。
++            if (!inTarget) {
++                evaluateCheckIn(now, current);
++                evaluateEmotionPopup(now);
++                evaluateInitiative(now, current);
++                evaluateUsageLock(now, current);
++                evaluatePermissions(now, current);
++            }
+             evaluateDistraction(now, current);
+-            evaluateUsageLock(now, current);
+-            evaluatePermissions(now, current);
+         }
+         evaluateClassSchedule();
+ 
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java b/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java
+index 36ebb26..c004bba 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java
++++ b/android/app/src/main/java/dev/linjian/peek/PolicySettingsActivity.java
+@@ -62,7 +62,7 @@ public class PolicySettingsActivity extends Activity {
+     private String memoryDraft = "";
+     // 守护界面卡片深链：sectionKey -> 对应分组视图
+     private final java.util.Map<String, View> sectionGroups = new java.util.HashMap<>();
+-    private String weatherNameDraft = "", weatherCityDraft = "", weatherNoteDraft = "";
++    private String weatherNameDraft = "", weatherCityDraft = "", weatherDistrictDraft = "", weatherNoteDraft = "";
+     // 单分区模式：从守护页某个标签点进来时，只渲染/修改这个分区；null=全部设置（总页）
+     private String activeSection = null;
+ 
+@@ -231,12 +231,14 @@ public class PolicySettingsActivity extends Activity {
+         JSONObject wl = WeatherState.currentLocation(this);
+         weatherNameDraft = wl.optString("name", "家");
+         weatherCityDraft = wl.optString("city", "");
++        weatherDistrictDraft = wl.optString("district", "");
+         weatherNoteDraft = wl.optString("note", "");
+         gWeather.addView(rowText("当前地点名", "这个地点的名字，例如 家 / 学校。", weatherNameDraft, s -> weatherNameDraft = s));
+         gWeather.addView(rowText("城市", "用于查询天气的城市，例如 石家庄。", weatherCityDraft, s -> weatherCityDraft = s));
++        gWeather.addView(rowText("区县", "精确到区县可查到所在区县的天气，例如 长安区。", weatherDistrictDraft, s -> weatherDistrictDraft = s));
+         gWeather.addView(rowText("备注", "例如 风大 / 容易下雨。", weatherNoteDraft, s -> weatherNoteDraft = s));
+         gWeather.addView(rowButton("保存当前地点", "保存上面的地点信息，并设为当前地点。", "保存", v -> {
+-            WeatherState.saveLocation(this, weatherNameDraft.isEmpty() ? "家" : weatherNameDraft, weatherCityDraft, weatherNoteDraft, true);
++            WeatherState.saveLocation(this, weatherNameDraft.isEmpty() ? "家" : weatherNameDraft, weatherCityDraft, weatherDistrictDraft, weatherNoteDraft, true);
+             Toast.makeText(this, "已保存地点", Toast.LENGTH_SHORT).show(); buildUI();
+         }));
+         gWeather.addView(rowButton("查看全部地点", "列出所有已保存地点。", "查看", v -> showWeatherLocations()));
+@@ -449,6 +451,7 @@ public class PolicySettingsActivity extends Activity {
+             JSONObject cur = WeatherState.currentLocation(this);
+             text += "\n\n当前使用：" + cur.optString("name", "家")
+                     + (cur.optString("city", "").isEmpty() ? "" : " · " + cur.optString("city", ""))
++                    + (cur.optString("district", "").isEmpty() ? "" : " · " + cur.optString("district", ""))
+                     + (cur.optString("note", "").isEmpty() ? "" : "\n备注：" + cur.optString("note", ""));
+             AlertDialog.Builder b = new AlertDialog.Builder(this);
+             b.setTitle("全部地点").setMessage(text).setPositiveButton("知道了", null).show();
+diff --git a/android/app/src/main/java/dev/linjian/peek/SharedMemoryState.java b/android/app/src/main/java/dev/linjian/peek/SharedMemoryState.java
+index 491155e..9232e84 100644
+--- a/android/app/src/main/java/dev/linjian/peek/SharedMemoryState.java
++++ b/android/app/src/main/java/dev/linjian/peek/SharedMemoryState.java
+@@ -67,7 +67,7 @@ public final class SharedMemoryState {
+             JSONArray next = new JSONArray();
+             next.put(o);
+             for (int i = 0; i < arr.length() && next.length() < MAX_ITEMS; i++) next.put(arr.optJSONObject(i));
+-            sp(ctx).edit().putString(KEY_ITEMS, next.toString()).apply();
++            sp(ctx).edit().putString(KEY_ITEMS, next.toString()).commit();
+             DebugState.append(ctx, "共同记忆新增：" + text);
+         } catch (Exception e) {
+             try { o.put("ok", false).put("error", ScreenshotService.shortMsg(e)); } catch (Exception ignored) { }
+@@ -93,7 +93,7 @@ public final class SharedMemoryState {
+                 next.put(o);
+             }
+             if (!found) return false;
+-            sp(ctx).edit().putString(KEY_ITEMS, next.toString()).apply();
++            sp(ctx).edit().putString(KEY_ITEMS, next.toString()).commit();
+             DebugState.append(ctx, "共同记忆编辑：" + id);
+             return true;
+         } catch (Exception e) { return false; }
+@@ -112,7 +112,7 @@ public final class SharedMemoryState {
+                 next.put(o);
+             }
+             if (!found) return false;
+-            sp(ctx).edit().putString(KEY_ITEMS, next.toString()).apply();
++            sp(ctx).edit().putString(KEY_ITEMS, next.toString()).commit();
+             DebugState.append(ctx, "共同记忆删除：" + id);
+             return true;
+         } catch (Exception e) { return false; }
+diff --git a/android/app/src/main/java/dev/linjian/peek/WeatherLive.java b/android/app/src/main/java/dev/linjian/peek/WeatherLive.java
+index ecea9ec..c59090f 100644
+--- a/android/app/src/main/java/dev/linjian/peek/WeatherLive.java
++++ b/android/app/src/main/java/dev/linjian/peek/WeatherLive.java
+@@ -29,64 +29,87 @@ public class WeatherLive {
+     public interface Callback { void onResult(JSONObject weather); }
+ 
+     public static JSONObject cached(Context ctx, String city) {
++        return cached(ctx, city, "");
++    }
++
++    public static JSONObject cached(Context ctx, String city, String district) {
+         try {
+-            city = clean(city);
++            city = clean(city); district = clean(district);
+             if (city.isEmpty()) return null;
+             SharedPreferences p = AppPrefs.get(ctx);
+-            String savedCity = p.getString(KEY_CITY, "");
++            String savedKey = p.getString(KEY_CITY, "");
+             String raw = p.getString(KEY_JSON, "");
+-            if (raw == null || raw.isEmpty() || !city.equals(savedCity)) return null;
++            if (raw == null || raw.isEmpty() || !cacheKey(city, district).equals(savedKey)) return null;
+             JSONObject o = new JSONObject(raw);
+             o.put("cache_age_ms", Math.max(0, System.currentTimeMillis() - p.getLong(KEY_AT, 0)));
+             return o;
+         } catch (Exception e) { return null; }
+     }
+ 
++    private static String cacheKey(String city, String district) {
++        return clean(city) + (clean(district).isEmpty() ? "" : "|" + clean(district));
++    }
++
+     public static boolean isFresh(Context ctx, String city, long freshMs) {
++        return isFresh(ctx, city, "", freshMs);
++    }
++
++    public static boolean isFresh(Context ctx, String city, String district, long freshMs) {
+         try {
+-            city = clean(city);
++            city = clean(city); district = clean(district);
+             if (city.isEmpty()) return false;
+             SharedPreferences p = AppPrefs.get(ctx);
+-            return city.equals(p.getString(KEY_CITY, "")) && (System.currentTimeMillis() - p.getLong(KEY_AT, 0)) <= Math.max(60_000L, freshMs);
++            return cacheKey(city, district).equals(p.getString(KEY_CITY, "")) && (System.currentTimeMillis() - p.getLong(KEY_AT, 0)) <= Math.max(60_000L, freshMs);
+         } catch (Exception e) { return false; }
+     }
+ 
+     public static void refreshAsync(Context ctx, String city, Callback callback) {
++        refreshAsync(ctx, city, "", callback);
++    }
++
++    public static void refreshAsync(Context ctx, String city, String district, Callback callback) {
+         final Context app = ctx.getApplicationContext();
+         final String chosenCity = clean(city);
++        final String chosenDistrict = clean(district);
+         if (chosenCity.isEmpty()) {
+             if (callback != null) callback.onResult(error("missing_city", chosenCity));
+             return;
+         }
+-        if (isFresh(app, chosenCity, DEFAULT_FRESH_MS)) {
+-            JSONObject cached = cached(app, chosenCity);
++        if (isFresh(app, chosenCity, chosenDistrict, DEFAULT_FRESH_MS)) {
++            JSONObject cached = cached(app, chosenCity, chosenDistrict);
+             if (callback != null && cached != null) callback.onResult(cached);
+             return;
+         }
+         new Thread(() -> {
+             JSONObject result;
+             try {
+-                result = fetch(chosenCity);
++                result = fetch(chosenCity, chosenDistrict);
+                 AppPrefs.get(app).edit()
+-                        .putString(KEY_CITY, chosenCity)
++                        .putString(KEY_CITY, cacheKey(chosenCity, chosenDistrict))
+                         .putString(KEY_JSON, result.toString())
+                         .putLong(KEY_AT, System.currentTimeMillis())
+                         .apply();
+-                DebugState.append(app, "天气已刷新：" + chosenCity + " · " + result.optString("condition", ""));
++                DebugState.append(app, "天气已刷新：" + cacheKey(chosenCity, chosenDistrict) + " · " + result.optString("condition", ""));
+             } catch (Exception e) {
+-                result = error(ScreenshotService.shortMsg(e), chosenCity);
+-                DebugState.append(app, "天气刷新失败：" + chosenCity + " · " + ScreenshotService.shortMsg(e));
++                result = error(ScreenshotService.shortMsg(e), cacheKey(chosenCity, chosenDistrict));
++                DebugState.append(app, "天气刷新失败：" + cacheKey(chosenCity, chosenDistrict) + " · " + ScreenshotService.shortMsg(e));
+             }
+             if (callback != null) callback.onResult(result);
+         }, "peek-weather-live").start();
+     }
+ 
+     private static JSONObject fetch(String city) throws Exception {
+-        String q = URLEncoder.encode(city, "UTF-8");
++        return fetch(city, "");
++    }
++
++    private static JSONObject fetch(String city, String district) throws Exception {
++        // 精确到区县：把「区县 + 城市」一起作为地理编码查询条件，命中更具体的地点。
++        String query = clean(district).isEmpty() ? clean(city) : (clean(district) + " " + clean(city));
++        String q = URLEncoder.encode(query, "UTF-8");
+         String geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=" + q + "&count=1&language=zh&format=json";
+         JSONObject geo = new JSONObject(get(geoUrl));
+         JSONArray results = geo.optJSONArray("results");
+-        if (results == null || results.length() == 0) return error("city_not_found", city);
++        if (results == null || results.length() == 0) return error("city_not_found", query);
+         JSONObject hit = results.getJSONObject(0);
+         double lat = hit.optDouble("latitude", 0);
+         double lon = hit.optDouble("longitude", 0);
+@@ -108,6 +131,8 @@ public class WeatherLive {
+         out.put("queried_city", city);
+         out.put("resolved_city", hit.optString("name", city));
+         out.put("admin1", hit.optString("admin1", ""));
++        out.put("admin2", hit.optString("admin2", ""));
++        out.put("district", hit.optString("admin2", ""));
+         out.put("country", hit.optString("country", ""));
+         out.put("latitude", lat);
+         out.put("longitude", lon);
+diff --git a/android/app/src/main/java/dev/linjian/peek/WeatherState.java b/android/app/src/main/java/dev/linjian/peek/WeatherState.java
+index 907cbbb..3a9f556 100644
+--- a/android/app/src/main/java/dev/linjian/peek/WeatherState.java
++++ b/android/app/src/main/java/dev/linjian/peek/WeatherState.java
+@@ -11,7 +11,8 @@ import java.util.Map;
+ 
+ /** 天气地区层：手机端保存多个地区和当前地区；v0.3.8.2 会缓存真实天气，失败时回退到备注建议。 */
+ public class WeatherState {
+-    public static final String DEFAULT_LOCATIONS = "家|石家庄||1\n学校|石家庄||0\n常去地|||0\n";
++    // 地点格式：名称|城市|区县|备注|是否当前(1/0)。区县可空，用于精确到区县的天气查询与展示。
++    public static final String DEFAULT_LOCATIONS = "家|石家庄|||1\n学校|石家庄|||0\n常去地||||0\n";
+ 
+     public static JSONObject collect(Context ctx) {
+         JSONObject o = new JSONObject();
+@@ -21,7 +22,7 @@ public class WeatherState {
+             o.put("enabled", true);
+             o.put("current", current);
+             o.put("locations", arr);
+-            JSONObject live = WeatherLive.cached(ctx, current.optString("city", ""));
++            JSONObject live = WeatherLive.cached(ctx, current.optString("city", ""), current.optString("district", ""));
+             if (live != null) o.put("live", live);
+             o.put("summary", pretty(ctx));
+             o.put("outdoor_advice", live != null && live.optBoolean("ok") ? WeatherLive.advice(live, current.optString("name", "当前地区")) : localAdvice(current.optString("note", "")));
+@@ -36,6 +37,7 @@ public class WeatherState {
+                 JSONObject o = new JSONObject();
+                 o.put("name", loc.name);
+                 o.put("city", loc.city);
++                o.put("district", loc.district);
+                 o.put("note", loc.note);
+                 o.put("current", loc.current);
+                 arr.put(o);
+@@ -52,9 +54,10 @@ public class WeatherState {
+             if (chosen == null) {
+                 for (Location loc : readLocations(ctx).values()) { chosen = loc; break; }
+             }
+-            if (chosen == null) chosen = new Location("家", AppPrefs.get(ctx).getString(AppPrefs.KEY_CITY, ""), AppPrefs.get(ctx).getString(AppPrefs.KEY_WEATHER_NOTE, ""), true);
++            if (chosen == null) chosen = new Location("家", AppPrefs.get(ctx).getString(AppPrefs.KEY_CITY, ""), "", AppPrefs.get(ctx).getString(AppPrefs.KEY_WEATHER_NOTE, ""), true);
+             o.put("name", chosen.name);
+             o.put("city", chosen.city);
++            o.put("district", chosen.district);
+             o.put("note", chosen.note);
+             o.put("current", true);
+         } catch (Exception ignored) { }
+@@ -75,10 +78,12 @@ public class WeatherState {
+             JSONObject cur = currentLocation(ctx);
+             String name = cur.optString("name", "当前地区");
+             String city = cur.optString("city", "");
++            String district = cur.optString("district", "");
+             String note = cur.optString("note", "");
+             StringBuilder sb = new StringBuilder();
+             sb.append("当前地区：").append(name);
+             if (!city.isEmpty()) sb.append(" · ").append(city);
++            if (!district.isEmpty()) sb.append(" · ").append(district);
+             if (!note.isEmpty()) sb.append("\n天气备注：").append(note);
+             sb.append("\n").append(localAdvice(note));
+             return sb.toString();
+@@ -90,20 +95,21 @@ public class WeatherState {
+         for (Location loc : readLocations(ctx).values()) {
+             sb.append(loc.current ? "✓ " : "  ").append(loc.name);
+             if (!loc.city.isEmpty()) sb.append(" · ").append(loc.city);
++            if (!loc.district.isEmpty()) sb.append(" · ").append(loc.district);
+             if (!loc.note.isEmpty()) sb.append(" · ").append(loc.note);
+             sb.append("\n");
+         }
+         return sb.toString().trim();
+     }
+ 
+-    public static void saveLocation(Context ctx, String name, String city, String note, boolean makeCurrent) {
+-        name = clean(name); city = clean(city); note = clean(note);
++    public static void saveLocation(Context ctx, String name, String city, String district, String note, boolean makeCurrent) {
++        name = clean(name); city = clean(city); district = clean(district); note = clean(note);
+         if (name.isEmpty()) name = city.isEmpty() ? "新地区" : city;
+         LinkedHashMap<String, Location> map = readLocations(ctx);
+         if (makeCurrent) for (Location loc : map.values()) loc.current = false;
+         Location old = map.get(name);
+-        if (old == null) old = new Location(name, city, note, makeCurrent);
+-        old.city = city; old.note = note; old.current = makeCurrent || old.current;
++        if (old == null) old = new Location(name, city, district, note, makeCurrent);
++        old.city = city; old.district = district; old.note = note; old.current = makeCurrent || old.current;
+         map.put(name, old);
+         writeLocations(ctx, map);
+         if (old.current) syncLegacy(ctx, old);
+@@ -136,15 +142,26 @@ public class WeatherState {
+             String[] parts = line.split("\\|", -1);
+             String name = parts.length > 0 ? clean(parts[0]) : "";
+             String city = parts.length > 1 ? clean(parts[1]) : "";
+-            String note = parts.length > 2 ? clean(parts[2]) : "";
+-            boolean current = parts.length > 3 && "1".equals(parts[3].trim());
++            // 兼容旧 4 段格式（名称|城市|备注|当前）：旧数据无区县，段[2]=备注、段[3]=当前。
++            String district = "", note = "";
++            boolean current = false;
++            if (parts.length >= 5) {
++                district = clean(parts[2]);
++                note = clean(parts[3]);
++                current = "1".equals(parts[4].trim());
++            } else if (parts.length == 4) {
++                note = clean(parts[2]);
++                current = "1".equals(parts[3].trim());
++            } else if (parts.length == 3) {
++                note = clean(parts[2]);
++            }
+             if (name.isEmpty()) continue;
+-            map.put(name, new Location(name, city, note, current));
++            map.put(name, new Location(name, city, district, note, current));
+         }
+         if (map.isEmpty()) {
+-            map.put("家", new Location("家", p.getString(AppPrefs.KEY_CITY, "石家庄"), p.getString(AppPrefs.KEY_WEATHER_NOTE, ""), true));
+-            map.put("学校", new Location("学校", "石家庄", "", false));
+-            map.put("常去地", new Location("常去地", "", "", false));
++            map.put("家", new Location("家", p.getString(AppPrefs.KEY_CITY, "石家庄"), "", p.getString(AppPrefs.KEY_WEATHER_NOTE, ""), true));
++            map.put("学校", new Location("学校", "石家庄", "", "", false));
++            map.put("常去地", new Location("常去地", "", "", "", false));
+         }
+         boolean hasCurrent = false;
+         for (Location loc : map.values()) if (loc.current) { hasCurrent = true; break; }
+@@ -158,7 +175,8 @@ public class WeatherState {
+         StringBuilder sb = new StringBuilder();
+         for (Map.Entry<String, Location> e : map.entrySet()) {
+             Location l = e.getValue();
+-            sb.append(escape(l.name)).append("|").append(escape(l.city)).append("|").append(escape(l.note)).append("|").append(l.current ? "1" : "0").append("\n");
++            sb.append(escape(l.name)).append("|").append(escape(l.city)).append("|")
++              .append(escape(l.district)).append("|").append(escape(l.note)).append("|").append(l.current ? "1" : "0").append("\n");
+         }
+         AppPrefs.get(ctx).edit().putString(AppPrefs.KEY_WEATHER_LOCATIONS, sb.toString()).commit();
+     }
+@@ -177,7 +195,9 @@ public class WeatherState {
+     private static String escape(String s) { return clean(s); }
+ 
+     private static class Location {
+-        String name; String city; String note; boolean current;
+-        Location(String name, String city, String note, boolean current) { this.name = name; this.city = city; this.note = note; this.current = current; }
++        String name; String city; String district; String note; boolean current;
++        Location(String name, String city, String district, String note, boolean current) {
++            this.name = name; this.city = city; this.district = district; this.note = note; this.current = current;
++        }
+     }
+ }
+diff --git a/android/app/src/main/res/layout/activity_main.xml b/android/app/src/main/res/layout/activity_main.xml
+index 0467fe2..17268e7 100644
+--- a/android/app/src/main/res/layout/activity_main.xml
++++ b/android/app/src/main/res/layout/activity_main.xml
+@@ -389,6 +389,7 @@
+                     <TextView android:id="@+id/weatherLocationsText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="加载中…" android:textSize="11sp" android:textColor="#FF596D66" android:paddingTop="8dp" android:lineSpacingExtra="3dp" />
+                     <EditText android:id="@+id/weatherAliasInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="地区名，例如 家 / 学校 / 常去地" android:textSize="11sp" android:singleLine="true" android:layout_marginTop="6dp" />
+                     <EditText android:id="@+id/weatherCityInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="城市，例如 石家庄" android:textSize="11sp" android:singleLine="true" />
++                    <EditText android:id="@+id/weatherDistrictInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="区县，例如 长安区（精确到区县天气）" android:textSize="11sp" android:singleLine="true" />
+                     <EditText android:id="@+id/weatherNoteInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="备注，例如 风大 / 容易下雨" android:textSize="11sp" android:singleLine="true" />
+                     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="6dp">
+                         <Button android:id="@+id/addWeatherLocationButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="保存" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginRight="4dp" />
+-- 
+2.43.0
+
