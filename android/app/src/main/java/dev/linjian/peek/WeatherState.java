@@ -11,7 +11,8 @@ import java.util.Map;
 
 /** 天气地区层：手机端保存多个地区和当前地区；v0.3.8.2 会缓存真实天气，失败时回退到备注建议。 */
 public class WeatherState {
-    public static final String DEFAULT_LOCATIONS = "家|石家庄||1\n学校|石家庄||0\n常去地|||0\n";
+    // 地点格式：名称|城市|区县|备注|是否当前(1/0)。区县可空，用于精确到区县的天气查询与展示。
+    public static final String DEFAULT_LOCATIONS = "家|石家庄|||1\n学校|石家庄|||0\n常去地||||0\n";
 
     public static JSONObject collect(Context ctx) {
         JSONObject o = new JSONObject();
@@ -21,7 +22,7 @@ public class WeatherState {
             o.put("enabled", true);
             o.put("current", current);
             o.put("locations", arr);
-            JSONObject live = WeatherLive.cached(ctx, current.optString("city", ""));
+            JSONObject live = WeatherLive.cached(ctx, current.optString("city", ""), current.optString("district", ""));
             if (live != null) o.put("live", live);
             o.put("summary", pretty(ctx));
             o.put("outdoor_advice", live != null && live.optBoolean("ok") ? WeatherLive.advice(live, current.optString("name", "当前地区")) : localAdvice(current.optString("note", "")));
@@ -36,6 +37,7 @@ public class WeatherState {
                 JSONObject o = new JSONObject();
                 o.put("name", loc.name);
                 o.put("city", loc.city);
+                o.put("district", loc.district);
                 o.put("note", loc.note);
                 o.put("current", loc.current);
                 arr.put(o);
@@ -52,9 +54,10 @@ public class WeatherState {
             if (chosen == null) {
                 for (Location loc : readLocations(ctx).values()) { chosen = loc; break; }
             }
-            if (chosen == null) chosen = new Location("家", AppPrefs.get(ctx).getString(AppPrefs.KEY_CITY, ""), AppPrefs.get(ctx).getString(AppPrefs.KEY_WEATHER_NOTE, ""), true);
+            if (chosen == null) chosen = new Location("家", AppPrefs.get(ctx).getString(AppPrefs.KEY_CITY, ""), "", AppPrefs.get(ctx).getString(AppPrefs.KEY_WEATHER_NOTE, ""), true);
             o.put("name", chosen.name);
             o.put("city", chosen.city);
+            o.put("district", chosen.district);
             o.put("note", chosen.note);
             o.put("current", true);
         } catch (Exception ignored) { }
@@ -75,10 +78,12 @@ public class WeatherState {
             JSONObject cur = currentLocation(ctx);
             String name = cur.optString("name", "当前地区");
             String city = cur.optString("city", "");
+            String district = cur.optString("district", "");
             String note = cur.optString("note", "");
             StringBuilder sb = new StringBuilder();
             sb.append("当前地区：").append(name);
             if (!city.isEmpty()) sb.append(" · ").append(city);
+            if (!district.isEmpty()) sb.append(" · ").append(district);
             if (!note.isEmpty()) sb.append("\n天气备注：").append(note);
             sb.append("\n").append(localAdvice(note));
             return sb.toString();
@@ -90,20 +95,21 @@ public class WeatherState {
         for (Location loc : readLocations(ctx).values()) {
             sb.append(loc.current ? "✓ " : "  ").append(loc.name);
             if (!loc.city.isEmpty()) sb.append(" · ").append(loc.city);
+            if (!loc.district.isEmpty()) sb.append(" · ").append(loc.district);
             if (!loc.note.isEmpty()) sb.append(" · ").append(loc.note);
             sb.append("\n");
         }
         return sb.toString().trim();
     }
 
-    public static void saveLocation(Context ctx, String name, String city, String note, boolean makeCurrent) {
-        name = clean(name); city = clean(city); note = clean(note);
+    public static void saveLocation(Context ctx, String name, String city, String district, String note, boolean makeCurrent) {
+        name = clean(name); city = clean(city); district = clean(district); note = clean(note);
         if (name.isEmpty()) name = city.isEmpty() ? "新地区" : city;
         LinkedHashMap<String, Location> map = readLocations(ctx);
         if (makeCurrent) for (Location loc : map.values()) loc.current = false;
         Location old = map.get(name);
-        if (old == null) old = new Location(name, city, note, makeCurrent);
-        old.city = city; old.note = note; old.current = makeCurrent || old.current;
+        if (old == null) old = new Location(name, city, district, note, makeCurrent);
+        old.city = city; old.district = district; old.note = note; old.current = makeCurrent || old.current;
         map.put(name, old);
         writeLocations(ctx, map);
         if (old.current) syncLegacy(ctx, old);
@@ -136,15 +142,26 @@ public class WeatherState {
             String[] parts = line.split("\\|", -1);
             String name = parts.length > 0 ? clean(parts[0]) : "";
             String city = parts.length > 1 ? clean(parts[1]) : "";
-            String note = parts.length > 2 ? clean(parts[2]) : "";
-            boolean current = parts.length > 3 && "1".equals(parts[3].trim());
+            // 兼容旧 4 段格式（名称|城市|备注|当前）：旧数据无区县，段[2]=备注、段[3]=当前。
+            String district = "", note = "";
+            boolean current = false;
+            if (parts.length >= 5) {
+                district = clean(parts[2]);
+                note = clean(parts[3]);
+                current = "1".equals(parts[4].trim());
+            } else if (parts.length == 4) {
+                note = clean(parts[2]);
+                current = "1".equals(parts[3].trim());
+            } else if (parts.length == 3) {
+                note = clean(parts[2]);
+            }
             if (name.isEmpty()) continue;
-            map.put(name, new Location(name, city, note, current));
+            map.put(name, new Location(name, city, district, note, current));
         }
         if (map.isEmpty()) {
-            map.put("家", new Location("家", p.getString(AppPrefs.KEY_CITY, "石家庄"), p.getString(AppPrefs.KEY_WEATHER_NOTE, ""), true));
-            map.put("学校", new Location("学校", "石家庄", "", false));
-            map.put("常去地", new Location("常去地", "", "", false));
+            map.put("家", new Location("家", p.getString(AppPrefs.KEY_CITY, "石家庄"), "", p.getString(AppPrefs.KEY_WEATHER_NOTE, ""), true));
+            map.put("学校", new Location("学校", "石家庄", "", "", false));
+            map.put("常去地", new Location("常去地", "", "", "", false));
         }
         boolean hasCurrent = false;
         for (Location loc : map.values()) if (loc.current) { hasCurrent = true; break; }
@@ -158,7 +175,8 @@ public class WeatherState {
         StringBuilder sb = new StringBuilder();
         for (Map.Entry<String, Location> e : map.entrySet()) {
             Location l = e.getValue();
-            sb.append(escape(l.name)).append("|").append(escape(l.city)).append("|").append(escape(l.note)).append("|").append(l.current ? "1" : "0").append("\n");
+            sb.append(escape(l.name)).append("|").append(escape(l.city)).append("|")
+              .append(escape(l.district)).append("|").append(escape(l.note)).append("|").append(l.current ? "1" : "0").append("\n");
         }
         AppPrefs.get(ctx).edit().putString(AppPrefs.KEY_WEATHER_LOCATIONS, sb.toString()).commit();
     }
@@ -177,7 +195,9 @@ public class WeatherState {
     private static String escape(String s) { return clean(s); }
 
     private static class Location {
-        String name; String city; String note; boolean current;
-        Location(String name, String city, String note, boolean current) { this.name = name; this.city = city; this.note = note; this.current = current; }
+        String name; String city; String district; String note; boolean current;
+        Location(String name, String city, String district, String note, boolean current) {
+            this.name = name; this.city = city; this.district = district; this.note = note; this.current = current;
+        }
     }
 }

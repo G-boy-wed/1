@@ -29,64 +29,87 @@ public class WeatherLive {
     public interface Callback { void onResult(JSONObject weather); }
 
     public static JSONObject cached(Context ctx, String city) {
+        return cached(ctx, city, "");
+    }
+
+    public static JSONObject cached(Context ctx, String city, String district) {
         try {
-            city = clean(city);
+            city = clean(city); district = clean(district);
             if (city.isEmpty()) return null;
             SharedPreferences p = AppPrefs.get(ctx);
-            String savedCity = p.getString(KEY_CITY, "");
+            String savedKey = p.getString(KEY_CITY, "");
             String raw = p.getString(KEY_JSON, "");
-            if (raw == null || raw.isEmpty() || !city.equals(savedCity)) return null;
+            if (raw == null || raw.isEmpty() || !cacheKey(city, district).equals(savedKey)) return null;
             JSONObject o = new JSONObject(raw);
             o.put("cache_age_ms", Math.max(0, System.currentTimeMillis() - p.getLong(KEY_AT, 0)));
             return o;
         } catch (Exception e) { return null; }
     }
 
+    private static String cacheKey(String city, String district) {
+        return clean(city) + (clean(district).isEmpty() ? "" : "|" + clean(district));
+    }
+
     public static boolean isFresh(Context ctx, String city, long freshMs) {
+        return isFresh(ctx, city, "", freshMs);
+    }
+
+    public static boolean isFresh(Context ctx, String city, String district, long freshMs) {
         try {
-            city = clean(city);
+            city = clean(city); district = clean(district);
             if (city.isEmpty()) return false;
             SharedPreferences p = AppPrefs.get(ctx);
-            return city.equals(p.getString(KEY_CITY, "")) && (System.currentTimeMillis() - p.getLong(KEY_AT, 0)) <= Math.max(60_000L, freshMs);
+            return cacheKey(city, district).equals(p.getString(KEY_CITY, "")) && (System.currentTimeMillis() - p.getLong(KEY_AT, 0)) <= Math.max(60_000L, freshMs);
         } catch (Exception e) { return false; }
     }
 
     public static void refreshAsync(Context ctx, String city, Callback callback) {
+        refreshAsync(ctx, city, "", callback);
+    }
+
+    public static void refreshAsync(Context ctx, String city, String district, Callback callback) {
         final Context app = ctx.getApplicationContext();
         final String chosenCity = clean(city);
+        final String chosenDistrict = clean(district);
         if (chosenCity.isEmpty()) {
             if (callback != null) callback.onResult(error("missing_city", chosenCity));
             return;
         }
-        if (isFresh(app, chosenCity, DEFAULT_FRESH_MS)) {
-            JSONObject cached = cached(app, chosenCity);
+        if (isFresh(app, chosenCity, chosenDistrict, DEFAULT_FRESH_MS)) {
+            JSONObject cached = cached(app, chosenCity, chosenDistrict);
             if (callback != null && cached != null) callback.onResult(cached);
             return;
         }
         new Thread(() -> {
             JSONObject result;
             try {
-                result = fetch(chosenCity);
+                result = fetch(chosenCity, chosenDistrict);
                 AppPrefs.get(app).edit()
-                        .putString(KEY_CITY, chosenCity)
+                        .putString(KEY_CITY, cacheKey(chosenCity, chosenDistrict))
                         .putString(KEY_JSON, result.toString())
                         .putLong(KEY_AT, System.currentTimeMillis())
                         .apply();
-                DebugState.append(app, "天气已刷新：" + chosenCity + " · " + result.optString("condition", ""));
+                DebugState.append(app, "天气已刷新：" + cacheKey(chosenCity, chosenDistrict) + " · " + result.optString("condition", ""));
             } catch (Exception e) {
-                result = error(ScreenshotService.shortMsg(e), chosenCity);
-                DebugState.append(app, "天气刷新失败：" + chosenCity + " · " + ScreenshotService.shortMsg(e));
+                result = error(ScreenshotService.shortMsg(e), cacheKey(chosenCity, chosenDistrict));
+                DebugState.append(app, "天气刷新失败：" + cacheKey(chosenCity, chosenDistrict) + " · " + ScreenshotService.shortMsg(e));
             }
             if (callback != null) callback.onResult(result);
         }, "peek-weather-live").start();
     }
 
     private static JSONObject fetch(String city) throws Exception {
-        String q = URLEncoder.encode(city, "UTF-8");
+        return fetch(city, "");
+    }
+
+    private static JSONObject fetch(String city, String district) throws Exception {
+        // 精确到区县：把「区县 + 城市」一起作为地理编码查询条件，命中更具体的地点。
+        String query = clean(district).isEmpty() ? clean(city) : (clean(district) + " " + clean(city));
+        String q = URLEncoder.encode(query, "UTF-8");
         String geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=" + q + "&count=1&language=zh&format=json";
         JSONObject geo = new JSONObject(get(geoUrl));
         JSONArray results = geo.optJSONArray("results");
-        if (results == null || results.length() == 0) return error("city_not_found", city);
+        if (results == null || results.length() == 0) return error("city_not_found", query);
         JSONObject hit = results.getJSONObject(0);
         double lat = hit.optDouble("latitude", 0);
         double lon = hit.optDouble("longitude", 0);
@@ -108,6 +131,8 @@ public class WeatherLive {
         out.put("queried_city", city);
         out.put("resolved_city", hit.optString("name", city));
         out.put("admin1", hit.optString("admin1", ""));
+        out.put("admin2", hit.optString("admin2", ""));
+        out.put("district", hit.optString("admin2", ""));
         out.put("country", hit.optString("country", ""));
         out.put("latitude", lat);
         out.put("longitude", lon);

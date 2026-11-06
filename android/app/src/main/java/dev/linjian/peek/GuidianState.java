@@ -354,15 +354,32 @@ public class GuidianState {
         String[] lines = raw == null ? new String[0] : raw.split("\\n");
         int usable = 0;
         for (String line : lines) if (line != null && line.trim().length() > 0) usable++;
-        if (usable == 0) return AppPrefs.userName(ctx) + "，好久没回来啦。";
+        if (usable == 0) return disciplineAdjustedPrompt(ctx, AppPrefs.userName(ctx) + "，好久没回来啦。");
         int target = (int)((System.currentTimeMillis() / 60000L) % usable);
         int idx = 0;
         for (String line : lines) {
             if (line == null || line.trim().length() == 0) continue;
-            if (idx == target) return line.trim();
+            if (idx == target) return disciplineAdjustedPrompt(ctx, line.trim());
             idx++;
         }
-        return AppPrefs.userName(ctx) + "，好久没回来啦。";
+        return disciplineAdjustedPrompt(ctx, AppPrefs.userName(ctx) + "，好久没回来啦。");
+    }
+
+    /**
+     * 训诫语气加工：训诫开启时，归电（敲门）文案随语气改变，不再一成不变。
+     *  - 严厉（strict）/ 中档及以上：加硬话后缀，质问式，强调「现在就回来」；
+     *  - 温柔：加一句带点小脾气的等待提示。
+     * 未经用户编辑过的默认「可编写文案」也照此加工，确保归电整体语气与训诫设定一致。
+     */
+    public static String disciplineAdjustedPrompt(Context ctx, String base) {
+        if (base == null) base = "";
+        if (!PolicyStore.disciplineEnabled(ctx)) return base;
+        String companion = AppPrefs.companionName(ctx);
+        boolean strict = "strict".equals(PolicyStore.disciplineMode(ctx)) || PolicyStore.disciplineLevel(ctx) >= 2;
+        if (strict) {
+            return base + "（" + companion + "不是在跟你商量，是让你现在就回来。）";
+        }
+        return base + "（" + companion + "在等你，别让我等太久。）";
     }
 
     public static String[] quickReasons(Context ctx) {

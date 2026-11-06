@@ -67,7 +67,7 @@ public final class SharedMemoryState {
             JSONArray next = new JSONArray();
             next.put(o);
             for (int i = 0; i < arr.length() && next.length() < MAX_ITEMS; i++) next.put(arr.optJSONObject(i));
-            sp(ctx).edit().putString(KEY_ITEMS, next.toString()).apply();
+            sp(ctx).edit().putString(KEY_ITEMS, next.toString()).commit();
             DebugState.append(ctx, "共同记忆新增：" + text);
         } catch (Exception e) {
             try { o.put("ok", false).put("error", ScreenshotService.shortMsg(e)); } catch (Exception ignored) { }
@@ -93,7 +93,7 @@ public final class SharedMemoryState {
                 next.put(o);
             }
             if (!found) return false;
-            sp(ctx).edit().putString(KEY_ITEMS, next.toString()).apply();
+            sp(ctx).edit().putString(KEY_ITEMS, next.toString()).commit();
             DebugState.append(ctx, "共同记忆编辑：" + id);
             return true;
         } catch (Exception e) { return false; }
@@ -112,7 +112,7 @@ public final class SharedMemoryState {
                 next.put(o);
             }
             if (!found) return false;
-            sp(ctx).edit().putString(KEY_ITEMS, next.toString()).apply();
+            sp(ctx).edit().putString(KEY_ITEMS, next.toString()).commit();
             DebugState.append(ctx, "共同记忆删除：" + id);
             return true;
         } catch (Exception e) { return false; }

@@ -183,6 +183,14 @@ public class CompanionService extends Service {
             int index = cmd.optInt("index", 1);
             boolean append = cmd.optBoolean("append", false);
             if ("get_calendar_state".equals(action) || "upsert_calendar_event".equals(action) || "add_calendar_event".equals(action) || "delete_calendar_event".equals(action)) {
+                // 写入类日历操作（增/改/删）需用户明确请求（explicit），避免自动把内容写进日历。
+                boolean isWrite = !"get_calendar_state".equals(action);
+                if (isWrite && !cmd.optBoolean("explicit", false)) {
+                    String result = "calendar_write_requires_explicit_request";
+                    DebugState.append(ctx, "拒绝自动写入日历 " + action + "（缺少 explicit）");
+                    try { reportCommand(ctx, serverUrl, token, id, false, result); } catch (Exception ignored) { }
+                    return;
+                }
                 JSONObject rr = CalendarState.handleCommand(ctx, cmd);
                 boolean ok = rr.optBoolean("ok", false);
                 String result = rr.optString("result", rr.toString());
@@ -251,6 +259,14 @@ public class CompanionService extends Service {
                 return;
             }
             if (action.contains("shared_memory")) {
+                // 写入类记忆操作（增/改/删）需用户明确请求（explicit），避免自动把内容写进共同记忆。
+                boolean isWrite = !("get_shared_memory".equals(action) || "list_shared_memory".equals(action));
+                if (isWrite && !cmd.optBoolean("explicit", false)) {
+                    String result = "memory_write_requires_explicit_request";
+                    DebugState.append(ctx, "拒绝自动写入共同记忆 " + action + "（缺少 explicit）");
+                    try { reportCommand(ctx, serverUrl, token, id, false, result); } catch (Exception ignored) { }
+                    return;
+                }
                 JSONObject rr = SharedMemoryState.handleCommand(ctx, cmd);
                 boolean ok = rr.optBoolean("ok", false);
                 String result = rr.optString("result", rr.toString());
@@ -320,7 +336,7 @@ public class CompanionService extends Service {
                 executeSequence(ctx, id, cmd, serverUrl, token);
                 return;
             }
-            executeCommand(ctx, id, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, skipUi, targetText, inputText, match, index, append);
+            executeCommand(ctx, id, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, skipUi, targetText, inputText, match, index, append, cmd.optBoolean("explicit", false));
         } catch (Exception e) { DebugState.append(ctx, "命令解析异常：" + ScreenshotService.shortMsg(e)); }
     }
 
@@ -349,22 +365,22 @@ public class CompanionService extends Service {
         return "lock_app".equals(action) || "unlock_app".equals(action) || "temporary_unlock_app".equals(action) || "extend_lock".equals(action) || "deny_unlock_request".equals(action) || "get_lock_state".equals(action) || "set_emergency_passphrase".equals(action) || "add_locked_app".equals(action) || "remove_locked_app".equals(action) || "list_lockable_apps".equals(action);
     }
     private static void executeCommand(Context ctx, String id, String action, String app, String pkg, float x, float y, float x1, float y1, float x2, float y2, long duration, int hour, int minute, String title, String message, boolean vibrate, String serverUrl, String token) {
-        executeCommand(ctx, id, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, true, "", "", "contains", 1, false);
+        executeCommand(ctx, id, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, true, "", "", "contains", 1, false, false);
     }
 
     private static void executeCommand(Context ctx, String id, String action, String app, String pkg, float x, float y, float x1, float y1, float x2, float y2, long duration, int hour, int minute, String title, String message, boolean vibrate, String serverUrl, String token, boolean skipUi) {
-        executeCommand(ctx, id, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, skipUi, "", "", "contains", 1, false);
+        executeCommand(ctx, id, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, skipUi, "", "", "contains", 1, false, false);
     }
 
-    private static void executeCommand(Context ctx, String id, String action, String app, String pkg, float x, float y, float x1, float y1, float x2, float y2, long duration, int hour, int minute, String title, String message, boolean vibrate, String serverUrl, String token, boolean skipUi, String targetText, String inputText, String match, int index, boolean append) {
-        JSONObject one = performAction(ctx, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, skipUi, targetText, inputText, match, index, append);
+    private static void executeCommand(Context ctx, String id, String action, String app, String pkg, float x, float y, float x1, float y1, float x2, float y2, long duration, int hour, int minute, String title, String message, boolean vibrate, String serverUrl, String token, boolean skipUi, String targetText, String inputText, String match, int index, boolean append, boolean explicit) {
+        JSONObject one = performAction(ctx, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, skipUi, targetText, inputText, match, index, append, explicit);
         boolean ok = one.optBoolean("ok", false);
         String result = one.optString("result", one.toString());
         DebugState.append(ctx, "执行命令 " + action + "：" + result);
         try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, false); } catch (Exception ignored) { }
     }
 
-    private static JSONObject performAction(Context ctx, String action, String app, String pkg, float x, float y, float x1, float y1, float x2, float y2, long duration, int hour, int minute, String title, String message, boolean vibrate, String serverUrl, String token, boolean skipUi, String targetText, String inputText, String match, int index, boolean append) {
+    private static JSONObject performAction(Context ctx, String action, String app, String pkg, float x, float y, float x1, float y1, float x2, float y2, long duration, int hour, int minute, String title, String message, boolean vibrate, String serverUrl, String token, boolean skipUi, String targetText, String inputText, String match, int index, boolean append, boolean explicit) {
         JSONObject out = new JSONObject();
         boolean ok = false; String result = "";
         try {
@@ -403,7 +419,11 @@ public class CompanionService extends Service {
             } else if ("screen_off".equals(action) || "turn_screen_off".equals(action) || "lock_screen".equals(action) || "phone_screen_off".equals(action)) { ok = svc != null && svc.doLockScreen(); result = ok ? "screen_off" : "screen_off_failed_or_accessibility_missing_or_android_too_old";
             } else if ("tap".equals(action)) { ok = svc != null && svc.doTap(x, y); result = ok ? ("tap:" + x + "," + y) : "tap_failed_or_accessibility_missing";
             } else if ("swipe".equals(action)) { ok = svc != null && svc.doSwipe(x1, y1, x2, y2, duration); result = ok ? "swipe" : "swipe_failed_or_accessibility_missing";
-            } else if ("set_alarm".equals(action)) { ok = setAlarm(ctx, hour, minute, message, vibrate, skipUi); result = ok ? "alarm " + hour + ":" + minute : "cannot set alarm";
+            } else if ("set_alarm".equals(action)) {
+                // 定闹钟是强副作用：仅当命令明确带有 explicit（用户明确说「帮我定闹钟」并给出时间）时才执行；
+                // 任何自动/隐式触发的 set_alarm 一律拒绝，避免「没说要闹钟也被定」。
+                if (!explicit) { ok = false; result = "alarm_requires_explicit_request"; }
+                else { ok = setAlarm(ctx, hour, minute, message, vibrate, skipUi); result = ok ? "alarm " + hour + ":" + minute : "cannot set alarm"; }
             } else if ("send_notification".equals(action)) { ok = showReminderNotification(ctx, title, message); result = ok ? "heads_up_notification_sent" : "notification permission missing";
             } else if ("get_guidian_state".equals(action) || "set_guidian_config".equals(action) || "trigger_guidian".equals(action) || "mark_guidian_returned".equals(action)) { JSONObject rr = GuidianState.handleCommand(ctx, new JSONObject().put("action", action)); ok = rr.optBoolean("ok", false); result = rr.toString();
             } else { ok = true; result = "noop"; }
@@ -448,7 +468,8 @@ public class CompanionService extends Service {
                 String match = step.optString("match", "contains");
                 int textIndex = step.optInt("index", 1);
                 boolean append = step.optBoolean("append", false);
-                JSONObject r = performAction(ctx, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, skipUi, targetText, inputText, match, textIndex, append);
+                boolean explicit = step.optBoolean("explicit", false);
+                JSONObject r = performAction(ctx, action, app, pkg, x, y, x1, y1, x2, y2, duration, hour, minute, title, message, vibrate, serverUrl, token, skipUi, targetText, inputText, match, textIndex, append, explicit);
                 int wait = clampWait(step.optInt("wait_ms", step.optInt("delay_ms", 0)));
                 if (wait > 0) Thread.sleep(wait);
                 String expect = step.optString("expect_app", "").trim();

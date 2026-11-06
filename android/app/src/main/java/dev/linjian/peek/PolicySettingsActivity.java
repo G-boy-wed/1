@@ -62,7 +62,7 @@ public class PolicySettingsActivity extends Activity {
     private String memoryDraft = "";
     // 守护界面卡片深链：sectionKey -> 对应分组视图
     private final java.util.Map<String, View> sectionGroups = new java.util.HashMap<>();
-    private String weatherNameDraft = "", weatherCityDraft = "", weatherNoteDraft = "";
+    private String weatherNameDraft = "", weatherCityDraft = "", weatherDistrictDraft = "", weatherNoteDraft = "";
     // 单分区模式：从守护页某个标签点进来时，只渲染/修改这个分区；null=全部设置（总页）
     private String activeSection = null;
 
@@ -231,12 +231,14 @@ public class PolicySettingsActivity extends Activity {
         JSONObject wl = WeatherState.currentLocation(this);
         weatherNameDraft = wl.optString("name", "家");
         weatherCityDraft = wl.optString("city", "");
+        weatherDistrictDraft = wl.optString("district", "");
         weatherNoteDraft = wl.optString("note", "");
         gWeather.addView(rowText("当前地点名", "这个地点的名字，例如 家 / 学校。", weatherNameDraft, s -> weatherNameDraft = s));
         gWeather.addView(rowText("城市", "用于查询天气的城市，例如 石家庄。", weatherCityDraft, s -> weatherCityDraft = s));
+        gWeather.addView(rowText("区县", "精确到区县可查到所在区县的天气，例如 长安区。", weatherDistrictDraft, s -> weatherDistrictDraft = s));
         gWeather.addView(rowText("备注", "例如 风大 / 容易下雨。", weatherNoteDraft, s -> weatherNoteDraft = s));
         gWeather.addView(rowButton("保存当前地点", "保存上面的地点信息，并设为当前地点。", "保存", v -> {
-            WeatherState.saveLocation(this, weatherNameDraft.isEmpty() ? "家" : weatherNameDraft, weatherCityDraft, weatherNoteDraft, true);
+            WeatherState.saveLocation(this, weatherNameDraft.isEmpty() ? "家" : weatherNameDraft, weatherCityDraft, weatherDistrictDraft, weatherNoteDraft, true);
             Toast.makeText(this, "已保存地点", Toast.LENGTH_SHORT).show(); buildUI();
         }));
         gWeather.addView(rowButton("查看全部地点", "列出所有已保存地点。", "查看", v -> showWeatherLocations()));
@@ -449,6 +451,7 @@ public class PolicySettingsActivity extends Activity {
             JSONObject cur = WeatherState.currentLocation(this);
             text += "\n\n当前使用：" + cur.optString("name", "家")
                     + (cur.optString("city", "").isEmpty() ? "" : " · " + cur.optString("city", ""))
+                    + (cur.optString("district", "").isEmpty() ? "" : " · " + cur.optString("district", ""))
                     + (cur.optString("note", "").isEmpty() ? "" : "\n备注：" + cur.optString("note", ""));
             AlertDialog.Builder b = new AlertDialog.Builder(this);
             b.setTitle("全部地点").setMessage(text).setPositiveButton("知道了", null).show();

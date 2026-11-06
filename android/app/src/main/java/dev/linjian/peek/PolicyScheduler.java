@@ -229,12 +229,17 @@ public final class PolicyScheduler {
         // 分心查岗 / 使用时长自动锁 / 权限提醒，全部跳过；课表评估始终运行（含上课检测与课前/下课提醒）。
         // 课程结束后 inClass 置否，上述评估自动恢复（「课程结束后自动开启」）。
         if (!inClass) {
-            evaluateCheckIn(now, current);
-            evaluateEmotionPopup(now);
-            evaluateInitiative(now, current);
+            // 已在聊天陪伴页 / 目标聊天 App（inTarget）：用户本就在「该回去的地方」，
+            // 查岗拉回 / 情绪弹窗 / 主动找 一律不弹（否则会出现「在聊天软件里被拉回聊天」的荒谬弹窗）。
+            // 分心判定仍运行：它只在「离开聊天去了别的 App」时才计，不会在聊天里误弹。
+            if (!inTarget) {
+                evaluateCheckIn(now, current);
+                evaluateEmotionPopup(now);
+                evaluateInitiative(now, current);
+                evaluateUsageLock(now, current);
+                evaluatePermissions(now, current);
+            }
             evaluateDistraction(now, current);
-            evaluateUsageLock(now, current);
-            evaluatePermissions(now, current);
         }
         evaluateClassSchedule();
 

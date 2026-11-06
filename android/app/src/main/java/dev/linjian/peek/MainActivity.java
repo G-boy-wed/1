@@ -97,7 +97,7 @@ public class MainActivity extends Activity {
     private View drawerTheme, drawerNowState, drawerConnection, drawerPermission, drawerControlTest, drawerKnownApps, drawerHomeMode, drawerGateAdd, drawerReminder, drawerCycle, drawerDebug, drawerAppGate, drawerWeather, drawerVersion;
     private View drawerGuidian, drawerGuidianSettings, drawerCalendar;
     private EditText serverUrl, tokenInput, deviceInput, intervalInput, cityInput, weatherInput, userNameInput, companionNameInput;
-    private EditText weatherAliasInput, weatherCityInput, weatherNoteInput, calendarTitleInput, calendarDateInput, calendarGroupInput, calendarNoteInput;
+    private EditText weatherAliasInput, weatherCityInput, weatherDistrictInput, weatherNoteInput, calendarTitleInput, calendarDateInput, calendarGroupInput, calendarNoteInput;
     private EditText batteryThresholdInput, screenThresholdInput, waterIntervalInput, restIntervalInput;
     private EditText lastPeriodStartInput, cycleLengthInput, periodLengthInput, cycleRemindBeforeInput;
     private EditText appAliasInput, appPackageInput, targetAppsInput, homeThresholdInput, homeCooldownInput, homeTargetInput, gateAliasInput, gatePackageInput;
@@ -241,7 +241,7 @@ public class MainActivity extends Activity {
         drawerTheme = findViewById(R.id.drawerTheme); drawerNowState = findViewById(R.id.drawerNowState); drawerConnection = findViewById(R.id.drawerConnection); drawerPermission = findViewById(R.id.drawerPermission); drawerControlTest = findViewById(R.id.drawerControlTest); drawerKnownApps = findViewById(R.id.drawerKnownApps); drawerHomeMode = findViewById(R.id.drawerHomeMode); drawerGateAdd = findViewById(R.id.drawerGateAdd); drawerReminder = findViewById(R.id.drawerReminder); drawerCycle = findViewById(R.id.drawerCycle); drawerDebug = findViewById(R.id.drawerDebug); drawerAppGate = findViewById(R.id.drawerAppGate); drawerWeather = findViewById(R.id.drawerWeather); drawerVersion = findViewById(R.id.drawerVersion);
         drawerGuidian = findViewById(R.id.drawerGuidian); drawerGuidianSettings = findViewById(R.id.drawerGuidianSettings); drawerCalendar = findViewById(R.id.drawerCalendar);
         serverUrl = findViewById(R.id.serverUrl); tokenInput = findViewById(R.id.tokenInput); deviceInput = findViewById(R.id.deviceInput); intervalInput = findViewById(R.id.intervalInput); cityInput = findViewById(R.id.cityInput); weatherInput = findViewById(R.id.weatherInput); userNameInput = findViewById(R.id.userNameInput); companionNameInput = findViewById(R.id.companionNameInput);
-        weatherAliasInput = findViewById(R.id.weatherAliasInput); weatherCityInput = findViewById(R.id.weatherCityInput); weatherNoteInput = findViewById(R.id.weatherNoteInput); calendarTitleInput = findViewById(R.id.calendarTitleInput); calendarDateInput = findViewById(R.id.calendarDateInput); calendarGroupInput = findViewById(R.id.calendarGroupInput); calendarNoteInput = findViewById(R.id.calendarNoteInput);
+        weatherAliasInput = findViewById(R.id.weatherAliasInput); weatherCityInput = findViewById(R.id.weatherCityInput); weatherDistrictInput = findViewById(R.id.weatherDistrictInput); weatherNoteInput = findViewById(R.id.weatherNoteInput); calendarTitleInput = findViewById(R.id.calendarTitleInput); calendarDateInput = findViewById(R.id.calendarDateInput); calendarGroupInput = findViewById(R.id.calendarGroupInput); calendarNoteInput = findViewById(R.id.calendarNoteInput);
         batteryThresholdInput = findViewById(R.id.batteryThresholdInput); screenThresholdInput = findViewById(R.id.screenThresholdInput); waterIntervalInput = findViewById(R.id.waterIntervalInput); restIntervalInput = findViewById(R.id.restIntervalInput);
         lastPeriodStartInput = findViewById(R.id.lastPeriodStartInput); cycleLengthInput = findViewById(R.id.cycleLengthInput); periodLengthInput = findViewById(R.id.periodLengthInput); cycleRemindBeforeInput = findViewById(R.id.cycleRemindBeforeInput);
         appAliasInput = findViewById(R.id.appAliasInput); appPackageInput = findViewById(R.id.appPackageInput); targetAppsInput = findViewById(R.id.targetAppsInput); homeThresholdInput = findViewById(R.id.homeThresholdInput); homeCooldownInput = findViewById(R.id.homeCooldownInput); homeTargetInput = findViewById(R.id.homeTargetInput); gateAliasInput = findViewById(R.id.gateAliasInput); gatePackageInput = findViewById(R.id.gatePackageInput);
@@ -2034,6 +2034,7 @@ public class MainActivity extends Activity {
         if (weatherInput != null) weatherInput.setText(prefs.getString(AppPrefs.KEY_WEATHER_NOTE, ""));
         if (weatherAliasInput != null) weatherAliasInput.setText(WeatherState.currentLocation(this).optString("name", "家"));
         if (weatherCityInput != null) weatherCityInput.setText(WeatherState.currentLocation(this).optString("city", ""));
+        if (weatherDistrictInput != null) weatherDistrictInput.setText(WeatherState.currentLocation(this).optString("district", ""));
         if (weatherNoteInput != null) weatherNoteInput.setText(WeatherState.currentLocation(this).optString("note", ""));
         if (foregroundPopupEnabled != null) foregroundPopupEnabled.setChecked(prefs.getBoolean(AppPrefs.KEY_FOREGROUND_POPUP, true));
         if (remindersEnabled != null) remindersEnabled.setChecked(prefs.getBoolean(AppPrefs.KEY_ACTIVE_REMINDERS, true));
@@ -2767,11 +2768,12 @@ public class MainActivity extends Activity {
     }
 
     private void addWeatherLocation(boolean makeCurrent) {
-        String alias = weatherAliasInput == null ? "" : weatherAliasInput.getText().toString().trim();
+                String alias = weatherAliasInput == null ? "" : weatherAliasInput.getText().toString().trim();
         String city = weatherCityInput == null ? "" : weatherCityInput.getText().toString().trim();
+        String district = weatherDistrictInput == null ? "" : weatherDistrictInput.getText().toString().trim();
         String note = weatherNoteInput == null ? "" : weatherNoteInput.getText().toString().trim();
         if (alias.isEmpty() && city.isEmpty()) { Toast.makeText(this, "先填地区名或城市", Toast.LENGTH_SHORT).show(); return; }
-        WeatherState.saveLocation(this, alias, city, note, makeCurrent);
+        WeatherState.saveLocation(this, alias, city, district, note, makeCurrent);
         DebugState.append(this, (makeCurrent ? "已设置当前天气地区：" : "已保存天气地区：") + (alias.isEmpty() ? city : alias));
         Toast.makeText(this, makeCurrent ? "已设为当前地区" : "已保存地区", Toast.LENGTH_SHORT).show();
         updateUI();
