@@ -45,6 +45,13 @@ public final class PopupMutex {
         if (who != null && who.equals(owner)) owner = "";
     }
 
+    /** 强制关闭全部弹窗（悬浮窗两条通道），用于上课开始等需要「立即静默」的场景。 */
+    public static void dismissAll() {
+        try { PullBackOverlay.dismiss(); } catch (Exception ignored) { }
+        try { AlertCenterOverlay.dismiss(); } catch (Exception ignored) { }
+        owner = "";
+    }
+
     /** 当前占用者（诊断用）。 */
     public static String currentOwner() { return owner; }
 

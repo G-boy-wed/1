@@ -213,6 +213,9 @@ public class PolicySettingsActivity extends Activity {
         // 修复「课表作息没办法删除已有信息和更改」：列出全部课程，每条可修改/删除。
         g11.addView(buildScheduleList());
         g11.addView(rowButton("清空全部课表", "一次删除所有课程条目（会先确认）。", "清空课表", v -> confirmClearSchedule()));
+        // 课前提醒：提前 N 分钟「弹窗」提醒（写在底层代码，改完立即生效）。
+        g11.addView(rowSwitch("课前弹窗提醒", "上课前提前弹出「课前提醒」弹窗（盖在当前 App 之上），不打断当前界面。默认开启。", PolicyStore.classRemindEnabled(this), (v, c) -> PolicyStore.setClassRemindEnabled(this, c)));
+        g11.addView(rowNumber("课前提醒提前（分钟）", "提前多少分钟弹出课前提醒。默认 30。", PolicyStore.classRemindMin(this), 5, 120, v -> PolicyStore.setClassRemindMin(this, v)));
 
         LinearLayout g12 = card(container, "共同记忆", "双方可增/改/删、双向修改实时生效的记忆面板。", "memory");
         g12.addView(rowText("新增记忆", "写下一条共同记忆，点下方保存。", "", s -> memoryDraft = s));
@@ -441,8 +444,14 @@ public class PolicySettingsActivity extends Activity {
 
     private void showWeatherLocations() {
         try {
+            // 查看全部地点：列出每个地点的名称 / 城市 / 备注与「当前」标记，确保定制内容正确显示。
+            String text = WeatherState.locationsText(this);
+            JSONObject cur = WeatherState.currentLocation(this);
+            text += "\n\n当前使用：" + cur.optString("name", "家")
+                    + (cur.optString("city", "").isEmpty() ? "" : " · " + cur.optString("city", ""))
+                    + (cur.optString("note", "").isEmpty() ? "" : "\n备注：" + cur.optString("note", ""));
             AlertDialog.Builder b = new AlertDialog.Builder(this);
-            b.setTitle("全部地点").setMessage(WeatherState.pretty(this)).setPositiveButton("知道了", null).show();
+            b.setTitle("全部地点").setMessage(text).setPositiveButton("知道了", null).show();
         } catch (Exception e) { status("读取失败：" + ScreenshotService.shortMsg(e)); }
     }
 

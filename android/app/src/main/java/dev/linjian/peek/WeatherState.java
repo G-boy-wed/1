@@ -123,7 +123,7 @@ public class WeatherState {
     }
 
     private static void syncLegacy(Context ctx, Location loc) {
-        AppPrefs.get(ctx).edit().putString(AppPrefs.KEY_CITY, loc.city).putString(AppPrefs.KEY_WEATHER_NOTE, loc.note).apply();
+        AppPrefs.get(ctx).edit().putString(AppPrefs.KEY_CITY, loc.city).putString(AppPrefs.KEY_WEATHER_NOTE, loc.note).commit();
     }
 
     private static LinkedHashMap<String, Location> readLocations(Context ctx) {
@@ -160,7 +160,7 @@ public class WeatherState {
             Location l = e.getValue();
             sb.append(escape(l.name)).append("|").append(escape(l.city)).append("|").append(escape(l.note)).append("|").append(l.current ? "1" : "0").append("\n");
         }
-        AppPrefs.get(ctx).edit().putString(AppPrefs.KEY_WEATHER_LOCATIONS, sb.toString()).apply();
+        AppPrefs.get(ctx).edit().putString(AppPrefs.KEY_WEATHER_LOCATIONS, sb.toString()).commit();
     }
 
     public static String localAdvice(String note) {

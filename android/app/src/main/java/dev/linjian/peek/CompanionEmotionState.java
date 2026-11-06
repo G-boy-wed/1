@@ -182,13 +182,18 @@ public class CompanionEmotionState {
         return baselineIntensity(ctx) >= 70 ? "angry" : "gentle";
     }
 
-    /** 对外生效语气：底层感知优先；训诫开启且为「严厉」模式时，强制把语气升级为 harsh（更硬的弹窗语气）。 */
+    /** 对外生效语气：底层感知优先；训诫开启且（语气=严厉 或 档位≥中）时，强制把语气升级为 harsh（更硬的弹窗语气）。 */
     public static String tone(Context ctx) {
         String base = EmotionPerception.activeTone(ctx);
-        if (PolicyStore.disciplineEnabled(ctx) && "strict".equals(PolicyStore.disciplineMode(ctx))) {
-            // 严厉模式：原本温柔的语气升级为 strict（渲染为 danger 色 + 更硬的话术），人设与弹窗语气都更严厉。
-            if (base == null || base.trim().isEmpty() || "gentle".equalsIgnoreCase(base)) return "strict";
-            return base; // 已经是 angry/strong 则保持不变
+        if (PolicyStore.disciplineEnabled(ctx)) {
+            boolean strictMode = "strict".equals(PolicyStore.disciplineMode(ctx));
+            boolean highLevel = PolicyStore.disciplineLevel(ctx) >= 2;
+            if (strictMode || highLevel) {
+                // 训诫开启（严厉 / 中档及以上）：原本温柔的语气升级为 strict（渲染为 danger 红 + 更硬话术），
+                // 手机端弹窗语气与陪伴人设同步变严厉，加强管控。
+                if (base == null || base.trim().isEmpty() || "gentle".equalsIgnoreCase(base)) return "strict";
+                return base; // 已经是 angry/strong 则保持不变
+            }
         }
         return base;
     }

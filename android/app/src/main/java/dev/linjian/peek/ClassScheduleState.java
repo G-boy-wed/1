@@ -25,8 +25,11 @@ public final class ClassScheduleState {
     private static final String PREFS = "class_schedule_store";
     private static final String KEY_ENTRIES = "entries_v1";
     private static final String KEY_ENABLED = "class_schedule_enabled";
-    private static final long PRE_CLASS_MS = 5 * 60_000L;   // 课前 5 分钟提醒
     private static final long POST_CLASS_MS = 5 * 60_000L;  // 下课 5 分钟提醒
+    // 课前提醒提前量改为读取底层配置 PolicyStore.classRemindMin（默认 30 分钟），手机端 / MCP 可改立即生效。
+    private static long preRemindMs(Context ctx) {
+        try { return Math.max(5, PolicyStore.classRemindMin(ctx)) * 60_000L; } catch (Exception e) { return 30L * 60_000L; }
+    }
 
     private ClassScheduleState() { }
 
@@ -174,13 +177,21 @@ public final class ClassScheduleState {
             DebugState.append(ctx, "课表：上课中 " + cur.optString("subject", "") + " @ " + cur.optString("room", ""));
             return true;
         }
-        long toNext = msToNextClassToday(ctx);
-        if (toNext >= 0 && toNext <= PRE_CLASS_MS) {
-            long key = System.currentTimeMillis() / (PRE_CLASS_MS); // 每个窗口只提醒一次
-            if (key != lastPreNotifyKey) {
-                lastPreNotifyKey = key;
-                CompanionService.showReminderNotification(ctx, "课前提醒", "快上课了，准备好课本，掌心窗会帮你安静守护。");
+        long lead = preRemindMs(ctx);
+        if (PolicyStore.classRemindEnabled(ctx)) {
+            long toNext = msToNextClassToday(ctx);
+            if (toNext >= 0 && toNext <= lead) {
+                long key = System.currentTimeMillis() / lead; // 每个窗口只提醒一次
+                if (key != lastPreNotifyKey) {
+                    lastPreNotifyKey = key;
+                    // 课前提醒改为「弹窗」：悬浮在当前 App 之上，明确标注「课前提醒」，不打断当前界面。
+                    CompanionService.showCenterAlert(ctx, "课前提醒",
+                            "快上课了（提前 " + PolicyStore.classRemindMin(ctx) + " 分钟），准备好课本，掌心窗会帮你安静守护。",
+                            "gentle", "知道啦", "课前提醒");
+                }
             }
+        } else {
+            lastPreNotifyKey = 0;
         }
         // 下课提醒：上一节课的 end 在过去 5 分钟内
         try {

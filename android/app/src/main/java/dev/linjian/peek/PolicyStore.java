@@ -92,6 +92,10 @@ public final class PolicyStore {
     public static final String KEY_EMOTION_POPUP_THRESHOLD = PREFIX + "emo_popup_threshold"; // 想你达到该 % 触发，默认 70
     public static final String KEY_EMOTION_POPUP_INTERVAL = PREFIX + "emo_popup_interval";  // 两次最小间隔（分钟），默认 30
 
+    // —— 课表课前提醒（写在底层代码，手机端 / MCP 可改，改完立即生效）——
+    public static final String KEY_CLASS_REMIND_ENABLED = PREFIX + "class_remind_enabled"; // 课前提醒开关，默认 true
+    public static final String KEY_CLASS_REMIND_MIN = PREFIX + "class_remind_min";          // 课前提前提醒分钟，默认 30
+
     // —— 安静时段 / 深夜时段（支持跨零点）——
     public static final String KEY_QUIET_START = PREFIX + "quiet_start";         // "23:30"
     public static final String KEY_QUIET_END = PREFIX + "quiet_end";             // "08:00"
@@ -150,6 +154,8 @@ public final class PolicyStore {
     private static final boolean DEF_EMO_POPUP_ENABLED = true;
     private static final int DEF_EMO_POPUP_THRESHOLD = 70;
     private static final int DEF_EMO_POPUP_INTERVAL = 30;
+    private static final boolean DEF_CLASS_REMIND_ENABLED = true;
+    private static final int DEF_CLASS_REMIND_MIN = 30;
     private static final String DEF_QUIET_START = "23:30";
     private static final String DEF_QUIET_END = "08:00";
     private static final String DEF_NIGHT_START = "23:00";
@@ -189,16 +195,16 @@ public final class PolicyStore {
     private static void putBool(Context ctx, String key, boolean v, String label) {
         SharedPreferences.Editor e = sp(ctx).edit();
         boolean old = sp(ctx).getBoolean(key, false);
-        if (old == v) { e.putBoolean(key, v).apply(); return; }
-        e.putBoolean(key, v).apply();
+        if (old == v) { e.putBoolean(key, v).commit(); return; }
+        e.putBoolean(key, v).commit();
         logChange(ctx, "用户", label, String.valueOf(old), String.valueOf(v));
         resetCooldown(ctx);
     }
     private static void putInt(Context ctx, String key, int v, String label) {
         SharedPreferences.Editor e = sp(ctx).edit();
         int old = sp(ctx).getInt(key, Integer.MIN_VALUE);
-        if (old == v) { e.putInt(key, v).apply(); return; }
-        e.putInt(key, v).apply();
+        if (old == v) { e.putInt(key, v).commit(); return; }
+        e.putInt(key, v).commit();
         logChange(ctx, "用户", label, String.valueOf(old), String.valueOf(v));
         resetCooldown(ctx);
     }
@@ -206,8 +212,8 @@ public final class PolicyStore {
         if (v == null) v = "";
         SharedPreferences.Editor e = sp(ctx).edit();
         String old = sp(ctx).getString(key, "");
-        if (old.equals(v)) { e.putString(key, v).apply(); return; }
-        e.putString(key, v).apply();
+        if (old.equals(v)) { e.putString(key, v).commit(); return; }
+        e.putString(key, v).commit();
         logChange(ctx, "用户", label, old, v);
         resetCooldown(ctx);
     }
@@ -289,6 +295,10 @@ public final class PolicyStore {
     public static void setDisciplineEnabled(Context ctx, boolean v) { putBool(ctx, KEY_DISCIPLINE_ENABLED, v, "训诫插件开关"); }
     public static int disciplineLevel(Context ctx) { return getInt(ctx, KEY_DISCIPLINE_LEVEL, DEF_DISC_LEVEL); }
     public static void setDisciplineLevel(Context ctx, int v) { putInt(ctx, KEY_DISCIPLINE_LEVEL, clamp(v, 0, 4), "训诫档位"); }
+    /** 训诫高档位（>=3）强制拉回：加强管控，所有拉回弹窗变为「只能回到软件」不可拒绝。 */
+    public static boolean disciplineForceStrong(Context ctx) {
+        return disciplineEnabled(ctx) && disciplineLevel(ctx) >= 3;
+    }
     public static boolean disciplineUserOnly(Context ctx) { return getBool(ctx, KEY_DISCIPLINE_USER_ONLY, DEF_DISC_USER_ONLY); }
     public static boolean disciplineBadge(Context ctx) { return getBool(ctx, KEY_DISCIPLINE_BADGE, DEF_DISC_BADGE); }
     public static void setDisciplineBadge(Context ctx, boolean v) { putBool(ctx, KEY_DISCIPLINE_BADGE, v, "训诫开启标志"); }
@@ -346,6 +356,12 @@ public final class PolicyStore {
     public static void setEmotionPopupThreshold(Context ctx, int v) { putInt(ctx, KEY_EMOTION_POPUP_THRESHOLD, clamp(v, 1, 100), "情绪弹窗触发阈值(%)"); }
     public static int emotionPopupIntervalMin(Context ctx) { return getInt(ctx, KEY_EMOTION_POPUP_INTERVAL, DEF_EMO_POPUP_INTERVAL); }
     public static void setEmotionPopupIntervalMin(Context ctx, int v) { putInt(ctx, KEY_EMOTION_POPUP_INTERVAL, clamp(v, 1, 1440), "情绪弹窗最小间隔(分钟)"); }
+
+    // —— 课表课前提醒（写在底层代码，手机端 / MCP 可改，改完立即生效）——
+    public static boolean classRemindEnabled(Context ctx) { return getBool(ctx, KEY_CLASS_REMIND_ENABLED, DEF_CLASS_REMIND_ENABLED); }
+    public static void setClassRemindEnabled(Context ctx, boolean v) { putBool(ctx, KEY_CLASS_REMIND_ENABLED, v, "课前提醒开关"); }
+    public static int classRemindMin(Context ctx) { return getInt(ctx, KEY_CLASS_REMIND_MIN, DEF_CLASS_REMIND_MIN); }
+    public static void setClassRemindMin(Context ctx, int v) { putInt(ctx, KEY_CLASS_REMIND_MIN, clamp(v, 5, 120), "课前提醒提前(分钟)"); }
 
     // —— 安静 / 深夜时段 ——
     public static String quietStart(Context ctx) { return getString(ctx, KEY_QUIET_START, DEF_QUIET_START); }
@@ -567,6 +583,8 @@ public final class PolicyStore {
         e.putBoolean(KEY_EMOTION_POPUP_ENABLED, DEF_EMO_POPUP_ENABLED);
         e.putInt(KEY_EMOTION_POPUP_THRESHOLD, DEF_EMO_POPUP_THRESHOLD);
         e.putInt(KEY_EMOTION_POPUP_INTERVAL, DEF_EMO_POPUP_INTERVAL);
+        e.putBoolean(KEY_CLASS_REMIND_ENABLED, DEF_CLASS_REMIND_ENABLED);
+        e.putInt(KEY_CLASS_REMIND_MIN, DEF_CLASS_REMIND_MIN);
         e.putString(KEY_QUIET_START, DEF_QUIET_START);
         e.putString(KEY_QUIET_END, DEF_QUIET_END);
         e.putString(KEY_NIGHT_START, DEF_NIGHT_START);
