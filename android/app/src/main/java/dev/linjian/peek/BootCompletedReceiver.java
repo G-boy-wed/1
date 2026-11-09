@@ -30,7 +30,9 @@ public class BootCompletedReceiver extends BroadcastReceiver {
                     context.startService(new Intent(context, MediaSyncService.class));
                 }
             } catch (Exception ignored) { }
-            DebugState.append(context, boot ? "开机自启：守护服务与调度器已拉起" : "应用更新后自启：守护服务与调度器已拉起");
+            // 开机/更新后按绝对时间戳复查未过期的门禁锁，恢复被杀前的锁定状态。
+            try { AppGate.recheckActiveLocks(context); } catch (Exception ignored) { }
+            DebugState.append(context, boot ? "开机自启：守护服务与调度器已拉起（含门禁到期复查）" : "应用更新后自启：守护服务与调度器已拉起（含门禁到期复查）");
         } catch (Exception e) {
             DebugState.append(context, "开机自启失败：" + ScreenshotService.shortMsg(e));
         }

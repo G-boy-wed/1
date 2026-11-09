@@ -3072,10 +3072,15 @@ public class MainActivity extends Activity {
         updateUI();
     }
     private void openOverlayPermissionSettings() {
-        try {
-            if (Build.VERSION.SDK_INT >= 23) startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
-            else Toast.makeText(this, "当前系统无需单独开启悬浮窗权限", Toast.LENGTH_SHORT).show();
-        } catch (Exception e) { Toast.makeText(this, "设置 → 应用 → 特殊权限 → 悬浮窗", Toast.LENGTH_LONG).show(); }
+        // v0.4.0：升级为「悬浮窗 + 后台弹出界面 + 电池优化白名单」实时检测与一键授权引导，
+        // 一次性把弹窗骑脸与后台保活所需权限全部打开。
+        try { OverlayPermission.showGuide(this); }
+        catch (Exception e) {
+            try {
+                if (Build.VERSION.SDK_INT >= 23) startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
+                else Toast.makeText(this, "当前系统无需单独开启悬浮窗权限", Toast.LENGTH_SHORT).show();
+            } catch (Exception e2) { Toast.makeText(this, "设置 → 应用 → 特殊权限 → 悬浮窗", Toast.LENGTH_LONG).show(); }
+        }
     }
     private void requestIgnoreBatteryOptimization() { if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return; try { PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE); if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) { Intent bi = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS); bi.setData(Uri.parse("package:" + getPackageName())); startActivity(bi); } } catch (Exception ignored) { } }
 

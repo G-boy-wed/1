@@ -75,6 +75,28 @@ public class AppPrefs {
         int query = value.indexOf('?');
         if (query >= 0) value = value.substring(0, query);
         while (value.endsWith("/")) value = value.substring(0, value.length() - 1);
+        // v0.4.0 统一单进程后端(8513)：移除 Node(8787)/独立 MCP 服务后，若用户把 server_url
+        // 误填成旧 MCP 地址(:8787)或带 /mcp、/sse、/messages 路径，会导致所有 REST 请求 404。
+        // 这里做保守纠正：只处理「显式 8787 端口 + MCP 路径」；保留用户填的任意主机名与端口，
+        // 绝不强制给 https 云端域名(Render 等，走 443)加 :8513，避免破坏线上部署。
+        String lower = value.toLowerCase(java.util.Locale.ROOT);
+        for (String suffix : new String[]{"/messages", "/mcp", "/sse"}) {
+            if (lower.endsWith(suffix)) { value = value.substring(0, value.length() - suffix.length()); lower = value.toLowerCase(java.util.Locale.ROOT); }
+        }
+        // 旧 MCP 端口 :8787 → 统一 :8513（仅精确替换 8787，不动其他端口/无端口）。
+        value = value.replace(":8787", ":8513");
+        // 无端口 + http + 本机/局域网主机 → 补默认 :8513（本地直连场景）。
+        int schemeEnd = value.indexOf("://");
+        if (schemeEnd >= 0 && lower.startsWith("http://")) {
+            String rest = value.substring(schemeEnd + 3);
+            int slash = rest.indexOf('/');
+            String hostPort = slash >= 0 ? rest.substring(0, slash) : rest;
+            if (!hostPort.contains(":")) {
+                String tail = slash >= 0 ? rest.substring(slash) : "";
+                value = "http://" + hostPort + ":8513" + tail;
+            }
+        }
+        while (value.endsWith("/")) value = value.substring(0, value.length() - 1);
         return value;
     }
 

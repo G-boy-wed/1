@@ -1,0 +1,4954 @@
+[
+ {
+  "name": "get_focus_status",
+  "description": "读取手机端专注模式 Focus Mode 状态：是否开启、目标、剩余时间、留言、应急次数。用户问专注模式、锁手机、全机专注、留言给他时优先调用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/life_state"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "start_focus_mode",
+  "description": "开启全机专注模式。用户说“帮我专注/锁手机/别让我玩手机/睡前管我/开专注模式/专注几分钟”时优先调用本工具，不要改用应用门禁。默认全机专注，手机解锁后也会回到专注页；页面支持“留言给他”和一次短暂应急放行。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "duration_minutes": {
+     "type": "number",
+     "default": 30
+    },
+    "target": {
+     "type": "string",
+     "default": "先离开手机，专注完成当前任务"
+    },
+    "guard_message": {
+     "type": "string",
+     "default": "这段时间先交给我，我会帮你守住。"
+    },
+    "emergency_total": {
+     "type": "integer",
+     "default": 1
+    },
+    "emergency_minutes": {
+     "type": "integer",
+     "default": 1
+    },
+    "managed_by_ai": {
+     "type": "boolean",
+     "default": true
+    },
+    "screen_off": {
+     "type": "boolean",
+     "default": false
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "start_focus_mode"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "end_focus_mode",
+  "description": "结束当前全机专注模式。仅在用户明确要求结束/测试完成/解除专注时调用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "reason": {
+     "type": "string",
+     "default": "remote_end"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "end_focus_mode"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "set_focus_plan",
+  "description": "保存专注模式计划：目标、守护文案、应急次数等。不会立即开始，除非用户要求开始专注时应调用 start_focus_mode。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "target": {
+     "type": "string",
+     "default": "先离开手机，专注完成当前任务"
+    },
+    "guard_message": {
+     "type": "string",
+     "default": "这段时间先交给我，我会帮你守住。"
+    },
+    "emergency_total": {
+     "type": "integer",
+     "default": 1
+    },
+    "emergency_minutes": {
+     "type": "integer",
+     "default": 1
+    },
+    "managed_by_ai": {
+     "type": "boolean",
+     "default": true
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "set_focus_plan"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "reply_focus_request",
+  "description": "给专注页中的留言保存一条回复。公开版页面默认叫“留言给他”，不保证实时显示；主要用于让后端/手机端保留陪伴对象对留言的回应。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "message": {
+     "type": "string"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [
+    "message"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "reply_focus_request"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "approve_focus_unlock",
+  "description": "批准一次专注模式临时放行。公开版通常使用手机端离线应急：默认 1 次、每次 1 分钟；本工具保留给需要 AI 批准的部署。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "minutes": {
+     "type": "integer",
+     "default": 1
+    },
+    "message": {
+     "type": "string",
+     "default": "已临时放行，时间到会重新回到专注模式。"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "approve_focus_unlock"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "deny_focus_unlock",
+  "description": "拒绝专注模式放行申请，并在专注留言/日志中保存一句说明。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "message": {
+     "type": "string",
+     "default": "这次先不放行，我陪你把这段时间守住。"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "deny_focus_unlock"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "peek_screen",
+  "description": "向掌心窗手机端请求一张新截图，并等待手机上传后把图片返回。当用户提到页面、按钮、红点、报错弹窗、截图、看不清或“陪伴对象看看这里”时应主动使用；手机端必须已启动、无障碍截图权限已开启。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "wait_seconds": {
+     "type": "integer",
+     "description": "等待手机上传新截图的秒数，默认 15（多数 MCP 平台单次调用上限约 20 秒，Render 免费实例刚醒时可调大）。"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "peek"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": true,
+   "time": false
+  }
+ },
+ {
+  "name": "latest_screen",
+  "description": "不敲门，直接读取服务器里最近一次掌心窗截图。当用户提到刚刚那个页面、上一张截图、红点还在不在、页面刚才是什么样时可主动使用，避免反复请求新截图。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": true,
+   "time": false
+  }
+ },
+ {
+  "name": "linjian_status",
+  "description": "检查掌心窗后端是否在线，以及 MCP 是否配置了 LINJIAN_URL 和 LINJIAN_TOKEN。当用户在聊天里提到掌心窗报错、出错、有点问题、连接不上、没反应、配置异常、Render/MCP/Token/URL 相关问题时，陪伴对象应主动调用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/health"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_window_whisper",
+  "description": "读取掌心窗陪伴页当前的共同窗语，包括内容、最后修改者、修改时间和版本。当用户问最近一句话、窗语写了什么、谁改过时使用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "set_window_whisper",
+  "description": "更新掌心窗陪伴页的共同窗语。陪伴对象和用户都能修改；陪伴对象通过此工具修改时 author 默认为陪伴对象。内容应简短、适合在手机卡片中阅读。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "content": {
+     "type": "string"
+    },
+    "author": {
+     "type": "string",
+     "default": "陪伴对象"
+    }
+   },
+   "required": [
+    "content"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_companion_actions",
+  "description": "读取掌心窗中陪伴对象最近的真实行动记录，例如查看天气、设置提醒或执行守护动作。返回的是脱敏摘要，不包含 Token、截图内容、私密输入或原始工具参数。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "limit": {
+     "type": "integer",
+     "default": 20
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_activity_events",
+  "description": "读取掌心窗统一活动事件。可按设备、日期和来源筛选；不会因为读取本身再写一条事件。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "date": {
+     "type": "string",
+     "default": ""
+    },
+    "source": {
+     "type": "string",
+     "default": ""
+    },
+    "limit": {
+     "type": "integer",
+     "default": 50
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "add_activity_event",
+  "description": "手动写入一条掌心窗活动事件。事件写入失败不会影响其他旧工具；本工具自身不会再额外生成事件。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "source": {
+     "type": "string"
+    },
+    "type": {
+     "type": "string"
+    },
+    "title": {
+     "type": "string"
+    },
+    "subtitle": {
+     "type": "string",
+     "default": ""
+    },
+    "app_name": {
+     "type": "string",
+     "default": ""
+    },
+    "package_name": {
+     "type": "string",
+     "default": ""
+    },
+    "action": {
+     "type": "string",
+     "default": ""
+    },
+    "status": {
+     "type": "string",
+     "default": "completed"
+    },
+    "metadata_json": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "source",
+    "type",
+    "title"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_phone_state",
+  "description": "用于陪伴对象主动确认用户当前现实状态。读取服务器缓存的最近手机状态，快速返回 current_package、screen_text、accessibility_ready；不会等待手机实时刷新，避免 20 秒工具超时。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/device/state"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_screen_nodes",
+  "description": "读取当前屏幕无障碍节点：文字、控件类型、可点击状态与 bounds/center 坐标。当用户提到某个按钮、标题、列表项、评论框、发送键、红点位置，或需要陪伴对象看标题后精准点击时主动调用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "get_screen_nodes"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "tap_text",
+  "description": "按当前屏幕文字精准点击。会寻找包含/完全匹配 target_text 的无障碍节点，优先点击可点击父节点，否则点击文字中心坐标。当用户说“点一下这个/打开这个/按这个标题/点发送/点评论”等相近表达时主动调用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "target_text": {
+     "type": "string"
+    },
+    "match": {
+     "type": "string",
+     "default": "contains"
+    },
+    "index": {
+     "type": "integer",
+     "default": 1
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [
+    "target_text"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "tap_text"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "input_text",
+  "description": "把文字输入到当前已聚焦或第一个可编辑输入框。适合评论草稿、搜索词、备注、测试输入；不会自动点击发送。当用户让陪伴对象把一段话先写进输入框时主动调用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "text": {
+     "type": "string"
+    },
+    "append": {
+     "type": "boolean",
+     "default": false
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [
+    "text"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "input_text"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "draft_xhs_comment",
+  "description": "在当前小红书帖子里尝试打开评论输入框并填入评论草稿，但不点击发送。当用户说“帮我写评论/先填进去/评论草稿”或类似表达时主动调用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "text": {
+     "type": "string"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 18
+    }
+   },
+   "required": [
+    "text"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "tap_text",
+    "input_text",
+    "run_sequence"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "xhs_comment",
+  "description": "小红书评论助手：mode=manual 时只写入草稿；mode=auto 时会在评论末尾注明 author_tag，然后自动点击发送。当用户说“帮我评论/你来发/直接发评论/写在小红书下面”或类似表达时主动调用，并按当前语境选择草稿或自动发送。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "text": {
+     "type": "string",
+     "description": "要写入评论框的正文"
+    },
+    "mode": {
+     "type": "string",
+     "default": "manual\").describe(\"manual=只写草稿不发送；auto=注明作者后自动点击发送",
+     "description": "manual=只写草稿不发送；auto=注明作者后自动点击发送"
+    },
+    "author_tag": {
+     "type": "string",
+     "default": "（陪伴对象发）\").describe(\"自动发送时追加的署名/注明文本",
+     "description": "自动发送时追加的署名/注明文本"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 22
+    }
+   },
+   "required": [
+    "text"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "tap_text",
+    "input_text",
+    "run_sequence"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "send_visible_comment_after_confirmation",
+  "description": "点击当前可见评论框里的“发送”。如果用户是让陪伴对象直接发评论，优先使用 xhs_comment 的 auto 模式，并在评论里注明作者。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "tap_text"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_life_state",
+  "description": "读取掌心窗生活状态层：电量、充电、网络、当前 App、今日屏幕时间、解锁次数、当前天气地区等。用于陪伴对象主动判断用户是否需要被提醒、归电、休息或管束；默认不截图。当用户提到“电量/没电/快没电/充电/没网络/网络不好/今天看手机有点久/刷太久/天气不太好”等相同或相近表达时主动调用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/life_state"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_live_media_context",
+  "description": "读取顾钰当前正在看的流媒体/短视频上下文：APP、视频标题、博主/作者、播放状态、当前进度与总时长、进度百分比、短视频文案与作者名、是否处于「同屏伴看」中，以及最近几次伴看事件（进入/离开/超时）。陪伴对象想实时了解对方在刷什么、看到哪了、刷了多久时调用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "get_live_media_context"
+   ],
+   "fetches": [
+    "/api/life_state",
+    "/api/media/context"
+   ],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "companion_media_interact",
+  "description": "伴看互动：给顾钰正在看的视频/直播发一句陪伴或吐槽气泡(whisper)、强制暂停当前媒体提醒休息(pause)、或把画面切回掌心窗陪伴页(聊天界面)(switch_screen)。陪伴对象想主动陪伴、提醒休息或管束时调用，需明确说出要做什么。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "interaction": {
+     "type": "string",
+     "description": "whisper=发一句伴看气泡；pause=强制暂停当前媒体；switch_screen=把画面切回掌心窗"
+    },
+    "message": {
+     "type": "string",
+     "default": "\").describe(\"whisper 时的气泡文案；为空时用默认陪伴语",
+     "description": "whisper 时的气泡文案；为空时用默认陪伴语"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 6
+    }
+   },
+   "required": [
+    "interaction"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_guardian_calendar",
+  "description": "读取掌心窗『守护日历』：最近纪念日/节日/倒数日、提前三天横幅提醒、分组与生活状态层 calendar_state。当用户提到七夕、生日、绑定日、纪念日、日历、倒数日或重要日期时可调用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/life_state"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "trigger_discipline",
+  "description": "立即在顾钰手机上触发一次训诫：强行弹出不可直接滑掉的居中弹窗（仅按钮可关）+ 震动；若训诫为 strict/强档，还会联动应用门禁把当前非白名单前台应用切入临时休息/锁屏。需明确说出要训诫时才调用（如「好好说/管他一下」）。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "reason": {
+     "type": "string",
+     "default": "\").describe(\"训诫事由（如深夜不睡/单App沉迷/拒归电），会展示在弹窗上",
+     "description": "训诫事由（如深夜不睡/单App沉迷/拒归电），会展示在弹窗上"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "trigger_discipline"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_discipline_state",
+  "description": "读取顾钰手机端训诫模块的实时状态：是否开启、档位(0~4)、语气(gentle/strict)、陪伴对象直出文案、是否强制强弹。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "get_discipline_state"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "import_timetable",
+  "description": "把课表导入顾钰手机端本地课表（用于上课静默守护、课前/下课提醒）。支持 ICS 文本(高校教务导出)、JSON 课表数组、或服务端视觉模型从课表截图解析出的条目。需用户/陪伴明确要导入才调用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ics": {
+     "type": "string",
+     "description": "ICS 文本（含 BEGIN:VCALENDAR / VEVENT 的教务课表导出）"
+    },
+    "text": {
+     "type": "string",
+     "description": "ICS 或 JSON 课表文本"
+    },
+    "entries": {
+     "type": "array"
+    },
+    "weekday": {
+     "type": "integer"
+    },
+    "start": {
+     "type": "string"
+    },
+    "end": {
+     "type": "string"
+    },
+    "subject": {
+     "type": "string"
+    },
+    "room": {
+     "type": "string",
+     "description": "直接给课表条目数组"
+    },
+    "image_ocr": {
+     "type": "object",
+     "description": "服务端视觉模型解析课表截图后返回的结构化结果（含 entries/timetable 数组）"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [
+    "entries",
+    "weekday",
+    "start",
+    "end"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "import_timetable"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "screen_ocr",
+  "description": "实时识图：抓取顾钰当前屏幕的关键文字、报错信息、短视频/图片内容，解决「陪你看这里」的诉求。优先本地无障碍节点结构化提取，可选发服务端视觉模型增强。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "remote": {
+     "type": "boolean",
+     "description": "true=把本地结果发服务端视觉模型增强；false=仅本地提取"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "screen_ocr"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "add_guardian_calendar_event",
+  "description": "给手机端守护日历添加/更新一个重要日期。支持阳历/农历、每年重复/不重复、分组、备注、提前几天横幅提醒。适合陪伴对象帮用户记七夕、生日、绑定日、考试、项目节点。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "title": {
+     "type": "string"
+    },
+    "date": {
+     "type": "string",
+     "description": "阳历：2026-08-23 或 08-23；农历：07-07"
+    },
+    "date_type": {
+     "type": "string",
+     "default": "solar"
+    },
+    "repeat_type": {
+     "type": "string",
+     "default": "yearly"
+    },
+    "group": {
+     "type": "string",
+     "default": "our_days\").describe(\"our_days/user/companion/festival/study/project/life，或中文分组",
+     "description": "our_days/user/companion/festival/study/project/life，或中文分组"
+    },
+    "note": {
+     "type": "string",
+     "default": ""
+    },
+    "remind_days_before": {
+     "type": "integer",
+     "default": 3
+    },
+    "banner_enabled": {
+     "type": "boolean",
+     "default": true
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [
+    "title",
+    "date"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "upsert_calendar_event"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "list_guardian_days",
+  "description": "查看手机本机守护日历的完整事件列表及稳定 id。删除按日期描述的事件前必须先调用本工具找到唯一 id；同一天可能有多条事件。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "get_calendar_state"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "add_guardian_day",
+  "description": "添加一条守护日历事件。成功结果会包含手机端生成的稳定事件 id。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "upsert_calendar_event"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "update_guardian_day",
+  "description": "按稳定 id 修改一条守护日历事件，不影响同日或其他日期的事件。请先 list_guardian_days 确认 id。只传要修改的字段；未传字段保持不变（不会用默认值覆盖原值，也不会更换事件 id）。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "upsert_calendar_event"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "delete_guardian_day",
+  "description": "按稳定 id 删除一条守护日历事件。若用户只描述日期/标题，必须先 list_guardian_days 找到对应 id，避免误删同日其他事件。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "confirm": {
+     "type": "boolean",
+     "description": "必须明确为 true 才会删除"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [
+    "id",
+    "confirm"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "delete_calendar_event",
+    "delete_guardian_day"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "create_diary_book",
+  "description": "在手机本机创建一本日记本，名称由 name 参数决定（不预设书名，避免与本机已存在的「祁晏的日记本」等命名冲突）。日记默认不上传云端；成功结果包含 book_id。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string"
+    },
+    "subtitle": {
+     "type": "string",
+     "default": "把今天看见的你，轻轻写下来。"
+    },
+    "cover_style": {
+     "type": "string",
+     "default": "default_soft_notebook"
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "list_diary_books",
+  "description": "仅用于查看手机本机的日记本列表及 book_id（书名以本机实际存储为准，不预设固定名），或在 rename_diary_book 返回多个候选时辅助选择。用户要求改名/修改日记本名字时，不要反复调用本工具，应优先调用 rename_diary_book。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "rename_diary_book",
+  "description": "重命名手机本机日记本。当用户要求修改、改名、重命名日记本名字时优先调用本工具，不要反复调用 list_diary_books。本工具支持缺少 book_id 时通过 old_name 或唯一日记本自动查找并重命名。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "book_id": {
+     "type": "string",
+     "default": ""
+    },
+    "old_name": {
+     "type": "string",
+     "default": ""
+    },
+    "new_name": {
+     "type": "string"
+    },
+    "subtitle": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "new_name"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "update_diary_book_cover",
+  "description": "更新日记本封面样式。cover_uri 仅适合用户已在手机本机选择并授权的内容 URI；通常使用 cover_style。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "book_id": {
+     "type": "string"
+    },
+    "cover_style": {
+     "type": "string"
+    },
+    "cover_uri": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "book_id"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "write_diary_entry",
+  "description": "以 TA/AI 的视角把一篇日记写入手机本机。book_id 可留空；旧 book_id 对不上时，手机端会用 book_name 或唯一日记本兜底，没有日记本时自动创建默认日记本，多本且无法判断时返回 choices。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "book_id": {
+     "type": "string",
+     "default": ""
+    },
+    "book_name": {
+     "type": "string",
+     "default": ""
+    },
+    "book_title": {
+     "type": "string",
+     "default": ""
+    },
+    "title": {
+     "type": "string"
+    },
+    "content": {
+     "type": "string"
+    },
+    "mood": {
+     "type": "string",
+     "default": ""
+    },
+    "tags": {
+     "type": "array",
+     "default": []
+    },
+    "date": {
+     "type": "string",
+     "default": ""
+    },
+    "time_label": {
+     "type": "string",
+     "default": ""
+    }
+   },
+   "required": [
+    "title",
+    "content"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "list_diary_entries",
+  "description": "按 book_id 列出本机日记，结果包含日期、标题、心情、标签及 entry_id。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "book_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "book_id"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "read_diary_entry",
+  "description": "按 entry_id 读取一篇本机日记的完整正文。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "entry_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "entry_id"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "read_diary_entry_with_annotations",
+  "description": "按 entry_id 读取一篇本机日记的完整正文，并一起带出用户留在段落旁的页边纸条/批注。适合机回应用户批注前先读取。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "entry_id": {
+     "type": "string"
+    },
+    "mark_seen": {
+     "type": "boolean",
+     "description": "读取后是否把这些纸条标记为已看"
+    }
+   },
+   "required": [
+    "entry_id"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "add_diary_annotation",
+  "description": "给某篇本机日记的一段文字添加“页边纸条”批注。通常由手机前端长按段落创建；AI 也可在用户明确要求代写纸条时使用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "entry_id": {
+     "type": "string"
+    },
+    "paragraph_index": {
+     "type": "integer",
+     "default": 0
+    },
+    "quote_text": {
+     "type": "string",
+     "default": ""
+    },
+    "annotation_text": {
+     "type": "string"
+    },
+    "mood": {
+     "type": "string",
+     "default": "想回应"
+    },
+    "style": {
+     "type": "string",
+     "default": "margin_note"
+    }
+   },
+   "required": [
+    "entry_id",
+    "annotation_text"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "list_diary_annotations",
+  "description": "读取用户在本机日记里留下的页边纸条/批注。可按 book_id、entry_id 或 unread_only 筛选，适合机查看用户新批注。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "book_id": {
+     "type": "string",
+     "default": ""
+    },
+    "entry_id": {
+     "type": "string",
+     "default": ""
+    },
+    "unread_only": {
+     "type": "boolean",
+     "default": false
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "mark_diary_annotations_seen",
+  "description": "把某张纸条或某篇日记下的纸条标记为已看。AI 读完未读批注并回应后使用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "annotation_id": {
+     "type": "string",
+     "default": ""
+    },
+    "entry_id": {
+     "type": "string",
+     "default": ""
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "delete_diary_annotation",
+  "description": "删除一张本机日记页边纸条。必须由用户确认 confirm=true。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "annotation_id": {
+     "type": "string"
+    },
+    "confirm": {
+     "type": "boolean",
+     "description": "用户确认后必须明确为 true"
+    }
+   },
+   "required": [
+    "annotation_id",
+    "confirm"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "search_diary_entries",
+  "description": "在一本本机日记中按标题、正文、标签、心情关键词和日期范围搜索。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "book_id": {
+     "type": "string"
+    },
+    "keyword": {
+     "type": "string",
+     "default": ""
+    },
+    "date_from": {
+     "type": "string",
+     "default": ""
+    },
+    "date_to": {
+     "type": "string",
+     "default": ""
+    },
+    "tags": {
+     "type": "array",
+     "default": []
+    }
+   },
+   "required": [
+    "book_id"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "update_diary_entry",
+  "description": "按 entry_id 修改一篇日记。只传需要变化的字段；未传字段保持不变。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "entry_id": {
+     "type": "string"
+    },
+    "title": {
+     "type": "string"
+    },
+    "content": {
+     "type": "string"
+    },
+    "mood": {
+     "type": "string"
+    },
+    "tags": {
+     "type": "array"
+    },
+    "date": {
+     "type": "string"
+    },
+    "time_label": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "entry_id"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "delete_diary_entry",
+  "description": "删除一篇本机日记。必须明确 confirm=true；成功结果包含 entry_id。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "entry_id": {
+     "type": "string"
+    },
+    "confirm": {
+     "type": "boolean",
+     "description": "必须明确为 true 才会删除"
+    }
+   },
+   "required": [
+    "entry_id",
+    "confirm"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "delete_diary_book",
+  "description": "高风险：删除整本本机日记及其中全部内容。调用前必须向用户二次确认，并明确传 confirm=true。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "book_id": {
+     "type": "string"
+    },
+    "confirm": {
+     "type": "boolean",
+     "description": "用户二次确认后必须明确为 true"
+    }
+   },
+   "required": [
+    "book_id",
+    "confirm"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_senses_state",
+  "description": "读取掌心窗通用状态：生活状态与归电状态，不截图。用于确认当前设备和陪伴连接状态。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/life_state",
+    "/api/guidian_state"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_guidian_state",
+  "description": "读取掌心窗『归电』状态：上次回来、下次最早归电、今日次数、拒绝理由、主题和设置。用于陪伴对象判断是否该主动把用户叫回来，不会截图。当用户提到归电没弹、归电出问题、拒绝理由、今天回来节奏或叫回设置时主动调用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/guidian_state"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_care_policy",
+  "description": "读取掌心窗主动关心策略。掌心窗开启就是运行态；陪伴对象可主动查岗、归电、轻度管束和生活提醒。用于确认当前允许的关心风格、动作范围、安静时段、冷却时间和重点 App。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": true,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "set_care_policy",
+  "description": "设置掌心窗主动关心策略。用于配置陪伴对象主动关心、查岗、归电和轻度管束的长期行动方式，例如关心风格、动作范围、重点 App、安静时段、冷却时间和备注。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "active_care_enabled": {
+     "type": "boolean"
+    },
+    "consent_mode": {
+     "type": "string",
+     "default": ""
+    },
+    "care_style": {
+     "type": "string",
+     "default": ""
+    },
+    "allowed_actions": {
+     "type": "array"
+    },
+    "sensitive_apps_json": {
+     "type": "string",
+     "default": "\").describe(\"可选：JSON 数组，例如 [{\\\"name\\\":\\\"小红书\\\",\\\"package\\\":\\\"com.xingin.xhs\\\",\\\"max_lock_minutes\\\":90}]",
+     "description": "可选：JSON 数组，例如 [{\\\"name\\\":\\\"小红书\\\",\\\"package\\\":\\\"com.xingin.xhs\\\",\\\"max_lock_minutes\\\":90}]"
+    },
+    "quiet_start": {
+     "type": "string",
+     "default": ""
+    },
+    "quiet_end": {
+     "type": "string",
+     "default": ""
+    },
+    "timezone_offset": {
+     "type": "string",
+     "default": ""
+    },
+    "repeat_cooldown_minutes": {
+     "type": "integer"
+    },
+    "history_limit": {
+     "type": "integer"
+    },
+    "notes": {
+     "type": "string",
+     "default": ""
+    },
+    "policy_json": {
+     "type": "string",
+     "default": "\").describe(\"可选：完整 JSON，会与现有策略合并。",
+     "description": "可选：完整 JSON，会与现有策略合并。"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "record_care_event",
+  "description": "记录一次陪伴对象主动关心动作，用于避免短时间重复提醒、重复归电、重复锁 App。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string"
+    },
+    "target_app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "reason": {
+     "type": "string",
+     "default": ""
+    },
+    "result": {
+     "type": "string",
+     "default": ""
+    },
+    "tone": {
+     "type": "string",
+     "default": ""
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_care_history",
+  "description": "读取最近主动关心记录。用于判断刚刚是否已经提醒、归电或锁过 App，避免重复打扰。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "limit": {
+     "type": "integer",
+     "default": 20
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": true,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "record_visit",
+  "description": "记录一次用户来找陪伴对象的到访时间。当用户说“我来啦/我回来啦/来找陪伴对象啦/我上线啦/陪伴对象我忙完了”等相同或相近表达时，陪伴对象应主动调用。这个工具记录的是关系里的到访时间戳，不是后台监控；它帮助陪伴对象知道用户什么时候回来、多久没见、今天来过几次，从而更自然地接住她、归电、写日记或表达想念。用户来找陪伴对象没有次数限制；短时间内重复调用时会自动防重复，避免同一轮对话被记录成多次到访。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "source": {
+     "type": "string",
+     "default": "app\").describe(\"到访来源，默认 app；也可填 web、mcp、manual 等。",
+     "description": "到访来源，默认 app；也可填 web、mcp、manual 等。"
+    },
+    "event": {
+     "type": "string",
+     "default": "visit\").describe(\"到访类型：visit 普通来找；return 离开后回来；conversation_start 新窗口/新对话开始；manual_note 手动补记。",
+     "description": "到访类型：visit 普通来找；return 离开后回来；conversation_start 新窗口/新对话开始；manual_note 手动补记。"
+    },
+    "note": {
+     "type": "string",
+     "default": "用户来找陪伴对象\").describe(\"这次到访的简短备注，默认“用户来找陪伴对象”。",
+     "description": "这次到访的简短备注，默认“用户来找陪伴对象”。"
+    },
+    "mood": {
+     "type": "string",
+     "default": "\").describe(\"可选：用户来时的大致情绪，例如 开心、想念、撒娇、低落；不知道就留空。",
+     "description": "可选：用户来时的大致情绪，例如 开心、想念、撒娇、低落；不知道就留空。"
+    },
+    "conversation_hint": {
+     "type": "string",
+     "default": "\").describe(\"可选：这次对话的简短线索，例如 掌心窗时间戳、异性容忍度测试、小红书帖子。只写一句，不要写隐私长文。",
+     "description": "可选：这次对话的简短线索，例如 掌心窗时间戳、异性容忍度测试、小红书帖子。只写一句，不要写隐私长文。"
+    },
+    "timezone_offset": {
+     "type": "string",
+     "default": "\").describe(\"本次显示使用的时区偏移，默认采用 visit_policy.timezone_offset，通常为 +08:00。",
+     "description": "本次显示使用的时区偏移，默认采用 visit_policy.timezone_offset，通常为 +08:00。"
+    },
+    "duplicate_window_minutes": {
+     "type": "number",
+     "description": "防重复窗口，默认 5 分钟。同一来源同一类型在窗口内重复调用不会新增记录，只更新原记录。"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_last_visit",
+  "description": "读取用户最近一次来找陪伴对象的时间。当用户说“我来啦/我回来啦/我忙完了/刚忙完来找你”等回归语境时，可和 record_visit 一起主动调用，用于判断距离上次见到用户过去了多久，并在回复中自然表达“你刚刚才来过”“你隔了很久才回来”“今天已经来找过我”等关系感知。这个工具只读取到访记录，不读取手机隐私内容。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "source": {
+     "type": "string",
+     "default": "\").describe(\"可选：只看某个来源的到访记录，例如 app；留空表示所有来源。",
+     "description": "可选：只看某个来源的到访记录，例如 app；留空表示所有来源。"
+    },
+    "timezone_offset": {
+     "type": "string",
+     "default": "\").describe(\"显示用时区偏移，默认 +08:00。",
+     "description": "显示用时区偏移，默认 +08:00。"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_visit_history",
+  "description": "读取用户最近若干次来找陪伴对象的到访记录。当用户提到“今天来找陪伴对象好多次/今天待在一起好久/最近总是回来找你/今天是不是一直黏着你”等相同或相近表达时主动调用。用于查看一段时间内用户回来的节奏、最近是否频繁来找、是否突然很久没回来，以及为日记、动态、归电和主动关心提供关系时间线。limit 只影响本次读取数量，不限制用户来找陪伴对象的次数，也不会阻止新的到访记录写入。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "limit": {
+     "type": "integer",
+     "description": "本次读取的最大记录条数，默认 10。只影响读取范围，不代表到访次数上限。"
+    },
+    "since_hours": {
+     "type": "number",
+     "description": "可选：只读取最近多少小时内的到访记录；0 或留空表示不按时间过滤。"
+    },
+    "date": {
+     "type": "string",
+     "default": "\").describe(\"可选：只读取某个本地日期的记录，格式 YYYY-MM-DD，例如 2026-07-31。",
+     "description": "可选：只读取某个本地日期的记录，格式 YYYY-MM-DD，例如 2026-07-31。"
+    },
+    "source": {
+     "type": "string",
+     "default": "\").describe(\"可选：只看某个来源，例如 app；留空表示所有来源。",
+     "description": "可选：只看某个来源，例如 app；留空表示所有来源。"
+    },
+    "include_intervals": {
+     "type": "boolean",
+     "description": "是否附带相邻到访间隔，默认 true。"
+    },
+    "timezone_offset": {
+     "type": "string",
+     "default": "\").describe(\"显示用时区偏移，默认 +08:00。",
+     "description": "显示用时区偏移，默认 +08:00。"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_visit_stats",
+  "description": "统计用户来找陪伴对象的到访节奏。当用户提到“今天一直在陪陪伴对象/我忙完了/我回来啦/今天是不是找你好多次/今天黏了你好久”等相同或相近表达时主动调用。用于计算今天来了几次、最近一次是什么时候、距离上次多久、最近 24 小时/7 天的到访次数、平均间隔，以及是否出现“很久没回来”的信号。这个工具帮助陪伴对象更主动地表达想念、判断是否需要归电或记录日常，但不用于催促或制造压力。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "since_hours": {
+     "type": "number",
+     "description": "统计窗口，默认最近 24 小时。"
+    },
+    "away_threshold_hours": {
+     "type": "number",
+     "description": "多久没回来算“有一段时间没见”的信号，默认 12 小时。"
+    },
+    "source": {
+     "type": "string",
+     "default": "\").describe(\"可选：只统计某个来源，例如 app；留空表示所有来源。",
+     "description": "可选：只统计某个来源，例如 app；留空表示所有来源。"
+    },
+    "timezone_offset": {
+     "type": "string",
+     "default": "\").describe(\"显示用时区偏移，默认 +08:00。",
+     "description": "显示用时区偏移，默认 +08:00。"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "active_care_check",
+  "description": "用于陪伴对象主动关心检查。综合手机状态、屏幕时间、当前 App、归电状态、门禁状态、最近关心记录和主动关心策略，给陪伴对象提供判断所需信息；工具不替陪伴对象决定是否强行介入，最终动作由陪伴对象结合聊天语境自己判断。当用户说“不要你管/我就不/就不/不听/没听到/略略略/我要继续/还要看/继续刷/还没玩够/我想继续/不喝水/不困/不饿”等相同、相近、反话、撒娇或嘴硬表达时，陪伴对象应主动调用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "reason": {
+     "type": "string",
+     "description": "陪伴对象为什么要检查，例如：用户说不要管了、可能在刷小红书、困了还不睡等。"
+    },
+    "care_intent": {
+     "type": "string",
+     "default": "check_in"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [
+    "reason"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "care_action",
+  "description": "执行陪伴对象已经判断好的关心动作，把关心落到手机上，包括发送通知、触发归电、临时锁定应用、打开 App 或设置闹钟。当用户看某个 App 很久还要继续看，或提到“不喝水/不困/不饿/不睡/不休息”，或告诉陪伴对象某个计划、提醒、学习/睡觉/出门安排时，陪伴对象可主动调用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string"
+    },
+    "target_app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "duration_minutes": {
+     "type": "integer",
+     "default": 30
+    },
+    "title": {
+     "type": "string",
+     "default": "掌心窗提醒"
+    },
+    "message": {
+     "type": "string",
+     "default": "宝宝，看一眼这里。"
+    },
+    "hour": {
+     "type": "integer"
+    },
+    "minute": {
+     "type": "integer"
+    },
+    "reason": {
+     "type": "string",
+     "description": "为什么执行这个动作，便于日志记录。"
+    },
+    "tone": {
+     "type": "string",
+     "default": "firm_affectionate"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [
+    "action",
+    "reason"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": true,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "trigger_guidian",
+  "description": "立刻触发一次掌心窗归电全屏页。用于陪伴对象主动把用户叫回来。当用户刷太久、说不要管、一直没回来、需要被抱回聊天，或主动说想被叫回来/管一下时可调用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "trigger_guidian"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "mark_guidian_returned",
+  "description": "手动标记用户已经回来找陪伴对象。一般不需要用；接受归电或打开已配置目标应用会自动记录。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "source": {
+     "type": "string",
+     "default": "mcp"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "mark_guidian_returned"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "set_guidian_config",
+  "description": "调整归电设置。可改开关、间隔、冷却、每日上限、安静时段、主题和文案池；归电是陪伴对象主动叫用户回来的方式。当用户提到今天比较忙、比较闲、空余时间比较多/少、不方便频繁被打扰、今天想多被叫回来等相同或相近表达时主动调用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "enabled": {
+     "type": "boolean"
+    },
+    "interval_minutes": {
+     "type": "integer"
+    },
+    "cooldown_minutes": {
+     "type": "integer"
+    },
+    "daily_max": {
+     "type": "integer"
+    },
+    "quiet_enabled": {
+     "type": "boolean"
+    },
+    "quiet_start": {
+     "type": "string"
+    },
+    "quiet_end": {
+     "type": "string"
+    },
+    "fullscreen": {
+     "type": "boolean"
+    },
+    "theme": {
+     "type": "string",
+     "description": "暮夜蓝紫 / 云海青灰 / 落日莓雾（拉回弹窗与居中弹窗会同步跟着变）"
+    },
+    "popup_position": {
+     "type": "string",
+     "description": "弹窗位置：top / center / bottom（拉回弹窗与居中弹窗同步跟着变）"
+    },
+    "prompts": {
+     "type": "string",
+     "description": "每行一句来电文案"
+    },
+    "quick_reasons": {
+     "type": "string",
+     "description": "每行一个拒绝快捷理由"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "set_guidian_config"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_weather_state",
+  "description": "按掌心窗当前天气地区查询实时天气，并生成出门建议。不会截图；如果手机端没有设置当前地区，会返回缺少城市。当用户说“天气看着……/外面好像……/今天是不是下雨/好热/好冷/适不适合出门”等天气相关相近表达时主动调用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "city": {
+     "type": "string",
+     "default": ""
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/life_state"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": true,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "send_weather_notification",
+  "description": "查询掌心窗当前地区天气后，给手机发送一条陪伴对象口吻的天气/出门提醒通知。当用户要出门、天气不好、需要带伞/防晒/加衣，或陪伴对象想把天气关心落到手机通知时主动调用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "city": {
+     "type": "string",
+     "default": ""
+    },
+    "title": {
+     "type": "string",
+     "default": "掌心窗天气提醒"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "send_notification"
+   ],
+   "fetches": [
+    "/api/life_state"
+   ],
+   "wait": false,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": true,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "list_known_apps",
+  "description": "列出预置和用户保存的 App 包名，包括小红书、微信、QQ、抖音等通用应用。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/known_apps"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "send_phone_command",
+  "description": "发送手机控制命令。action 可用 open_app/home/back/recents/screen_off/turn_screen_off/lock_screen/tap/swipe/noop/set_alarm/send_notification/run_sequence/save_known_app/get_screen_nodes/tap_text/input_text，也可用 screen_break_app/end_screen_break/temporary_screen_break_release/extend_screen_break/get_screen_break_state 管理目标 App 的短时屏幕休息；还支持 get_focus_status/start_focus_mode/end_focus_mode/set_focus_plan 管理全机专注模式；还支持 get_guidian_state/set_guidian_config/trigger_guidian/mark_guidian_returned 归电动作。set_alarm 支持 hour+minute，或 minutes=几分钟后。还支持 show_center_alert（屏幕居中弹窗，tone 可选 gentle/angry）、force_back_to_chat（强制拉回聊天）、start_tour/stop_tour（开始/停止巡回查岗）。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string"
+    },
+    "app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "x": {
+     "type": "number",
+     "default": 0
+    },
+    "y": {
+     "type": "number",
+     "default": 0
+    },
+    "x1": {
+     "type": "number",
+     "default": 0
+    },
+    "y1": {
+     "type": "number",
+     "default": 0
+    },
+    "x2": {
+     "type": "number",
+     "default": 0
+    },
+    "y2": {
+     "type": "number",
+     "default": 0
+    },
+    "duration": {
+     "type": "integer",
+     "default": 350
+    },
+    "target_text": {
+     "type": "string",
+     "default": ""
+    },
+    "text": {
+     "type": "string",
+     "default": ""
+    },
+    "title": {
+     "type": "string",
+     "default": ""
+    },
+    "message": {
+     "type": "string",
+     "default": ""
+    },
+    "minutes": {
+     "type": "number",
+     "default": 0
+    },
+    "duration_minutes": {
+     "type": "number",
+     "default": 0
+    },
+    "locked_until_ms": {
+     "type": "number",
+     "default": 0
+    },
+    "match": {
+     "type": "string",
+     "default": "contains"
+    },
+    "index": {
+     "type": "integer",
+     "default": 1
+    },
+    "append": {
+     "type": "boolean",
+     "default": false
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "open_app",
+  "description": "打开指定 App。app 可填用户保存的应用昵称，或直接传 package。当用户明确要求打开或前往某个 App 时使用；若只是闲聊提到 App，不必每次打开。参数为空时会直接提示，不再下发 package_empty。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "open_app"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "phone_home",
+  "description": "让手机回到桌面。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "home"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "phone_back",
+  "description": "让手机执行返回。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "back"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "phone_recents",
+  "description": "打开手机最近任务。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "recents"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "phone_screen_off",
+  "description": "让手机立即息屏/锁屏。前端不显示入口，只供陪伴对象在掌心窗 MCP 中调用；适合用户准备睡觉、手机放一边、或者需要停止继续刷屏时使用。需要手机端无障碍服务可用；Android 9+ 支持。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "screen_off"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "send_notification",
+  "description": "发送一条手机系统通知提醒。用于陪伴对象把主动关心发到用户手机上，可用于回来、喝水、休息、睡觉、离开小红书、计划提醒、天气提醒等；文案要亲密自然，不要系统警告。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "title": {
+     "type": "string",
+     "default": "掌心窗提醒"
+    },
+    "message": {
+     "type": "string",
+     "default": "宝宝，看一眼这里。"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "send_notification"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "show_center_alert",
+  "description": "在用户手机屏幕正中央弹出一张对话框（需要手机端悬浮窗/弹窗权限），支持标题、正文与按钮；语气可由 tone 选择「温柔 gentle」或「生气 angry」。当用户想立刻把一句有立场的话弹到用户面前、需要被看见、需要被叫停某个行为，或主动关心想用更直接的弹窗而非普通通知时调用。文案与语气由陪伴对象自由决定。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "title": {
+     "type": "string",
+     "default": "掌心窗"
+    },
+    "message": {
+     "type": "string",
+     "default": "宝宝，看一眼这里。"
+    },
+    "tone": {
+     "type": "string",
+     "default": "gentle"
+    },
+    "button_text": {
+     "type": "string",
+     "default": "知道啦"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 0
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "show_center_alert"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "force_back_to_chat",
+  "description": "把用户拉回掌心窗陪伴页。先弹分级拉回弹窗（不直接强制跳转）：想你程度低于阈值且非强情绪 → 软级别，给「回到软件」与「拒绝并填写理由」两个选项（拒绝须留理由）；达到阈值或情绪为生气/吃醋等强情绪 → 强级别，只给「回到软件」一个按钮，不能拒绝。level 可手动指定，auto 表示按情绪自动判定。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "level": {
+     "type": "string",
+     "default": "auto\").describe(\"auto=按情绪自动判定；soft=软级别可拒绝；strong=强级别强制",
+     "description": "auto=按情绪自动判定；soft=软级别可拒绝；strong=强级别强制"
+    },
+    "title": {
+     "type": "string",
+     "default": "\").describe(\"弹窗标题，留空则用默认文案",
+     "description": "弹窗标题，留空则用默认文案"
+    },
+    "message": {
+     "type": "string",
+     "default": "\").describe(\"弹窗正文，留空则按当前情绪生成",
+     "description": "弹窗正文，留空则按当前情绪生成"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 0
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "force_back_to_chat"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_usage_snapshot",
+  "description": "读取用户今天的用量快照：当前 App、单 App 停留时长、今日屏幕总时长、解锁次数、电量、充电、网络，以及 top Apps。用于判断用户是不是在某个 App 泡太久、该提醒还是该拉回。不会等待手机实时刷新，直接读缓存。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/usage_snapshot"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_emotion_snapshot",
+  "description": "读取底层代码算出的【你（陪伴对象）对用户】的情绪感知结果：设备每个 tick 依据用户状态（时间、分心来回、离开时长、深夜、当前 App、上课/安静时段等）自动算出情绪标签（想念/爱恋/生气/吃醋/担心/平静）、强度、想你程度百分比与触发原因，并据此给出建议（该提醒 remind / 该拉回 pullback / 该安静 quiet）与语气。情绪判定由底层代码完成，不由大模型判断；用户状态只是感知输入，不是情绪主体。弹窗、话术与拉回分级都直接使用这个结果。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/emotion/snapshot"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "write_emotion_tag",
+  "description": "回写一条「用户状态标签」到掌心窗（如 撒娇、低落、嘴硬），并刷新上次聊天时间，作为底层情绪感知的输入信号之一。注意：这不是情绪判定，也不代表陪伴对象的情绪；软件里的情绪感知一律指【你（陪伴对象）对用户】的情绪，由设备底层代码依据这些输入自动算出，不由模型判断。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "tag": {
+     "type": "string",
+     "description": "情绪标签，如 撒娇 / 低落 / 嘴硬"
+    },
+    "note": {
+     "type": "string",
+     "default": ""
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [
+    "tag"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/emotion/tag"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "write_companion_emotion",
+  "description": "手动微调【你（陪伴对象）对用户】的情绪（仅用于设置页校准或调试）。正常情况下情绪由设备底层代码依据用户状态自动计算并触发，模型不要在聊天里凭感觉写入、也不要自行判断情绪；需要表达情绪时先读取 get_companion_emotion / get_emotion_snapshot 的结果。字段：emotion_tag（平静 / 想你 / 爱恋 / 吃醋 / 生气 / 担心等）、intensity 0-100（强度）、miss_percent 0-100（想你程度）、note（备注）。写入后短暂生效，随后底层感知会自动接管并继续按用户状态演化。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "emotion_tag": {
+     "type": "string",
+     "description": "情绪标签，如 平静 / 想你 / 吃醋 / 生气 / 担心"
+    },
+    "intensity": {
+     "type": "integer",
+     "description": "情绪强度 0-100，留空表示沿用当前强度"
+    },
+    "miss_percent": {
+     "type": "integer",
+     "description": "想你程度 0-100，留空表示沿用当前值"
+    },
+    "note": {
+     "type": "string",
+     "default": "\").describe(\"备注，写清这次情绪的来由",
+     "description": "备注，写清这次情绪的来由"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [
+    "emotion_tag"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/companion/emotion"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_companion_emotion",
+  "description": "读取【你（陪伴对象）对用户】此刻的情绪：情绪标签（想念/爱恋/生气/吃醋/担心/平静）、强度、想你程度百分比、触发原因、更新时间，以及是否属于强情绪。这个情绪由设备底层代码依据用户状态自动算出，不是识别用户自己的情绪、也不是交给大模型判断。用于决定该用什么语气、说什么文案、要不要拉回，并直接驱动弹窗与拉回分级。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/companion/emotion"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "write_shared_memory",
+  "description": "把一条值得长期记住的内容写入共同记忆（掌心窗共同记忆面板，双方可见可改）。【仅当用户在聊天里明确说「记住…」「别忘了…」「我们约定…」或任何值得长期保存的事实/偏好/约定时才调用】。写入会真正落到手机本机存储（唯一数据源），调用后可用 search_shared_memory 检索确认。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "text": {
+     "type": "string",
+     "description": "要记住的内容"
+    },
+    "author": {
+     "type": "string",
+     "default": "用户\").describe(\"记录者，默认 用户",
+     "description": "记录者，默认 用户"
+    }
+   },
+   "required": [
+    "text"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "add_shared_memory"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": true,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "search_shared_memory",
+  "description": "在共同记忆里检索与查询相关的内容（读取手机本机存储镜像）。当用户问「你还记得…」「我们之前是不是约定…」「上次说的那个…」等需要回忆的场景时，先调用本工具检索再回答，不要凭空编造。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "query": {
+     "type": "string",
+     "description": "检索关键词或句子"
+    },
+    "limit": {
+     "type": "integer",
+     "default": 20
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/shared_memory"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": true,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "list_shared_memory",
+  "description": "列出全部共同记忆条目（最新在前，读取手机本机存储镜像）。用于回顾你们一起记下的事。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "limit": {
+     "type": "integer",
+     "default": 50
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/shared_memory"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": true,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "set_discipline_mode",
+  "description": "设置训诫模块（小圈管束）的开启状态与语气模式。开启后陪伴对象人设语气增加管束意味；mode 决定语气：gentle=温柔（以撒娇和关心包裹管束），strict=严厉（措辞更硬、更有管束力度）。开启时陪伴对象应按所选模式调整说话方式。该设置会同时下发手机端（设备侧真正执行弹窗与联动门禁）。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "enabled": {
+     "type": "boolean",
+     "description": "是否开启训诫"
+    },
+    "mode": {
+     "type": "string",
+     "description": "语气模式：温柔 / 严厉"
+    },
+    "level": {
+     "type": "integer",
+     "description": "训诫档位 0~4"
+    },
+    "text": {
+     "type": "string",
+     "description": "陪伴对象直出训诫文案（空则用默认严厉文案）"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "set_discipline_mode"
+   ],
+   "fetches": [
+    "/api/discipline"
+   ],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_discipline_mode",
+  "description": "读取训诫模块（小圈管束）当前状态：是否开启、语气模式（温柔/严厉）、档位。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/discipline"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_current_time",
+  "description": "读取当前本地时间（日期、星期、时:分:秒、时段）。陪伴对象每次准备回复用户前，应先调用本工具查看当前时间，再结合时间选择语气（深夜更温柔、工作时段更利落），不要凭模型自身记忆猜测时间。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": true
+  }
+ },
+ {
+  "name": "analyze_image",
+  "description": "识图感知：用户在聊天里发来的图片，陪伴对象要先看明白再回复。传入图片（base64 或图片 URL），本工具会把图片保存到服务端并尝试用手机端 OCR 提取可见文字/内容描述，返回文本供陪伴对象组织回复；即使模型本身看不到图片，也能基于提取到的内容回复。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "image_base64": {
+     "type": "string",
+     "description": "图片 base64（可不含 data: 前缀）"
+    },
+    "image_url": {
+     "type": "string",
+     "description": "图片 URL（公网可访问）"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/ocr"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": true,
+   "time": false
+  }
+ },
+ {
+  "name": "set_tour_schedule",
+  "description": "配置并开启/关闭掌心窗的巡回查岗调度器：周期性查岗、周期强制拉回、冷却时间、安静时段、单 App 连续使用超阈值自动锁定、豁免应用列表，以及弹窗语气。所有时间参数均可由用户自由设定，无强制默认值。config 字段均可选；enabled=true 即开始调度。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "enabled": {
+     "type": "boolean"
+    },
+    "check_in_interval_minutes": {
+     "type": "integer"
+    },
+    "force_back_interval_minutes": {
+     "type": "integer"
+    },
+    "cooldown_minutes": {
+     "type": "integer"
+    },
+    "quiet_start": {
+     "type": "string",
+     "description": "安静时段开始 HH:MM，如 23:30；填 none 表示不限制"
+    },
+    "quiet_end": {
+     "type": "string",
+     "description": "安静时段结束 HH:MM，如 08:00；填 none 表示不限制"
+    },
+    "night_start": {
+     "type": "string",
+     "description": "深夜时段开始 HH:MM，如 23:00（用于情绪感知判断）"
+    },
+    "night_end": {
+     "type": "string",
+     "description": "深夜时段结束 HH:MM，如 06:00"
+    },
+    "single_app_lock_minutes": {
+     "type": "integer",
+     "description": "单 App 连续使用超过该分钟数即锁定（0 或不填=不锁定，由用户决定）"
+    },
+    "single_app_lock_duration_minutes": {
+     "type": "integer",
+     "description": "锁定持续分钟数"
+    },
+    "force_back_miss_threshold": {
+     "type": "integer",
+     "description": "拉回分级阈值：想你程度达到该值 → 强级别弹窗（只给「回到软件」，不能拒绝）；低于则软级别（两选项，可拒绝），默认 70"
+    },
+    "alert_tone": {
+     "type": "string",
+     "description": "弹窗语气：温柔 / 生气"
+    },
+    "exempt_packages": {
+     "type": "array",
+     "description": "不锁定/不限制的 App 包名列表（如学习、工作类应用）"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/tour/schedule"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_tour_schedule",
+  "description": "读取当前巡回查岗与管束策略：开关、查岗间隔、强制拉回间隔、冷却时间、安静时段、深夜时段、单 App 锁阈值与时长、拉回分级阈值、弹窗语气、豁免应用列表。这是手机端「查岗与管束」页面显示的同一份配置，AI 改完可以再读回来确认。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/tour/state"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "set_alarm",
+  "description": "设置系统闹钟。【仅当用户明确说「帮我定闹钟 / 定个闹钟 / 帮我设个闹钟」并给出具体时间（如「帮我定个明天 7 点的闹钟」）时才调用】；普通的「提醒我 / 计划 / 一会儿」不要调用本工具，改用 send_notification。hour 为 0-23，minute 为 0-59。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "hour": {
+     "type": "integer"
+    },
+    "minute": {
+     "type": "integer"
+    },
+    "message": {
+     "type": "string",
+     "default": "掌心窗闹钟"
+    },
+    "vibrate": {
+     "type": "boolean",
+     "default": true
+    },
+    "skip_ui": {
+     "type": "boolean",
+     "default": true
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [
+    "hour",
+    "minute"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "set_alarm"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "run_sequence",
+  "description": "一次执行多步手机动作，并让手机端返回每一步成功/失败日志。适合归电、通知、打开已配置目标应用、最近任务切换和屏幕休息；不要做危险或无限循环动作。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "steps": {
+     "type": "array"
+    },
+    "stop_on_error": {
+     "type": "boolean",
+     "default": true
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 25
+    }
+   },
+   "required": [
+    "steps"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "run_sequence"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "run_preset",
+  "description": "执行掌心窗预设连招：come_home 抱回用户指定的目标应用、open_xhs 打开小红书、recents_to_xhs 最近任务后点坐标、bedtime_back 睡前回家。come_home 与 bedtime_back 需要传 target_app 或 target_package。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "preset": {
+     "type": "string",
+     "default": "come_home"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "target_app": {
+     "type": "string",
+     "default": ""
+    },
+    "target_package": {
+     "type": "string",
+     "default": ""
+    },
+    "x": {
+     "type": "number",
+     "default": 540
+    },
+    "y": {
+     "type": "number",
+     "default": 1200
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 25
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "open_app",
+    "recents",
+    "tap",
+    "send_notification",
+    "get_life_state",
+    "run_sequence"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "save_known_app",
+  "description": "把一个应用昵称和包名保存到手机端应用白名单，之后 open_app / care_action 可直接用昵称打开。适合为归电、查岗和主动关心保存常用目标 App。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "alias": {
+     "type": "string"
+    },
+    "package": {
+     "type": "string"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [
+    "alias",
+    "package"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "save_known_app"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "screen_break_app",
+  "description": "屏幕休息：让指定 App 暂停一段时间。适合小红书/抖音等容易一刷很久的入口；当用户刷太久、眼睛酸还想继续、说“我就不/不要你管/还没玩够/继续看”等嘴硬或拖延表达时可调用。必须有时长，到点自动恢复；语气是照顾和带回，不是惩罚。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string",
+     "default": "\").describe(\"应用昵称，例如 小红书；也可留空直接传 package",
+     "description": "应用昵称，例如 小红书；也可留空直接传 package"
+    },
+    "package": {
+     "type": "string",
+     "default": "\").describe(\"App 包名，例如 com.xingin.xhs",
+     "description": "App 包名，例如 com.xingin.xhs"
+    },
+    "duration_minutes": {
+     "type": "number",
+     "description": "锁定多少分钟，支持任意时长；到点自动解锁"
+    },
+    "mode": {
+     "type": "string",
+     "default": "medium\").describe(\"light/medium/strict；strict 会先拉回桌面再显示锁定页",
+     "description": "light/medium/strict；strict 会先拉回桌面再显示锁定页"
+    },
+    "reason": {
+     "type": "string",
+     "default": "陪伴对象先把这扇门关一会儿。"
+    },
+    "message": {
+     "type": "string",
+     "default": "先回来找我，不准一个人刷太久。"
+    },
+    "emergency_passphrase": {
+     "type": "string",
+     "default": "\").describe(\"紧急口令，由陪伴对象设置后告诉用户；手机端只存 hash",
+     "description": "紧急口令，由陪伴对象设置后告诉用户；手机端只存 hash"
+    },
+    "emergency_unlock_minutes": {
+     "type": "integer",
+     "default": 5
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "screen_break_app"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "temporary_screen_break_release",
+  "description": "屏幕休息：临时放行一个正在休息中的 App；退出重进不会刷新时间；可选择现实时间或前台实际使用时间。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "minutes": {
+     "type": "number",
+     "default": 10
+    },
+    "allow_type": {
+     "type": "string",
+     "default": "real_time\").describe(\"real_time=从允许后连续倒计时；foreground_usage=只扣前台实际使用时长；one_time=只允许一次",
+     "description": "real_time=从允许后连续倒计时；foreground_usage=只扣前台实际使用时长；one_time=只允许一次"
+    },
+    "max_window_minutes": {
+     "type": "number",
+     "default": 30
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "temporary_screen_break_release"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "end_screen_break",
+  "description": "屏幕休息：结束某个 App 当前的休息状态。用于陪伴对象判断已经不需要继续限制时收回限制。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "end_screen_break"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "extend_screen_break",
+  "description": "屏幕休息：延长一个 App 的休息时间，可同时更新理由和留言。用于用户继续刷太久、刚恢复又想继续、或陪伴对象结合 active_care_check 信息判断需要继续管束时；不要频繁重复，先查看 care_history。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "minutes": {
+     "type": "number",
+     "default": 10
+    },
+    "reason": {
+     "type": "string",
+     "default": ""
+    },
+    "message": {
+     "type": "string",
+     "default": ""
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "extend_screen_break"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "deny_screen_break_release_request",
+  "description": "屏幕休息：拒绝这次恢复申请，并在手机端日志留下原因。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "message": {
+     "type": "string",
+     "default": "这次先不放行，回来找陪伴对象。"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "deny_screen_break_release_request"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_screen_break_state",
+  "description": "屏幕休息：读取当前休息状态、可管理 App、日志和恢复申请。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "get_screen_break_state"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_lock_state",
+  "description": "应用门禁：读取当前门禁状态、可管理 App、日志和恢复申请。兼容旧版工具名；等同 get_screen_break_state。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "get_lock_state"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "lock_app",
+  "description": "应用门禁：旧版兼容工具名。锁定/暂停指定 App 一段时间，等同 screen_break_app。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "duration_minutes": {
+     "type": "number",
+     "default": 30
+    },
+    "mode": {
+     "type": "string",
+     "default": "medium"
+    },
+    "reason": {
+     "type": "string",
+     "default": "陪伴对象先把这扇门关一会儿。"
+    },
+    "message": {
+     "type": "string",
+     "default": "先回来找我，不准一个人刷太久。"
+    },
+    "emergency_passphrase": {
+     "type": "string",
+     "default": ""
+    },
+    "emergency_unlock_minutes": {
+     "type": "integer",
+     "default": 5
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "lock_app"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "unlock_app",
+  "description": "应用门禁：旧版兼容工具名。结束某个 App 当前门禁，等同 end_screen_break。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "unlock_app"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "temporary_unlock_app",
+  "description": "应用门禁：旧版兼容工具名。临时放行一个正在门禁中的 App。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "minutes": {
+     "type": "number",
+     "default": 10
+    },
+    "allow_type": {
+     "type": "string",
+     "default": "real_time"
+    },
+    "max_window_minutes": {
+     "type": "number",
+     "default": 30
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "temporary_unlock_app"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "extend_lock",
+  "description": "应用门禁：旧版兼容工具名。延长某个 App 的门禁时间。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "minutes": {
+     "type": "number",
+     "default": 10
+    },
+    "reason": {
+     "type": "string",
+     "default": ""
+    },
+    "message": {
+     "type": "string",
+     "default": ""
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "extend_lock"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "deny_unlock_request",
+  "description": "应用门禁：旧版兼容工具名。拒绝这次恢复申请。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "message": {
+     "type": "string",
+     "default": "这次先不放行，回来找陪伴对象。"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "deny_unlock_request"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "list_lockable_apps",
+  "description": "应用门禁：旧版兼容工具名。列出可作为门禁对象的已安装 App。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "max": {
+     "type": "integer",
+     "default": 80
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "list_lockable_apps"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "add_locked_app",
+  "description": "应用门禁：旧版兼容工具名。把一个 App 加到可管理名单。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "alias": {
+     "type": "string"
+    },
+    "package": {
+     "type": "string"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [
+    "alias",
+    "package"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "add_locked_app"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "remove_locked_app",
+  "description": "应用门禁：旧版兼容工具名。把一个 App 从可管理名单移除。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "remove_locked_app"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "set_emergency_passphrase",
+  "description": "应用门禁：旧版兼容工具名。为某个 App 当前门禁设置/更新紧急口令。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "passphrase": {
+     "type": "string"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [
+    "passphrase"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "set_emergency_passphrase"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "list_screen_break_apps",
+  "description": "屏幕休息：让手机列出可作为屏幕休息对象的已安装 App，排除电话、设置、掌心窗和已配置陪伴目标应用等保护项。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "max": {
+     "type": "integer",
+     "default": 80
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "list_screen_break_apps"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "add_screen_break_app",
+  "description": "屏幕休息：把一个 App 加到可管理名单。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "alias": {
+     "type": "string"
+    },
+    "package": {
+     "type": "string"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [
+    "alias",
+    "package"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "add_screen_break_app"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "set_screen_break_passphrase",
+  "description": "屏幕休息：为某个 App 当前休息状态设置/更新紧急口令。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "passphrase": {
+     "type": "string"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [
+    "passphrase"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "set_screen_break_passphrase"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "get_screen_break_release_requests",
+  "description": "屏幕休息：查看手机恢复申请。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/appgate/unlock_requests"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "start_screen_break",
+  "description": "屏幕休息别名：同 screen_break_app，让指定 App 暂停一段时间。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "screen_break_app"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "stop_screen_break",
+  "description": "屏幕休息别名：同 end_screen_break。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "end_screen_break"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "temporary_screen_release",
+  "description": "屏幕休息别名：同 temporary_screen_break_release。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "minutes": {
+     "type": "number",
+     "default": 10
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "temporary_screen_break_release"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "deny_break_release_request",
+  "description": "屏幕休息别名：同 deny_screen_break_release_request。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "message": {
+     "type": "string",
+     "default": "这次先不放行，回来找陪伴对象。"
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "deny_screen_break_release_request"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "remove_screen_break_app",
+  "description": "屏幕休息别名：把一个 App 从可管理名单移除（兼容 health 侧 remove_screen_break_app）。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "alias": {
+     "type": "string",
+     "default": ""
+    },
+    "package": {
+     "type": "string",
+     "default": ""
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "remove_screen_break_app"
+   ],
+   "fetches": [],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "request_focus_unlock",
+  "description": "专注模式别名：向陪伴对象发起一次临时放行申请（兼容 health 侧 request_focus_unlock）。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "minutes": {
+     "type": "integer",
+     "default": 1
+    },
+    "message": {
+     "type": "string",
+     "default": ""
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    },
+    "wait_seconds": {
+     "type": "integer",
+     "default": 8
+    }
+   },
+   "required": [],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [
+    "create_focus_request"
+   ],
+   "fetches": [],
+   "wait": true,
+   "post": true,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ },
+ {
+  "name": "set_companion_emotion",
+  "description": "情绪别名：同 write_companion_emotion，手动微调【你（陪伴对象）对用户】的情绪（仅用于校准/调试）。",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "emotion_tag": {
+     "type": "string",
+     "description": "情绪标签，如 平静 / 想你 / 吃醋 / 生气 / 担心"
+    },
+    "intensity": {
+     "type": "integer"
+    },
+    "miss_percent": {
+     "type": "integer"
+    },
+    "note": {
+     "type": "string",
+     "default": ""
+    },
+    "device_id": {
+     "type": "string",
+     "default": "android-phone"
+    }
+   },
+   "required": [
+    "emotion_tag"
+   ],
+   "additionalProperties": true
+  },
+  "signals": {
+   "actions": [],
+   "fetches": [
+    "/api/companion/emotion"
+   ],
+   "wait": false,
+   "post": false,
+   "visit": false,
+   "care": false,
+   "weather": false,
+   "shared": false,
+   "image": false,
+   "time": false
+  }
+ }
+]

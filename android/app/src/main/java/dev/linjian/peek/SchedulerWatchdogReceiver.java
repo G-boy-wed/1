@@ -14,5 +14,16 @@ public class SchedulerWatchdogReceiver extends BroadcastReceiver {
         try {
             PolicyScheduler.start(context, "watchdog");
         } catch (Exception ignored) { }
+        // v0.4.0：看门狗同时确保陪伴前台服务存活（国产 ROM 杀后台后可被 AlarmManager 拉回）。
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                context.startForegroundService(new Intent(context, CompanionService.class));
+            } else {
+                context.startService(new Intent(context, CompanionService.class));
+            }
+        } catch (Exception ignored) { }
+        // 按绝对时间戳复查门禁锁：被杀期间缺失前台切换事件时，这里补一次到点拦截，
+        // 修复「倒计时暂停、到点无法自动锁定」。
+        try { AppGate.recheckActiveLocks(context); } catch (Exception ignored) { }
     }
 }

@@ -9,15 +9,18 @@
 """
 from __future__ import annotations
 
+import base64
 import calendar
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from queue import Empty, Queue
 from threading import Lock
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, unquote, urlparse
@@ -26,7 +29,7 @@ from urllib.request import Request, urlopen
 DEFAULT_PORT = 8513
 DEFAULT_KEEP = 3
 MAX_UPLOAD_BYTES = 24 * 1024 * 1024
-VERSION = "0.3.9.0-public-diary-annotations"
+VERSION = "0.4.0.0-python-unified"
 DEFAULT_DEVICE = os.environ.get("LINJIAN_DEFAULT_DEVICE", "android-phone")
 ACTIVITY_EVENT_LIMIT = 500
 # Bug #3：/api/companion/state 过滤陪伴/指令事件用的扫描窗口，需大于活动事件总量上限，
@@ -83,7 +86,8 @@ ALLOWED_ACTIONS = {"noop", "peek", "open_app", "home", "back", "recents", "scree
 "set_companion_emotion", "get_companion_emotion",
 "send_watch_whisper", "pause_media", "media_switch_screen", "get_live_media_context",
 "set_discipline_mode", "get_discipline_state", "trigger_discipline",
-"import_timetable", "parse_timetable", "screen_ocr"}
+"import_timetable", "parse_timetable", "screen_ocr",
+"add_shared_memory", "remove_shared_memory"}
 
 def load_dotenv(path: Path) -> None:
     if not path.exists(): return
@@ -151,9 +155,15 @@ class State:
         self.companion_emotion_path = self.data_dir / "companion_emotion.json"
         self.companion_emotion_state = self._load_companion_emotion_state()
         # 共同记忆：聊天中需要长期记住的内容，自动写入、回忆时自动检索。
+        # v0.4.0：内部直接内嵌 SQLite（shared_memory 表：id, author, text, timestamp），
+        # 表初始化与迁移在此完成；JSON 文件保留为兼容镜像，SQLite 为唯一权威数据源。
         self.shared_memory_path = self.data_dir / "shared_memory.json"
         self.shared_memory_lock = Lock()
         self.shared_memory = self._load_shared_memory()
+        self.db_path = self.data_dir / "zhangxinchuang.db"
+        self.db_lock = Lock()
+        self._init_shared_memory_db()
+        self._migrate_shared_memory_into_db()
         # 训诫模块（小圈管束）配置：开启后人设语气增加管束意味，可选温柔 / 严厉。
         self.discipline_path = self.data_dir / "discipline.json"
         self.discipline_lock = Lock()
@@ -247,6 +257,85 @@ class State:
             temp.replace(self.shared_memory_path)
         except Exception:
             pass
+
+    # ---- 共同记忆 SQLite（v0.4.0 单进程权威数据源）----
+    def _db_conn(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(str(self.db_path), timeout=10, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _init_shared_memory_db(self) -> None:
+        try:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            with self.db_lock, self._db_conn() as conn:
+                conn.execute("""CREATE TABLE IF NOT EXISTS shared_memory (
+                    id TEXT PRIMARY KEY,
+                    author TEXT NOT NULL DEFAULT '用户',
+                    text TEXT NOT NULL,
+                    timestamp TEXT NOT NULL
+                )""")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_shared_memory_ts ON shared_memory(timestamp DESC)")
+                conn.commit()
+        except Exception as exc:
+            sys.stderr.write("[db] shared_memory 表初始化失败: %s\n" % exc)
+
+    def _migrate_shared_memory_into_db(self) -> None:
+        """把旧 JSON 镜像里已有条目一次性迁移进 SQLite（幂等，按 id 去重）。"""
+        if not self.shared_memory:
+            return
+        try:
+            with self.db_lock, self._db_conn() as conn:
+                for it in self.shared_memory:
+                    if not isinstance(it, dict):
+                        continue
+                    mid = str(it.get("id") or uuid.uuid4().hex)
+                    text = str(it.get("text") or it.get("content") or "").strip()
+                    if not text:
+                        continue
+                    author = str(it.get("author") or "用户")
+                    ts = str(it.get("timestamp") or it.get("created_at") or now_iso())
+                    conn.execute("INSERT OR IGNORE INTO shared_memory(id, author, text, timestamp) VALUES(?,?,?,?)",
+                                 (mid, author, text, ts))
+                conn.commit()
+        except Exception as exc:
+            sys.stderr.write("[db] shared_memory 迁移失败: %s\n" % exc)
+
+    def db_shared_memory_list(self) -> list[dict]:
+        """按时间倒序返回全部共同记忆。"""
+        try:
+            with self.db_lock, self._db_conn() as conn:
+                rows = conn.execute("SELECT id, author, text, timestamp FROM shared_memory ORDER BY timestamp DESC, rowid DESC").fetchall()
+            return [dict(r) for r in rows]
+        except Exception:
+            return []
+
+    def db_shared_memory_search(self, keyword: str) -> list[dict]:
+        try:
+            kw = "%" + str(keyword or "").strip().lower() + "%"
+            with self.db_lock, self._db_conn() as conn:
+                rows = conn.execute(
+                    "SELECT id, author, text, timestamp FROM shared_memory "
+                    "WHERE lower(text) LIKE ? OR lower(author) LIKE ? ORDER BY timestamp DESC, rowid DESC",
+                    (kw, kw)).fetchall()
+            return [dict(r) for r in rows]
+        except Exception:
+            return []
+
+    def db_shared_memory_write(self, text: str, author: str = "用户", memory_id: str = "") -> dict:
+        mid = memory_id or uuid.uuid4().hex
+        ts = now_iso()
+        with self.db_lock, self._db_conn() as conn:
+            conn.execute("INSERT OR REPLACE INTO shared_memory(id, author, text, timestamp) VALUES(?,?,?,?)",
+                         (mid, author, text, ts))
+            conn.commit()
+        item = {"id": mid, "author": author, "text": text, "timestamp": ts}
+        # 同步进内存镜像 + JSON 兼容镜像，保证 life_state 聚合与手机端上报不丢。
+        with self.shared_memory_lock:
+            self.shared_memory = [x for x in self.shared_memory if x.get("id") != mid]
+            self.shared_memory.append(item)
+            self.shared_memory = self.shared_memory[-200:]
+            self.save_shared_memory()
+        return item
 
     def _load_discipline(self) -> dict:
         default = {"enabled": False, "mode": "gentle", "level": 0, "updated_at": ""}
@@ -425,6 +514,51 @@ def make_command(device_id: str, action: str, app: str = "", package: str = "", 
     return cmd
 
 
+def enqueue_command(state: "State", data: dict) -> dict:
+    """统一的设备命令入队：HTTP /api/command 与同进程 MCP 引擎共用同一实现。
+
+    返回生成的命令 dict。手机端通过 /api/poll 取走执行，回执写入 command_history。
+    """
+    data = data or {}
+    device_id = data.get("device_id") or DEFAULT_DEVICE
+    payload_in = data.get("payload") if isinstance(data.get("payload"), dict) else None
+    # 拉回命令补齐阈值与当前情绪，手机端与服务端用同一份数据判定级别。
+    if str(data.get("action") or "").strip().lower() == "force_back_to_chat":
+        payload_in = dict(payload_in or {})
+        sched = load_tour_schedule(state)
+        emo = effective_companion_emotion(state, device_id)
+        payload_in.setdefault("threshold", max(1, min(100, int(sched.get("force_back_miss_threshold", 70) or 70))))
+        payload_in.setdefault("emotion_tag", emo.get("emotion_tag", "平静"))
+        payload_in.setdefault("miss_percent", emo.get("miss_percent", 0))
+        payload_in.setdefault("intensity", emo.get("intensity", 0))
+        payload_in.setdefault("tone", emo.get("tone", "gentle"))
+        if "message" not in payload_in or not str(payload_in.get("message") or "").strip():
+            payload_in["message"] = emo.get("message", "")
+            payload_in["auto_message"] = True
+        payload_in.setdefault("level", "auto")
+    cmd = make_command(device_id, data.get("action") or "noop", data.get("app") or "",
+                       data.get("package") or "",
+                       payload_in if payload_in is not None else (data.get("payload") or data))
+    action = cmd.get("action") or "noop"
+    app_name = cmd.get("app") or (cmd.get("payload") or {}).get("app") or ""
+    try:
+        event = state.add_activity_event({
+            "id": cmd.get("id"), "device_id": cmd.get("device_id"), "source": "companion",
+            "type": activity_type_for_action(action), "title": "执行 " + action, "subtitle": app_name,
+            "app_name": app_name, "package_name": cmd.get("package") or "", "action": action,
+            "status": "pending", "metadata_json": {"command_id": cmd.get("id")},
+        })
+        cmd["activity_event_id"] = event.get("id")
+    except Exception:
+        pass
+    # 与 Handler._queue 相同：peek 最多保留 3 个，避免堆积。
+    with state.commands_lock:
+        if not (cmd.get("action") == "peek" and sum(1 for c in state.commands if c.get("action") == "peek") >= 3):
+            state.commands.append(cmd)
+        state.command_history[cmd.get("id", "")] = dict(cmd)
+    return cmd
+
+
 def clip_text(value: str, limit: int = 1200) -> str:
     value = (value or "").strip()
     if len(value) <= limit:
@@ -471,8 +605,62 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        # v0.4.0：统一 CORS，彻底解决网页/Flutter/Android 前端跨域与预检 404。
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Auth-Token, Authorization, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID")
+        self.send_header("Access-Control-Expose-Headers", "Mcp-Session-Id, MCP-Session-Id, WWW-Authenticate")
+        self.send_header("Access-Control-Max-Age", "86400")
         self.end_headers()
         self.wfile.write(body)
+
+    def do_OPTIONS(self) -> None:
+        # 跨域预检一律 204，不再返回 404。
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Auth-Token, Authorization, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID")
+        self.send_header("Access-Control-Expose-Headers", "Mcp-Session-Id, MCP-Session-Id")
+        self.send_header("Access-Control-Max-Age", "86400")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _handle_sse_get(self) -> None:
+        """SSE 传输：建立长连接，先下发 endpoint 事件，再把 MCP 响应推送给客户端。"""
+        engine = getattr(self.state, "mcp_engine", None)
+        if engine is None:
+            self._json(503, {"ok": False, "error": "mcp_engine_not_ready"}); return
+        sid, q = engine.sse_connect()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache, no-store")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        try:
+            endpoint = "/messages?sessionId=%s" % sid
+            self.wfile.write(("event: endpoint\ndata: %s\n\n" % endpoint).encode("utf-8"))
+            self.wfile.flush()
+            deadline = time.time() + 300  # 最多维持 5 分钟，客户端可重连
+            while time.time() < deadline and not self.state._stop:
+                try:
+                    resp = q.get(timeout=15)
+                    payload = json.dumps(resp, ensure_ascii=False)
+                    self.wfile.write(("event: message\ndata: %s\n\n" % payload).encode("utf-8"))
+                    self.wfile.flush()
+                except Empty:
+                    self.wfile.write(b": keepalive\n\n")
+                    self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            engine.sse_close(sid)
+
+    def do_DELETE(self) -> None:
+        # MCP Streamable HTTP 会话关闭（无状态实现，直接 204）。
+        if urlparse(self.path).path == "/mcp":
+            self._send_bytes(204, b"", "application/json"); return
+        self._json(404, {"ok": False, "error": ERR_NOT_FOUND})
 
     def _json(self, code: int, payload: dict) -> None:
         self._send_bytes(code, json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
@@ -507,10 +695,22 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         qs = parse_qs(parsed.query)
         if path in ("/", "/health"):
-            self._json(200, {"ok": True, "service": "linjian-public", "name": "掌心窗", "version": VERSION, "tools": sorted(ALLOWED_ACTIONS), "guidian": True, "calendar": True, "diary": True, "diary_storage": "phone_local", "app_gate": True, "focus_tools": True, "diary_rename_fix": True, "diary_write_fallback": True, "diary_annotation_tools": True, "diary_annotation_whitelist_fix": True})
+            self._json(200, {"ok": True, "service": "linjian-unified-python", "name": "掌心窗", "version": VERSION,
+                             "tools": sorted(ALLOWED_ACTIONS), "mcp_tools": len(getattr(self.state, "mcp_engine", None).tools) if getattr(self.state, "mcp_engine", None) else 0,
+                             "architecture": "single-process-python@8513", "node_removed": True,
+                             "mcp_endpoints": ["/mcp (POST Streamable HTTP)", "/sse (GET)", "/messages (POST)", "--mcp-stdio"],
+                             "shared_memory_db": "sqlite", "cors": True,
+                             "guidian": True, "calendar": True, "diary": True, "diary_storage": "phone_local",
+                             "app_gate": True, "focus_tools": True, "diary_rename_fix": True,
+                             "diary_write_fallback": True, "diary_annotation_tools": True,
+                             "diary_annotation_whitelist_fix": True})
             return
-        if path in ("/mcp", "/sse"):
-            self._json(400, {"ok": False, "error": "LINJIAN_ERR_WRONG_SERVICE", "message": "你访问的是掌心窗 server 服务，不是 MCP 服务。请单独部署 mcp 目录，并在 MCP 客户端填写 MCP 服务域名 + /mcp 或 /sse。"})
+        # v0.4.0：MCP 与后端同进程、同端口(8513)。/mcp GET 用 405 提示；/sse 建立 SSE 长连接。
+        if path == "/mcp":
+            self._json(405, {"ok": False, "error": "use_post", "message": "Streamable HTTP MCP 请使用 POST /mcp；或改用 GET /sse。"})
+            return
+        if path == "/sse":
+            self._handle_sse_get()
             return
         if path == "/api/media/context":
             if not self._require_token(): return
@@ -585,15 +785,16 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/api/device/state", "/api/life_state"):
             if not self._require_token(): return
             device_id = qs.get("device_id", [DEFAULT_DEVICE])[0] or DEFAULT_DEVICE
-            with self.state.shared_memory_lock:
-                mem = list(self.state.shared_memory)
+            # v0.4.0：共同记忆权威源改为内部 SQLite（shared_memory 表，含最新条目）。
             raw = self.state.device_states.get(device_id) or {}
-            # Bug #1：生活状态层聚合持久化的共同记忆，把已落盘的共同记忆列表（含最新条目）
-            # 同步进 life_state.shared_memory。手机端本机存储是共同记忆唯一数据源，这里用服务端
-            # 镜像做聚合兜底，保证即便某次状态上报未携带 shared_memory，life_state 也能正确返回，
-            # 手机端共同记忆卡片才能正常渲染。
+            db_mem = self.state.db_shared_memory_list()
             phone_mem = raw.get("shared_memory")
-            agg = mem if not (isinstance(phone_mem, list) and len(phone_mem)) else phone_mem
+            # 手机本次上报若携带非空记忆则优先展示手机列表；否则用 SQLite 聚合兜底，
+            # 保证即便某次状态上报未携带 shared_memory，life_state 也能返回已持久化的最新条目。
+            if isinstance(phone_mem, list) and len(phone_mem):
+                agg = phone_mem
+            else:
+                agg = db_mem
             state = dict(raw)
             state["shared_memory"] = agg
             self._json(200, {"ok": True, "device_id": device_id, "state": state, "life_state": state}); return
@@ -633,15 +834,19 @@ class Handler(BaseHTTPRequestHandler):
                 events = list(self.state.event_log[-20:])
             self._json(200, {"ok": True, "schedule": load_tour_schedule(self.state), "recent_events": events,
                              "usage_sessions": {k: (v.get("package") if v else "") for k, v in self.state.usage_sessions.items()}}); return
+        # v0.4.0：共同记忆专用接口（SQLite 权威源），供手机前端/网页直接读写。
+        if path == "/api/shared_memory/list":
+            if not self._require_token(): return
+            items = self.state.db_shared_memory_list()
+            self._json(200, {"ok": True, "count": len(items), "items": items, "source": "sqlite"}); return
         if path == "/api/shared_memory":
             if not self._require_token(): return
             search = (qs.get("search", [""])[0] or "").strip().lower()
-            with self.state.shared_memory_lock:
-                items = list(self.state.shared_memory)
+            items = self.state.db_shared_memory_list()
             if search:
                 items = [it for it in items if search in str(it.get("text", "")).lower()
                          or search in str(it.get("author", "")).lower()]
-            self._json(200, {"ok": True, "count": len(items), "items": items}); return
+            self._json(200, {"ok": True, "count": len(items), "items": items, "source": "sqlite"}); return
         if path == "/api/discipline":
             if not self._require_token(): return
             with self.state.discipline_lock:
@@ -650,10 +855,31 @@ class Handler(BaseHTTPRequestHandler):
         self._json(404, {"ok": False, "error": ERR_BAD_METHOD})
 
     def do_POST(self) -> None:
-        path = urlparse(self.path).path
-        if path in ("/mcp", "/sse"):
-            self._json(400, {"ok": False, "error": "LINJIAN_ERR_WRONG_SERVICE", "message": "你访问的是掌心窗 server 服务，不是 MCP 服务。请单独部署 mcp 目录，并在 MCP 客户端填写 MCP 服务域名 + /mcp 或 /sse。"})
-            return
+        parsed = urlparse(self.path)
+        path = parsed.path
+        # v0.4.0：Streamable HTTP MCP（无状态）。POST /mcp 直接处理 JSON-RPC 并返回 JSON。
+        if path == "/mcp":
+            body = self._read_json()
+            engine = getattr(self.state, "mcp_engine", None)
+            if engine is None:
+                self._json(503, {"jsonrpc": "2.0", "id": None, "error": {"code": -32603, "message": "MCP engine not ready"}}); return
+            resp = engine.handle_batch(body)
+            if resp is None:
+                # 纯通知：202 Accepted，无响应体。
+                self._send_bytes(202, b"", "application/json"); return
+            self._json(200, resp); return
+        # SSE 传输的消息回传通道：/messages?sessionId=xxx
+        if path == "/messages":
+            qs = parse_qs(parsed.query)
+            sid = qs.get("sessionId", [""])[0] or qs.get("session_id", [""])[0]
+            body = self._read_json()
+            engine = getattr(self.state, "mcp_engine", None)
+            ok = engine.sse_post(sid, body) if (engine and sid) else False
+            if not ok:
+                self._json(404, {"ok": False, "error": "no_such_sse_session"}); return
+            self._send_bytes(202, b"", "application/json"); return
+        if path == "/sse":
+            self._json(400, {"ok": False, "error": "use_get", "message": "SSE 请用 GET /sse 建立连接。"}); return
         if path == "/api/companion/whisper":
             if not self._require_token(): return
             data = self._read_json()
@@ -695,55 +921,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/command":
             if not self._require_token(): return
             data = self._read_json()
-            device_id = data.get("device_id") or DEFAULT_DEVICE
-            payload_in = data.get("payload") if isinstance(data.get("payload"), dict) else None
-            # 拉回命令补齐阈值与当前情绪，手机端与服务端用同一份数据判定级别。
-            if str(data.get("action") or "").strip().lower() == "force_back_to_chat":
-                payload_in = dict(payload_in or {})
-                sched = load_tour_schedule(self.state)
-                emo = effective_companion_emotion(self.state, device_id)
-                payload_in.setdefault("threshold", max(1, min(100, int(sched.get("force_back_miss_threshold", 70) or 70))))
-                payload_in.setdefault("emotion_tag", emo.get("emotion_tag", "平静"))
-                payload_in.setdefault("miss_percent", emo.get("miss_percent", 0))
-                payload_in.setdefault("intensity", emo.get("intensity", 0))
-                payload_in.setdefault("tone", emo.get("tone", "gentle"))
-                if "message" not in payload_in or not str(payload_in.get("message") or "").strip():
-                    # 服务端自动生成的文案可能不含手机上的真实称呼，标记一下让手机用本地文案。
-                    payload_in["message"] = emo.get("message", "")
-                    payload_in["auto_message"] = True
-                payload_in.setdefault("level", "auto")
-            cmd = make_command(device_id, data.get("action") or "noop", data.get("app") or "", data.get("package") or "", payload_in if payload_in is not None else (data.get("payload") or data))
-            action = cmd.get("action") or "noop"
-            app_name = cmd.get("app") or (cmd.get("payload") or {}).get("app") or ""
-            title_map = {
-                "send_notification": "发送提醒", "set_alarm": "设置闹钟", "trigger_guidian": "发起归电",
-                "mark_guidian_returned": "记录归电回应", "get_guidian_state": "查看归电状态", "set_guidian_config": "调整归电设置",
-                "screen_off": "让手机息屏", "phone_screen_off": "让手机息屏", "open_app": "打开应用",
-                "screen_break_app": "开启应用门禁", "lock_app": "开启应用门禁", "end_screen_break": "解除应用门禁", "unlock_app": "解除应用门禁", "extend_screen_break": "延长应用门禁", "extend_lock": "延长应用门禁",
-                "temporary_screen_break_release": "临时解除应用门禁", "temporary_unlock_app": "临时解除应用门禁", "deny_screen_break_release_request": "拒绝门禁解除", "deny_unlock_request": "拒绝门禁解除",
-                "get_screen_break_state": "查看应用门禁状态", "get_lock_state": "查看应用门禁状态", "list_screen_break_apps": "查看可管理应用", "list_lockable_apps": "查看可管理应用",
-                "add_screen_break_app": "加入门禁管理", "add_locked_app": "加入门禁管理", "remove_locked_app": "移除门禁应用", "set_screen_break_passphrase": "设置门禁口令", "set_emergency_passphrase": "设置门禁口令",
-                "get_focus_status": "查看专注模式", "get_life_state": "查看生活状态", "start_focus_mode": "开启专注模式", "end_focus_mode": "结束专注模式", "set_focus_plan": "设置专注规则", "reply_focus_request": "回复专注留言", "approve_focus_unlock": "批准专注应急", "deny_focus_unlock": "拒绝专注应急",
-                "get_calendar_state": "查看守护日历", "upsert_calendar_event": "更新守护日历",
-                                   
-                                     
-                "get_screen_nodes": "查看当前页面",
-                "read_diary_entry_with_annotations": "读取日记批注", "add_diary_annotation": "保存页边纸条", "list_diary_annotations": "读取页边纸条", "mark_diary_annotations_seen": "标记纸条已看", "delete_diary_annotation": "删除页边纸条",
-                "peek": "查看屏幕", "run_sequence": "执行组合动作", "home": "回到手机桌面", "back": "返回上一页", "recents": "打开最近任务",
-                "show_center_alert": "屏幕居中弹窗", "force_back_to_chat": "分级拉回弹窗", "start_tour": "开始巡回查岗", "stop_tour": "停止巡回查岗",
-                "set_companion_emotion": "写入陪伴对象情绪", "get_companion_emotion": "查看陪伴对象情绪",
-                "send_watch_whisper": "发送伴看气泡", "pause_media": "暂停当前媒体", "media_switch_screen": "切回掌心窗陪伴页", "get_live_media_context": "读取实时伴看上下文"
-            }
-            event = self.state.add_activity_event({
-                "id": cmd.get("id"), "device_id": cmd.get("device_id"), "source": "companion", "type": activity_type_for_action(action),
-                "title": title_map.get(action, "执行 " + action), "subtitle": app_name,
-                "app_name": app_name, "package_name": cmd.get("package") or "", "action": action,
-                "status": "pending", "metadata_json": {"command_id": cmd.get("id")}
-            })
-            cmd["activity_event_id"] = event.get("id")
-            self._queue(cmd)
-            with self.state.commands_lock:
-                self.state.command_history[cmd.get("id", "")] = dict(cmd)
+            # v0.4.0：入队逻辑抽取为模块级 enqueue_command，HTTP 与本进程内的 MCP 引擎
+            # 共用同一份实现，保证命令队列/活动事件/回执完全一致（单进程闭环）。
+            cmd = enqueue_command(self.state, data)
             self._json(200, {"ok": True, "command": cmd}); return
         if path == "/api/device/state":
             if not self._require_token(): return
@@ -862,6 +1042,31 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"ok": True, "emotion": effective,
                              "storage": "companion_emotion.json",
                              "separate_from_user_snapshot": True}); return
+        # v0.4.0：共同记忆专用接口（SQLite）。write 立即落库（前端写了就能看见），
+        # 同时下发设备命令让手机本机也保存一份（双向同步），不再出现「写了但前端看不见 / 404」。
+        if path == "/api/shared_memory/write":
+            if not self._require_token(): return
+            data = self._read_json() or {}
+            text = str(data.get("text") or data.get("content") or "").strip()
+            if not text:
+                self._json(400, {"ok": False, "error": "empty_text"}); return
+            author = str(data.get("author") or "用户").strip() or "用户"
+            item = self.state.db_shared_memory_write(text, author, str(data.get("id") or ""))
+            # 双向同步：同时下发到手机本机存储（best-effort，不阻塞落库成功返回）。
+            try:
+                enqueue_command(self.state, {
+                    "action": "add_shared_memory", "device_id": DEFAULT_DEVICE,
+                    "payload": {"text": text, "author": author, "id": item["id"], "explicit": True},
+                })
+            except Exception:
+                pass
+            self._json(200, {"ok": True, "memory": item, "persisted": True, "source": "sqlite"}); return
+        if path == "/api/shared_memory/search":
+            if not self._require_token(): return
+            data = self._read_json() or {}
+            q = str(data.get("query") or data.get("keyword") or data.get("search") or "").strip()
+            items = self.state.db_shared_memory_search(q) if q else self.state.db_shared_memory_list()
+            self._json(200, {"ok": True, "query": q, "count": len(items), "items": items, "source": "sqlite"}); return
         if path == "/api/shared_memory":
             if not self._require_token(): return
             data = self._read_json() or {}
@@ -1540,11 +1745,218 @@ def tour_scheduler_loop(state: "State") -> None:
             sys.stderr.write("[tour] loop error: %s\n" % e)
 
 
+# ===================== v0.4.0：内嵌 Python MCP（单进程，同 8513 端口） =====================
+class McpBackend:
+    """MCP 引擎访问后端状态的适配器（实现 mcp_engine.CtxContract）。
+
+    全部方法同进程直连 state 与后端纯函数，不发起任何 HTTP 自请求。
+    """
+    def __init__(self, state: "State"):
+        self.state = state
+
+    @property
+    def data_dir(self) -> Path:
+        return self.state.data_dir
+
+    @property
+    def default_device(self) -> str:
+        return DEFAULT_DEVICE
+
+    @property
+    def known_apps(self) -> dict:
+        return KNOWN_APPS
+
+    def enqueue(self, data: dict) -> dict:
+        return {"ok": True, "command": enqueue_command(self.state, data)}
+
+    def wait(self, cmd_id: str, seconds: float) -> dict | None:
+        deadline = time.time() + max(0.0, min(float(seconds or 0), 12.0))
+        last = None
+        while time.time() < deadline:
+            time.sleep(0.7)
+            with self.state.commands_lock:
+                c = self.state.command_history.get(cmd_id)
+            if c:
+                last = {"command": dict(c)}
+                if c.get("status") in ("completed", "failed"):
+                    return last
+        return last
+
+    def life_state(self, device_id: str = DEFAULT_DEVICE) -> dict:
+        raw = self.state.device_states.get(device_id) or {}
+        st = dict(raw)
+        st["shared_memory"] = self.state.db_shared_memory_list() if not (isinstance(raw.get("shared_memory"), list) and raw["shared_memory"]) else raw["shared_memory"]
+        return st
+
+    def guidian_state(self, device_id: str = DEFAULT_DEVICE) -> dict:
+        return (self.state.device_states.get(device_id) or {}).get("guidian_state") or {}
+
+    def usage_snapshot(self, device_id: str = DEFAULT_DEVICE) -> dict:
+        return build_usage_snapshot(self.state, device_id)
+
+    def emotion_snapshot(self, device_id: str = DEFAULT_DEVICE) -> dict:
+        return build_emotion_snapshot(self.state, device_id)
+
+    def companion_emotion(self, device_id: str = DEFAULT_DEVICE) -> dict:
+        return build_companion_emotion(self.state, device_id)
+
+    def tour_state(self) -> dict:
+        with self.state.tour_lock:
+            events = list(self.state.event_log[-20:])
+        return {"ok": True, "schedule": load_tour_schedule(self.state), "recent_events": events}
+
+    def tour_schedule_update(self, data: dict) -> dict:
+        sched = dict(load_tour_schedule(self.state))
+        for k, v in (data or {}).items():
+            if k not in ("device_id", "action"):
+                sched[k] = v
+        self.state.tour_schedule = sched
+        save_tour_schedule(self.state)
+        add_tour_event(self.state, "schedule_updated", "更新巡回策略", DEFAULT_DEVICE)
+        return {"ok": True, "schedule": sched}
+
+    def discipline_state(self) -> dict:
+        with self.state.discipline_lock:
+            return dict(self.state.discipline)
+
+    def discipline_update(self, data: dict) -> dict:
+        with self.state.discipline_lock:
+            if "enabled" in data:
+                self.state.discipline["enabled"] = bool(data.get("enabled"))
+            if "mode" in data:
+                m = str(data.get("mode") or "gentle").strip().lower()
+                self.state.discipline["mode"] = "strict" if m in ("strict", "严厉") else "gentle"
+            if "level" in data:
+                try:
+                    self.state.discipline["level"] = max(0, min(4, int(data.get("level"))))
+                except Exception:
+                    pass
+            if self.state.discipline.get("level", 0) <= 0:
+                self.state.discipline["enabled"] = False
+                self.state.discipline["level"] = 0
+            if not self.state.discipline.get("enabled", False):
+                self.state.discipline["level"] = 0
+            self.state.discipline["updated_at"] = now_iso()
+            self.state.save_discipline()
+            return dict(self.state.discipline)
+
+    def shared_list(self) -> list:
+        return self.state.db_shared_memory_list()
+
+    def shared_search(self, keyword: str) -> list:
+        return self.state.db_shared_memory_search(keyword)
+
+    def shared_write(self, text: str, author: str = "用户") -> dict:
+        item = self.state.db_shared_memory_write(text, author)
+        # 双向同步到手机本机（best-effort）
+        try:
+            enqueue_command(self.state, {"action": "add_shared_memory", "device_id": DEFAULT_DEVICE,
+                            "payload": {"text": text, "author": author, "id": item["id"], "explicit": True}})
+        except Exception:
+            pass
+        return {"ok": True, "memory": item, "persisted": True, "source": "sqlite"}
+
+    def activity_list(self, device_id="", date="", source="", limit=50) -> list:
+        return self.state.list_activity_events(device_id, date, source, limit)
+
+    def activity_add(self, data: dict) -> dict:
+        d = dict(data or {})
+        return self.state.add_activity_event(d, int(d.get("dedupe_seconds") or 0))
+
+    def whisper_get(self) -> dict:
+        with self.state.companion_lock:
+            return dict(self.state.companion_state.get("whisper") or {})
+
+    def whisper_set(self, content: str, author: str) -> dict:
+        return self.state.update_whisper(content, author)
+
+    def companion_actions(self, limit: int = 20) -> list:
+        with self.state.companion_lock:
+            return list(self.state.companion_state.get("actions") or [])[:limit]
+
+    def media_context(self, device_id: str = DEFAULT_DEVICE) -> dict:
+        live = self.state.media_live.get(device_id) or {}
+        return {"ok": True, "device_id": device_id, "media_state": live.get("media_state", {}),
+                "last_event": live.get("event", ""), "recent_events": (self.state.media_events.get(device_id) or [])[-20:]}
+
+    def unlock_requests(self) -> list:
+        return list(self.state.unlock_requests[-50:])
+
+    def ocr_analyze(self, data: dict) -> dict:
+        # 返回最近一次可见文本/OCR 摘要；视觉推理需部署带视觉能力模型。
+        text = str(data.get("text") or data.get("visible_text") or "")
+        shot = self.latest_shot()
+        return {"ok": True, "visible_text": text, "has_screenshot": bool(shot),
+                "note": "返回可见结构化文本；图片视觉推理需在后端接入视觉模型。"}
+
+    def health(self) -> dict:
+        return {"ok": True, "service": "linjian-unified-python", "version": VERSION, "port": self.state.port}
+
+    def latest_shot(self) -> dict | None:
+        shot = self.state.latest_shot()
+        if not shot:
+            return None
+        try:
+            st = shot.stat()
+            mime = "image/png" if shot.suffix.lower() == ".png" else "image/jpeg"
+            raw = shot.read_bytes()
+            return {"filename": shot.name, "size": st.st_size, "mtime": str(st.st_mtime),
+                    "mtime_num": st.st_mtime, "mime": mime,
+                    "data_b64": base64.b64encode(raw).decode("ascii")}
+        except Exception:
+            return None
+
+
+def build_mcp_engine(state: "State"):
+    """加载工具表并构造内嵌 MCP 引擎，挂到 state 上供 HTTP/SSE/stdio 共用。"""
+    import mcp_engine  # 同目录模块；纯标准库，无循环依赖
+    tools_path = Path(__file__).resolve().parent / "mcp_tools.json"
+    with tools_path.open("r", encoding="utf-8") as f:
+        tools = json.load(f)
+    backend = McpBackend(state)
+    return mcp_engine.McpEngine(backend, tools)
+
+
+def run_mcp_stdio(state: "State") -> None:
+    """stdio 传输：本地 MCP 客户端以 command 方式启动时使用（每行一个 JSON-RPC）。"""
+    engine = build_mcp_engine(state)
+    sys.stderr.write("[mcp-stdio] 掌心窗 unified Python MCP (stdio) 已启动，工具数=%d\n" % len(engine.tools))
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except Exception:
+            continue
+        resp = engine.handle_batch(msg)
+        if resp is not None:
+            sys.stdout.write(json.dumps(resp, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
+
+
 def main() -> None:
+    # 支持 start.sh 的 --port 8513 写法：映射为 LINJIAN_PORT 环境变量。
+    if "--port" in sys.argv:
+        try:
+            os.environ["LINJIAN_PORT"] = str(int(sys.argv[sys.argv.index("--port") + 1]))
+        except (IndexError, ValueError):
+            pass
+    # v0.4.0：--mcp-stdio 让本进程直接作为 stdio MCP 服务器（同一份 Python 代码、同一后端）。
+    if "--mcp-stdio" in sys.argv:
+        run_mcp_stdio(State())
+        return
     state = State()
     if not state.token or state.token == "please-change-me-to-a-long-random-token":
         sys.stderr.write("拒绝启动：请先设置 LINJIAN_TOKEN 为长随机密钥。\n")
         sys.exit(1)
+    # 挂载内嵌 MCP 引擎（HTTP /mcp、SSE /sse 与 stdio 共用）。
+    try:
+        state.mcp_engine = build_mcp_engine(state)
+        sys.stderr.write("[mcp] 内嵌 Python MCP 引擎已就绪，工具数=%d（同进程 @%d）\n" % (len(state.mcp_engine.tools), state.port))
+    except Exception as exc:
+        sys.stderr.write("[mcp] 引擎初始化失败: %s\n" % exc)
+        state.mcp_engine = None
     Handler.state = state
     httpd = ThreadingHTTPServer((state.host, state.port), Handler)
     try:
@@ -1553,11 +1965,12 @@ def main() -> None:
         sys.stderr.write("[tour] 巡回查岗调度器已启动\n")
     except Exception as exc:
         sys.stderr.write("tour scheduler start failed: %s\n" % exc)
-    print("=" * 56)
-    print(f"  掌心窗 unified v{VERSION}")
-    print(f"  listening: http://{state.host}:{state.port}")
+    print("=" * 60)
+    print(f"  掌心窗 unified v{VERSION}  (single-process Python)")
+    print(f"  REST + MCP + SQLite @ http://{state.host}:{state.port}")
+    print(f"  MCP: POST /mcp | GET /sse | --mcp-stdio   tools={len(state.mcp_engine.tools) if state.mcp_engine else 0}")
     print(f"  screenshots: {state.shots_dir}  keep={state.keep}")
-    print("=" * 56)
+    print("=" * 60)
     try: httpd.serve_forever()
     except KeyboardInterrupt: print("\nbye.")
 

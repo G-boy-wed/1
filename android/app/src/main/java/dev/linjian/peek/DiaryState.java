@@ -50,11 +50,20 @@ public final class DiaryState {
     }
 
     public static JSONObject renameBook(Context ctx, String id, String oldName, String name, String subtitle) {
+        return renameBook(ctx, id, oldName, name, subtitle, "");
+    }
+
+    /** v0.4.0：多候选报错修复 —— book_id → old_name → book_name 兜底 → 名称唯一匹配 → 只有一本自动选中。 */
+    public static JSONObject renameBook(Context ctx, String id, String oldName, String name, String subtitle, String bookName) {
         JSONObject out = new JSONObject();
         try {
             JSONArray all = books(ctx);
             JSONObject book = findById(all, clean(id));
             if (book == null) book = findBookByName(all, clean(oldName));
+            if (book == null) book = findBookByName(all, clean(bookName));
+            // 兜底：按 new_name 反查（用户常常想「把名叫 X 的本子改名」却只传了新名），
+            // 只要名称能唯一匹配就自动选中，不再返回 book_not_found_or_ambiguous。
+            if (book == null) book = findBookByName(all, clean(name));
             if (book == null && all.length() == 1) book = all.optJSONObject(0);
             if (book == null) {
                 JSONArray choices = new JSONArray();
@@ -63,7 +72,7 @@ public final class DiaryState {
                     if (b == null) continue;
                     choices.put(new JSONObject().put("book_id", b.optString("id")).put("name", b.optString("name")).put("subtitle", b.optString("subtitle")));
                 }
-                return out.put("ok", false).put("error", "book_not_found_or_ambiguous").put("message", "没有找到唯一日记本；请传 book_id 或 old_name。若只有一个日记本，本工具会自动重命名，不需要先 list_diary_books。").put("choices", choices);
+                return out.put("ok", false).put("error", "book_not_found_or_ambiguous").put("message", "没有找到唯一日记本；请传 book_id / old_name / book_name。若只有一本或名称能唯一匹配，本工具会自动重命名，不需要先 list_diary_books。").put("choices", choices);
             }
             String newName = clean(name);
             if (newName.isEmpty()) return out.put("ok", false).put("error", "name_required").put("message", "需要提供 new_name/name。");
@@ -231,6 +240,24 @@ public final class DiaryState {
         return listAnnotations(ctx, "", entryId, false).optJSONArray("annotations");
     }
 
+    /** v0.4.0 纸条白名单校验修复：兼容常见别名/大小写/未知值，归一到合法枚举，绝不因参数格式拒写。 */
+    private static String normalizeAnnotationStyle(String style) {
+        String s = clean(style).toLowerCase(Locale.ROOT);
+        if (s.isEmpty()) return "margin_note";
+        if (s.contains("margin") || s.contains("note") || s.contains("边") || s.equals("sticky")) return "margin_note";
+        if (s.contains("highlight") || s.contains("mark") || s.contains("高亮")) return "highlight";
+        if (s.contains("underline") || s.contains("下划线")) return "underline";
+        // 未知值不再拒绝，统一按页边纸条处理（宽容兜底）。
+        return "margin_note";
+    }
+
+    private static String normalizeCreatedBy(String createdBy) {
+        String s = clean(createdBy).toLowerCase(Locale.ROOT);
+        if (s.isEmpty()) return "user";
+        if (s.contains("companion") || s.contains("ta") || s.contains("ai") || s.contains("陪伴") || s.contains("机")) return "companion";
+        return "user";
+    }
+
     public static JSONObject addAnnotation(Context ctx, String entryId, int paragraphIndex, String quoteText, String annotationText, String mood, String style, String createdBy) {
         JSONObject out = new JSONObject();
         try {
@@ -246,8 +273,8 @@ public final class DiaryState {
             note.put("quote_text", limit(clean(quoteText), 800));
             note.put("annotation_text", limit(text, 1000));
             note.put("mood", limit(clean(mood).isEmpty() ? "想回应" : clean(mood), 30));
-            note.put("style", limit(clean(style).isEmpty() ? "margin_note" : clean(style), 40));
-            note.put("created_by", limit(clean(createdBy).isEmpty() ? "user" : clean(createdBy), 30));
+            note.put("style", normalizeAnnotationStyle(style));
+            note.put("created_by", normalizeCreatedBy(createdBy));
             note.put("seen_by_companion", false);
             note.put("created_at", now());
             note.put("updated_at", now());
@@ -342,7 +369,7 @@ public final class DiaryState {
             String action = cmd.optString("action", "");
             if ("create_diary_book".equals(action)) out = createBook(ctx, cmd.optString("name"), cmd.optString("subtitle"), cmd.optString("cover_style", DEFAULT_COVER));
             else if ("list_diary_books".equals(action)) out.put("ok", true).put("books", books(ctx)).put("message", "已读取本机日记本列表");
-            else if ("rename_diary_book".equals(action)) out = renameBook(ctx, cmd.optString("book_id"), cmd.optString("old_name"), firstNonEmpty(cmd.optString("new_name"), cmd.optString("name")), cmd.has("subtitle") ? cmd.optString("subtitle") : null);
+            else if ("rename_diary_book".equals(action)) out = renameBook(ctx, cmd.optString("book_id"), cmd.optString("old_name"), firstNonEmpty(cmd.optString("new_name"), cmd.optString("name")), cmd.has("subtitle") ? cmd.optString("subtitle") : null, firstNonEmpty(cmd.optString("book_name"), cmd.optString("book_title")));
             else if ("update_diary_book_cover".equals(action)) out = updateCover(ctx, cmd.optString("book_id"), cmd.has("cover_style") ? cmd.optString("cover_style") : null, cmd.has("cover_uri") ? cmd.optString("cover_uri") : null);
             else if ("write_diary_entry".equals(action)) out = writeEntry(ctx, cmd.optString("book_id"), firstNonEmpty(cmd.optString("book_name"), cmd.optString("book_title")), cmd.optString("title"), cmd.optString("content"), cmd.optString("mood"), cmd.optJSONArray("tags"), cmd.optString("date"), cmd.optString("time_label"));
             else if ("list_diary_entries".equals(action)) out.put("ok", true).put("book_id", cmd.optString("book_id")).put("entries", listEntries(ctx, cmd.optString("book_id"))).put("message", "已读取本机日记列表");

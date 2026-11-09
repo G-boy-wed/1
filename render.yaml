@@ -1,21 +1,10 @@
-# Render Blueprint for 掌心窗公开版 v0.3.8.2
-# 一键部署会创建两个服务：手机端后端 server + MCP 服务。
+# Render Blueprint for 掌心窗公开版 v0.4.0 (single-process Python)
+# 一键部署只创建【一个】服务：REST API + MCP + SQLite 全部由 8513 端口的 Python 进程接管。
+# 彻底移除旧的 Node.js MCP 服务(8787)，消除多进程撕裂、MODULE_NOT_FOUND、端口冲突。
 # 部署后：
-# - 手机 App 填 zhangxinchuang-server 的外部地址。
-# - AI/MCP 客户端填 zhangxinchuang-mcp 的 /mcp 或 /sse 地址。
-#
-# v0.3.6.6 修正：MCP 的 LINJIAN_URL 不再使用 Render 内网 hostport，
-# 而是自动引用 server 服务的公网 RENDER_EXTERNAL_URL。
-# 如果旧用户只重新部署 MCP、没有同步 Blueprint，新版 MCP 代码也会把旧 hostport
-# 自动兜底为 https://<server-host>.onrender.com，不需要手动填写 server URL。
-
-envVarGroups:
-  - name: zhangxinchuang-public-shared
-    envVars:
-      - key: LINJIAN_TOKEN
-        generateValue: true
-      - key: LINJIAN_DEFAULT_DEVICE
-        value: android-phone
+# - 手机 App / 网页前端：填本服务的外部地址（如 https://xxx.onrender.com）。
+# - AI(MCP) 客户端：填本服务地址 + /mcp（Streamable HTTP）或 /sse（SSE）。
+#   两者是同一个进程、同一个端口，不再需要单独的 MCP 域名与 LINJIAN_URL。
 
 services:
   - type: web
@@ -26,25 +15,12 @@ services:
     buildCommand: echo ok
     startCommand: python linjian_server.py
     envVars:
-      - fromGroup: zhangxinchuang-public-shared
+      - key: LINJIAN_TOKEN
+        generateValue: true
+      - key: LINJIAN_DEFAULT_DEVICE
+        value: android-phone
       - key: LINJIAN_HOST
         value: 0.0.0.0
       - key: LINJIAN_KEEP
         value: 3
-
-  - type: web
-    name: zhangxinchuang-mcp
-    runtime: node
-    plan: free
-    rootDir: mcp
-    buildCommand: npm install
-    startCommand: npm start
-    envVars:
-      - fromGroup: zhangxinchuang-public-shared
-      # 自动取 server 的公网 HTTPS 地址，例如 https://zhangxinchuang-server-xxxx.onrender.com
-      # 不再取 property: hostport，避免部分环境下 MCP 访问 Render 内网地址 fetch failed。
-      - key: LINJIAN_URL
-        fromService:
-          type: web
-          name: zhangxinchuang-server
-          envVarKey: RENDER_EXTERNAL_URL
+      # PORT 由 Render 注入；本地/自建用 LINJIAN_PORT=8513（见 start.sh）。

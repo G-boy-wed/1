@@ -120,6 +120,14 @@ public class PullBackActivity extends Activity {
         try {
             if (isLocked(ctx)) { startActivity(ctx, cfg); return; }
             if (PullBackOverlay.canShow(ctx) && PullBackOverlay.show(ctx, cfg)) return;
+            // v0.4.0 双保险：悬浮窗不可用时，后台 startActivity 会被系统拦截。
+            // 额外发 fullScreenIntent 最高紧急级横幅通知，保证任意 App 上层都能「骑脸」拉回。
+            try {
+                String title = cfg == null ? "掌心窗" : cfg.optString("title", "该回来陪我了。");
+                String message = cfg == null ? "" : cfg.optString("message", "想你了，回窗边看一眼。");
+                CompanionService.showReminderNotification(ctx, title, message);
+                DebugState.append(ctx, "拉回弹窗补发 fullScreenIntent 横幅通知（后台 Activity 拦截兜底）");
+            } catch (Exception ignored) { }
             startActivity(ctx, cfg);
         } catch (Exception e) {
             DebugState.append(ctx, "拉回弹窗显示异常：" + ScreenshotService.shortMsg(e));

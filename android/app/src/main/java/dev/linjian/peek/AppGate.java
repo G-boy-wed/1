@@ -327,6 +327,39 @@ public class AppGate {
         } catch (Exception e) { DebugState.append(ctx, "门禁检查异常：" + ScreenshotService.shortMsg(e)); }
     }
 
+    /**
+     * v0.4.0 后台保活兜底：按绝对时间戳复查所有仍有效的门禁锁，对当前前台 App 补一次拦截。
+     * 由 AlarmManager 看门狗 / 开机 / 前台服务周期性调用，覆盖国产 ROM（小米/vivo/OPPO）杀掉
+     * 无障碍回调后「倒计时看似暂停、到点后台没触发锁屏」的问题。
+     * 门禁时间本来就以 locked_until_ms 绝对时间戳存储，进程被杀重启后比较依然准确；
+     * 这里补的是「被杀期间没有前台切换事件 → 没有触发点」这一环。
+     */
+    public static void recheckActiveLocks(Context ctx) {
+        if (ctx == null || !enabled(ctx)) return;
+        try {
+            long now = System.currentTimeMillis();
+            JSONObject s = state(ctx);
+            JSONObject ls = locks(s);
+            java.util.Iterator<String> it = ls.keys();
+            boolean hasActive = false;
+            while (it.hasNext()) {
+                JSONObject l = ls.optJSONObject(it.next());
+                if (l == null) continue;
+                if (l.optBoolean("active", false) && now < l.optLong("locked_until_ms", 0)) { hasActive = true; break; }
+            }
+            if (!hasActive) return;
+            // 取当前前台包：优先无障碍服务缓存，空则退回上一次记录的前台包。
+            String current = "";
+            try { current = ScreenshotService.currentPackage(); } catch (Exception ignored) { }
+            if (current == null || current.trim().isEmpty()) current = lastForegroundPackage;
+            if (current == null || current.trim().isEmpty()) return;
+            onForegroundPackage(ctx, current);
+            DebugState.append(ctx, "门禁后台复查：前台=" + current + "，按绝对时间戳补锁校验完成");
+        } catch (Exception e) {
+            DebugState.append(ctx, "门禁后台复查异常：" + ScreenshotService.shortMsg(e));
+        }
+    }
+
     private static boolean canDrawOverlay(Context ctx) {
         try { return Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(ctx); }
         catch (Exception e) { return false; }

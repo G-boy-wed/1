@@ -618,6 +618,13 @@ public class CompanionService extends Service {
                 DebugState.append(ctx, "屏幕居中弹窗已下发（悬浮窗，类型=" + kindLabel + "）：" + (title == null ? "" : title));
                 return;
             }
+            // v0.4.0 双保险：Android 10+ 会拦截后台 startActivity。悬浮窗不可用/失败时，
+            // 除了 Activity 兜底，额外发一条带 fullScreenIntent 的最高紧急级横幅通知：
+            // 系统会把它以悬浮横幅/全屏方式骑脸展示，无论用户当前在刷什么 App 都不会漏。
+            try {
+                showReminderNotification(ctx, title == null ? "掌心窗" : title, message);
+                DebugState.append(ctx, "居中弹窗补发 fullScreenIntent 横幅通知（后台 Activity 拦截兜底）");
+            } catch (Exception ignored) { }
             // 没有悬浮窗权限或悬浮失败：退回 Activity 兜底，仍然弹得出。
             Intent i = new Intent(ctx, AlertCenterActivity.class);
             i.putExtra("title", title == null ? "" : title);
@@ -771,34 +778,45 @@ public class CompanionService extends Service {
             String safeTitle = (title == null || title.trim().isEmpty()) ? "掌心窗提醒" : title.trim();
             String safeMessage = (message == null || message.trim().isEmpty()) ? AppPrefs.userName(ctx) + "，看一眼这里。" : message.trim();
 
+            // 全屏 Intent：Android 10+ 后台启动 Activity 被系统拦截时，fullScreenIntent 通知
+            // 仍会被系统以「悬浮横幅 / 全屏提醒」方式拉起，是弹窗/拉回「骑脸」的双重兜底。
+            Intent full = new Intent(ctx, ReminderActivity.class);
+            full.putExtra("title", safeTitle);
+            full.putExtra("message", safeMessage);
+            full.putExtra("from_full_screen_intent", true);
+            full.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            int piFlags = Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT : PendingIntent.FLAG_UPDATE_CURRENT;
+            PendingIntent fullPi = PendingIntent.getActivity(ctx, notificationId + 700000, full, piFlags);
+
             Intent detail = new Intent(ctx, ReminderActivity.class);
             detail.putExtra("title", safeTitle);
             detail.putExtra("message", safeMessage);
             detail.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            PendingIntent pi = PendingIntent.getActivity(ctx, notificationId, detail, Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT : PendingIntent.FLAG_UPDATE_CURRENT);
+            PendingIntent pi = PendingIntent.getActivity(ctx, notificationId, detail, piFlags);
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 NotificationChannel channel = new NotificationChannel(REMINDER_CHANNEL_ID, "掌心窗悬浮横幅提醒", NotificationManager.IMPORTANCE_HIGH);
-                channel.setDescription("像微信消息一样从顶部弹出的横幅提醒；点开后可进入详情页。");
+                channel.setDescription("最高紧急级悬浮横幅：配合 fullScreenIntent，在任意 App 上层强制提醒。");
                 channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
                 channel.enableVibration(true);
                 nm.createNotificationChannel(channel);
             }
             Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? new Notification.Builder(ctx, REMINDER_CHANNEL_ID) : new Notification.Builder(ctx);
-            Notification n = builder
+            builder
                     .setContentTitle(safeTitle)
                     .setContentText(safeMessage)
                     .setSmallIcon(android.R.drawable.ic_dialog_info)
                     .setContentIntent(pi)
+                    .setFullScreenIntent(fullPi, true)
                     .setAutoCancel(true)
                     .setCategory(Notification.CATEGORY_MESSAGE)
                     .setPriority(Notification.PRIORITY_HIGH)
                     .setDefaults(Notification.DEFAULT_SOUND | Notification.DEFAULT_VIBRATE)
                     .setWhen(System.currentTimeMillis())
-                    .setShowWhen(true)
-                    .build();
+                    .setShowWhen(true);
+            Notification n = builder.build();
             nm.notify(notificationId, n);
-            DebugState.append(ctx, "悬浮横幅通知已发送：" + safeTitle);
+            DebugState.append(ctx, "悬浮横幅通知已发送（含 fullScreenIntent）：" + safeTitle);
             return true;
         } catch (Exception e) { DebugState.append(ctx, "悬浮横幅通知异常：" + ScreenshotService.shortMsg(e)); return false; }
     }

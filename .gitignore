@@ -15,8 +15,14 @@ yarn-debug.log*
 yarn-error.log*
 
 # MCP 运行时状态（本地生成，不应进仓库）
+# v0.4.0：MCP 已并入 server/ 单进程，本地状态/数据库/日志都不应进仓库
 mcp/care_state.json
 mcp/visit_state.json
+server/care_state.json
+server/visit_state.json
+server/server.log
+*.db
+*.db-journal
 
 # Android / Gradle
 .gradle/
