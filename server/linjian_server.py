@@ -585,7 +585,17 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/api/device/state", "/api/life_state"):
             if not self._require_token(): return
             device_id = qs.get("device_id", [DEFAULT_DEVICE])[0] or DEFAULT_DEVICE
-            state = self.state.device_states.get(device_id)
+            with self.state.shared_memory_lock:
+                mem = list(self.state.shared_memory)
+            raw = self.state.device_states.get(device_id) or {}
+            # Bug #1：生活状态层聚合持久化的共同记忆，把已落盘的共同记忆列表（含最新条目）
+            # 同步进 life_state.shared_memory。手机端本机存储是共同记忆唯一数据源，这里用服务端
+            # 镜像做聚合兜底，保证即便某次状态上报未携带 shared_memory，life_state 也能正确返回，
+            # 手机端共同记忆卡片才能正常渲染。
+            phone_mem = raw.get("shared_memory")
+            agg = mem if not (isinstance(phone_mem, list) and len(phone_mem)) else phone_mem
+            state = dict(raw)
+            state["shared_memory"] = agg
             self._json(200, {"ok": True, "device_id": device_id, "state": state, "life_state": state}); return
         if path == "/api/guidian_state":
             if not self._require_token(): return

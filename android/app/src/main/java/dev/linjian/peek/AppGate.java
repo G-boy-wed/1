@@ -685,11 +685,24 @@ public class AppGate {
             }
             JSONArray reqs = s.optJSONArray("requests");
             if (reqs != null) {
+                // Bug #2：解锁申请过期归档。超过 24 小时未处理的申请自动标记为 expired，
+                // 不再常驻 pending 占用状态（与专注求助同样的逻辑，避免历史申请堆积触发异常提示）。
+                final long REQ_EXPIRY_MS = 24L * 60L * 60L * 1000L;
                 for (int i = 0; i < reqs.length(); i++) {
                     JSONObject r = reqs.optJSONObject(i); if (r == null) continue;
                     if (!r.has("status")) { r.put("status", "pending"); changed = true; }
-                    long to = r.optLong("timeout_at_ms", 0L);
-                    if ("pending".equals(r.optString("status")) && to > 0 && now > to) { r.put("status", "timed_out"); changed = true; }
+                    if ("pending".equals(r.optString("status"))) {
+                        long rc = r.optLong("created_at_ms", 0L);
+                        long to = r.optLong("timeout_at_ms", 0L);
+                        boolean tooOld = rc > 0 && (now - rc) > REQ_EXPIRY_MS;
+                        boolean timedOut = to > 0 && now > to;
+                        if (tooOld || timedOut) {
+                            r.put("status", "expired");
+                            r.put("expired_at_ms", now);
+                            r.put("expired_reason", tooOld ? "timeout_24h" : "timeout_5m");
+                            changed = true;
+                        }
+                    }
                 }
             }
         } catch (Exception ignored) { }

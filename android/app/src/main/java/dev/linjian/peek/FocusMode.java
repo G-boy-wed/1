@@ -26,6 +26,9 @@ public class FocusMode {
     private static volatile long lastLockAt = 0L;
     private static volatile boolean lockActivityVisible = false;
     private static volatile long lockActivityVisibleAt = 0L;
+    // Bug #2：求助申请过期阈值。超过 24 小时未处理、或属于已结束的上一专注会话的申请，
+    // 自动标记为 expired，不再常驻 pending 占用状态、触发 pending_timeout 异常提示。
+    private static final long REQUEST_EXPIRY_MS = 24L * 60L * 60L * 1000L;
 
     private static JSONObject defaultState() {
         JSONObject s = new JSONObject();
@@ -389,6 +392,28 @@ public class FocusMode {
             long tempUntil = s.optLong("temporary_until_ms", 0L);
             s.put("temporary_active", active && tempUntil > 0 && now < tempUntil);
             s.put("temporary_remaining_ms", Math.max(0L, tempUntil - now));
+            // Bug #2：专注求助过期归档。超过 24 小时未处理的求助、或创建于本次专注会话开始之前的
+            // 历史求助（属于已结束的上一会话），都自动标记为 expired，避免它们长期常驻 pending、
+            // 把 oldest_pending_age_minutes 与 pending_timeout 顶成异常。expired 不再计入 pending。
+            long reqSessionStart = s.optLong("started_at_ms", 0L);
+            JSONArray reqsAll = s.optJSONArray("requests");
+            if (reqsAll != null) {
+                boolean reqChanged = false;
+                for (int i = 0; i < reqsAll.length(); i++) {
+                    JSONObject r = reqsAll.optJSONObject(i);
+                    if (r == null || !"pending".equals(r.optString("status", "pending"))) continue;
+                    long rc = r.optLong("created_at_ms", 0L);
+                    boolean fromPrevSession = reqSessionStart > 0 && rc > 0 && rc < reqSessionStart;
+                    boolean tooOld = rc > 0 && (now - rc) > REQUEST_EXPIRY_MS;
+                    if (fromPrevSession || tooOld) {
+                        r.put("status", "expired");
+                        r.put("expired_at_ms", now);
+                        r.put("expired_reason", fromPrevSession ? "session_ended" : "timeout_24h");
+                        reqChanged = true;
+                    }
+                }
+                if (reqChanged) s.put("requests", reqsAll);
+            }
             // P0-5/#37：应急额度按「专注会话」归零，离线放行不走 start 也正确
             long sessionAt = s.optLong("emergency_session_started_at_ms", started);
             if (sessionAt > 0 && sessionAt != s.optLong("emergency_count_session_at_ms", 0L)) {

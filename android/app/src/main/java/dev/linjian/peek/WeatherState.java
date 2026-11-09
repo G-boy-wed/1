@@ -23,7 +23,23 @@ public class WeatherState {
             o.put("current", current);
             o.put("locations", arr);
             JSONObject live = WeatherLive.cached(ctx, current.optString("city", ""), current.optString("district", ""));
-            if (live != null) o.put("live", live);
+            if (live != null) {
+                o.put("live", live);
+                // Bug #3：把真实地理编码得到的精确经纬度与省/市回填进 current。
+                // 这样上传的 current_weather_location 自带标准坐标，服务端可按坐标直接查天气，
+                // 不再用城市名重新做名称地理编码，避免「绵阳北川」被错配到贵州遵义等省市漂移。
+                double lat = live.optDouble("latitude", 0);
+                double lon = live.optDouble("longitude", 0);
+                if (lat != 0 || lon != 0) {
+                    current.put("latitude", lat);
+                    current.put("longitude", lon);
+                }
+                if (live.has("admin1") && !live.optString("admin1", "").isEmpty()) current.put("admin1", live.optString("admin1", ""));
+                if (live.has("admin2") && !live.optString("admin2", "").isEmpty()) current.put("admin2", live.optString("admin2", ""));
+                if (live.has("resolved_city") && !live.optString("resolved_city", "").isEmpty()) current.put("resolved_city", live.optString("resolved_city", ""));
+                if (live.has("country") && !live.optString("country", "").isEmpty()) current.put("country", live.optString("country", ""));
+                o.put("current", current);
+            }
             o.put("summary", pretty(ctx));
             o.put("outdoor_advice", live != null && live.optBoolean("ok") ? WeatherLive.advice(live, current.optString("name", "当前地区")) : localAdvice(current.optString("note", "")));
         } catch (Exception ignored) { }

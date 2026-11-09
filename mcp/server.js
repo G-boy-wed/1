@@ -952,6 +952,8 @@ function buildWeatherAdvice(weather, name="当前地区") {
 // 对已知城市做坐标兜底，避免天气/温度/降水建议全部来自错误地区。
 const CITY_COORD_OVERRIDES = {
   "绵阳": { name: "绵阳", admin1: "四川", country: "中国", latitude: 31.4694, longitude: 104.6759 },
+  "北川": { name: "北川", admin1: "四川", country: "中国", latitude: 31.9097, longitude: 104.4546 },
+  "北川县": { name: "北川", admin1: "四川", country: "中国", latitude: 31.9097, longitude: 104.4546 },
   "成都": { name: "成都", admin1: "四川", country: "中国", latitude: 30.5728, longitude: 104.0668 },
   "重庆": { name: "重庆", admin1: "重庆", country: "中国", latitude: 29.5630, longitude: 106.5516 },
   "贵阳": { name: "贵阳", admin1: "贵州", country: "中国", latitude: 26.6477, longitude: 106.6302 },
@@ -965,20 +967,49 @@ const CITY_COORD_OVERRIDES = {
   "南京": { name: "南京", admin1: "江苏", country: "中国", latitude: 32.0603, longitude: 118.7969 },
 };
 
-async function fetchWeather(city) {
-  const q = encodeURIComponent(city || "");
-  if (!q) return { ok: false, error: "missing_city" };
-  const override = CITY_COORD_OVERRIDES[String(city || "").trim()];
-  let hit = override ? { ...override } : null;
-  if (!hit) {
-    const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${q}&count=3&language=zh&format=json`;
-    const geo = await fetch(geoUrl).then(r => r.json());
-    hit = geo?.results?.[0];
+async function fetchWeather(city, opts = {}) {
+  // Bug #3：坐标优先。当调用方传入标准经纬度时，直接用坐标查天气，不做名称地理编码，
+  // 从根本上避免「绵阳北川」被 open-meteo 名称地理编码错配到贵州遵义等省市漂移。
+  const coords = opts || {};
+  const hasCoords = typeof coords.latitude === "number" && typeof coords.longitude === "number"
+    && Math.abs(coords.latitude) <= 90 && Math.abs(coords.longitude) <= 180
+    && (coords.latitude !== 0 || coords.longitude !== 0);
+  let hit = null;
+  let source = "open-meteo";
+  if (hasCoords) {
+    hit = {
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+      name: coords.resolved_city || coords.name || city || "当前地区",
+      admin1: coords.admin1 || "",
+      admin2: coords.admin2 || "",
+      country: coords.country || "中国",
+    };
+    source = "coordinate";
+    // 按坐标做反向地理编码补全省/市（best-effort，失败不影响主流程，仍用坐标查到的天气）。
+    try {
+      const rg = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${coords.latitude}&longitude=${coords.longitude}&localityLanguage=zh`).then(r => r.json());
+      if (rg && rg.principalSubdivision) {
+        hit.admin1 = rg.principalSubdivision;
+        if (rg.city && rg.city.trim()) hit.name = rg.city;
+        if (rg.countryName) hit.country = rg.countryName;
+      }
+    } catch (e) { /* reverse geocode 失败则保留坐标推导出的标签 */ }
+  } else {
+    const q = encodeURIComponent(city || "");
+    if (!q) return { ok: false, error: "missing_city" };
+    const override = CITY_COORD_OVERRIDES[String(city || "").trim()];
+    hit = override ? { ...override } : null;
+    if (!hit) {
+      const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${q}&count=3&language=zh&format=json`;
+      const geo = await fetch(geoUrl).then(r => r.json());
+      hit = geo?.results?.[0];
+    }
   }
   if (!hit) return { ok: false, error: "city_not_found", city };
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${hit.latitude}&longitude=${hit.longitude}&current=temperature_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=2`;
   const data = await fetch(url).then(r => r.json());
-  return { ok: true, location: { name: hit.name, country: hit.country, admin1: hit.admin1, latitude: hit.latitude, longitude: hit.longitude }, current: data.current, daily: data.daily, source: override ? "override" : "open-meteo" };
+  return { ok: true, location: { name: hit.name, country: hit.country, admin1: hit.admin1, admin2: hit.admin2, latitude: hit.latitude, longitude: hit.longitude }, current: data.current, daily: data.daily, source };
 }
 
 async function waitCommand(id, seconds = DEFAULT_COMMAND_WAIT_SECONDS) {
@@ -1999,7 +2030,11 @@ function makeServer() {
     const current = data?.state?.current_weather_location || data?.life_state?.current_weather_location || {};
     const chosenCity = city || current.city || data?.state?.city || "";
     const name = current.name || chosenCity || "当前地区";
-    const weather = await fetchWeather(chosenCity).catch((e) => ({ ok: false, error: String(e), city: chosenCity }));
+    // Bug #3：优先用手机上报的标准经纬度查天气，杜绝城市别名错配导致省市漂移。
+    const coords = (typeof current.latitude === "number" && typeof current.longitude === "number")
+      ? { latitude: current.latitude, longitude: current.longitude, admin1: current.admin1, admin2: current.admin2, resolved_city: current.resolved_city, name: current.name, country: current.country }
+      : null;
+    const weather = await fetchWeather(chosenCity, coords).catch((e) => ({ ok: false, error: String(e), city: chosenCity }));
     const advice = buildWeatherAdvice(weather, name);
     return { content: [{ type: "text", text: JSON.stringify({ ok: weather.ok, device_id, current_weather_location: current, queried_city: chosenCity, weather, advice }, null, 2) }] };
   });
@@ -2010,7 +2045,11 @@ function makeServer() {
     const current = data?.state?.current_weather_location || data?.life_state?.current_weather_location || {};
     const chosenCity = city || current.city || data?.state?.city || "";
     const name = current.name || chosenCity || "当前地区";
-    const weather = await fetchWeather(chosenCity).catch((e) => ({ ok: false, error: String(e), city: chosenCity }));
+    // Bug #3：优先用手机上报的标准经纬度查天气，杜绝城市别名错配导致省市漂移。
+    const coords = (typeof current.latitude === "number" && typeof current.longitude === "number")
+      ? { latitude: current.latitude, longitude: current.longitude, admin1: current.admin1, admin2: current.admin2, resolved_city: current.resolved_city, name: current.name, country: current.country }
+      : null;
+    const weather = await fetchWeather(chosenCity, coords).catch((e) => ({ ok: false, error: String(e), city: chosenCity }));
     const message = buildWeatherAdvice(weather, name);
     const result = await postCommand({ action: "send_notification", device_id, payload: { title, message } });
     await postCompanionAction("send_weather_notification", { summary: `发送了${name}的天气提醒` });
