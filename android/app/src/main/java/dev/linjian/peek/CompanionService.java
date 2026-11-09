@@ -82,6 +82,8 @@ public class CompanionService extends Service {
         // 服务拉起即对齐一次：把本机最后写入的管理配置推给服务器（内部 15 分钟节流），
         // 保证保存设置那一刻没网也不会永久失联；此后每次轮询周期内自动重试对齐。
         PolicySync.pushAll(this, false);
+        // 伴看守护(MediaSync)前台保活：与守护服务同生共死，vivo/OriginOS 锁后台也不易失活。
+        startMediaSync(this);
         return START_STICKY;
     }
 
@@ -426,6 +428,22 @@ public class CompanionService extends Service {
                 else { ok = setAlarm(ctx, hour, minute, message, vibrate, skipUi); result = ok ? "alarm " + hour + ":" + minute : "cannot set alarm"; }
             } else if ("send_notification".equals(action)) { ok = showReminderNotification(ctx, title, message); result = ok ? "heads_up_notification_sent" : "notification permission missing";
             } else if ("get_guidian_state".equals(action) || "set_guidian_config".equals(action) || "trigger_guidian".equals(action) || "mark_guidian_returned".equals(action)) { JSONObject rr = GuidianState.handleCommand(ctx, new JSONObject().put("action", action)); ok = rr.optBoolean("ok", false); result = rr.toString();
+            } else if ("send_watch_whisper".equals(action)) {
+                // 伴看气泡：在画中画小挂件上弹出一句陪伴/吐槽；无浮窗权限时静默忽略。
+                String whisper = (message != null && message.trim().length() > 0) ? message.trim() : "我在陪你看呢~";
+                CompanionFloatingWidget.showWhisper(whisper);
+                ok = true; result = "watch_whisper_shown";
+            } else if ("pause_media".equals(action)) {
+                // 强制暂停当前媒体：提醒顾钰看自己或休息。返回是否成功发起暂停。
+                ok = MediaState.pauseActiveMedia(ctx);
+                result = ok ? "media_paused" : "no_active_media_or_pause_failed";
+            } else if ("media_switch_screen".equals(action)) {
+                // 把画面切回掌心窗陪伴页（聊天界面）。
+                CompanionService.bringAppToFront(ctx);
+                ok = true; result = "switched_to_chat";
+            } else if ("get_live_media_context".equals(action)) {
+                // 读取当前播放上下文（标题/博主/进度等），供陪伴对象实时了解对方在刷什么。
+                ok = true; result = MediaState.collect(ctx).toString();
             } else { ok = true; result = "noop"; }
         } catch (Exception e) { result = ScreenshotService.shortMsg(e); }
         try { out.put("ok", ok); out.put("action", action); out.put("result", result); } catch (Exception ignored) { }
@@ -811,8 +829,21 @@ public class CompanionService extends Service {
         if (netCallback != null) {
             try { ((ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE)).unregisterNetworkCallback(netCallback); } catch (Exception ignored) { }
         }
+        try { stopService(new Intent(this, MediaSyncService.class)); } catch (Exception ignored) { }
         PolicyScheduler.stop(this, "companion");
         if (pollThread != null) pollThread.quitSafely();
         super.onDestroy();
+    }
+
+    /** 启动伴看守护前台服务（锁后台保活）。 */
+    public static void startMediaSync(Context ctx) {
+        if (ctx == null) return;
+        try {
+            Intent mi = new Intent(ctx, MediaSyncService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(mi);
+            else ctx.startService(mi);
+        } catch (Exception e) {
+            DebugState.append(ctx, "启动伴看守护失败：" + ScreenshotService.shortMsg(e));
+        }
     }
 }

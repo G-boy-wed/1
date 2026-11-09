@@ -1373,6 +1373,72 @@ function makeServer() {
     return { content: [{ type: "text", text: JSON.stringify(sanitizeScreenState(data), null, 2) }] };
   });
 
+  server.tool("get_live_media_context", "读取顾钰当前正在看的流媒体/短视频上下文：APP、视频标题、博主/作者、播放状态、当前进度与总时长、进度百分比、短视频文案与作者名、是否处于「同屏伴看」中，以及最近几次伴看事件（进入/离开/超时）。陪伴对象想实时了解对方在刷什么、看到哪了、刷了多久时调用。", { device_id: z.string().default(DEFAULT_DEVICE) }, async ({ device_id = DEFAULT_DEVICE }) => {
+    const enc = encodeURIComponent(device_id);
+    let live = {};
+    try {
+      const life = await linjianFetch(`/api/life_state?device_id=${enc}`).then((r) => r.json()).catch(() => null);
+      live = (life && life.media_state) || {};
+    } catch (e) { }
+    let fresh = null;
+    let usedFresh = false;
+    try {
+      const res = await postCommand({ action: "get_live_media_context", device_id, payload: {} });
+      const status = await waitCommand(res?.command?.id, 6);
+      const result = status?.command?.result;
+      if (result && typeof result === "string" && result.trim().startsWith("{")) {
+        try { fresh = JSON.parse(result); usedFresh = true; } catch (e) { }
+      }
+    } catch (e) { }
+    if (fresh) live = fresh;
+    let recent_events = [];
+    try {
+      const mc = await linjianFetch(`/api/media/context?device_id=${enc}`).then((r) => r.json()).catch(() => null);
+      recent_events = (mc && Array.isArray(mc.recent_events)) ? mc.recent_events : [];
+    } catch (e) { }
+    return { content: [{ type: "text", text: JSON.stringify({
+      available: !!live.available,
+      app: live.app || "",
+      watchable_app: live.watchable_app || "",
+      title: live.title || "",
+      artist: live.artist || "",
+      author: live.author || "",
+      caption: live.caption || "",
+      bg_audio: live.bg_audio || "",
+      content_type: live.content_type || "unknown",
+      is_watchable: !!live.is_watchable,
+      state: live.state || "unknown",
+      state_label: live.state_label || "",
+      is_playing: !!live.is_playing,
+      position_ms: live.position_ms || 0,
+      duration_ms: live.duration_ms || 0,
+      position_percent: live.position_percent || 0,
+      recent_events,
+      source: usedFresh ? "device_realtime" : "cached_life_state"
+    }, null, 2) }] };
+  });
+
+  server.tool("companion_media_interact", "伴看互动：给顾钰正在看的视频/直播发一句陪伴或吐槽气泡(whisper)、强制暂停当前媒体提醒休息(pause)、或把画面切回掌心窗陪伴页(聊天界面)(switch_screen)。陪伴对象想主动陪伴、提醒休息或管束时调用，需明确说出要做什么。", {
+    interaction: z.enum(["whisper", "pause", "switch_screen"]).describe("whisper=发一句伴看气泡；pause=强制暂停当前媒体；switch_screen=把画面切回掌心窗"),
+    message: z.string().max(200).default("").describe("whisper 时的气泡文案；为空时用默认陪伴语"),
+    device_id: z.string().default(DEFAULT_DEVICE),
+    wait_seconds: z.number().int().min(3).max(20).default(6)
+  }, async ({ interaction, message = "", device_id = DEFAULT_DEVICE, wait_seconds = 6 }) => {
+    let action;
+    let payload = {};
+    if (interaction === "whisper") { action = "send_watch_whisper"; payload = { message: message && message.trim().length() > 0 ? message.trim() : "我在陪你看呢~" }; }
+    else if (interaction === "pause") { action = "pause_media"; }
+    else { action = "media_switch_screen"; payload = { message: message || "" }; }
+    const res = await postCommand({ action, device_id, payload, explicit: true });
+    const status = await waitCommand(res?.command?.id, wait_seconds);
+    const ok = status?.command?.ok;
+    const result = status?.command?.result;
+    const label = interaction === "whisper" ? "已发伴看气泡" : interaction === "pause" ? "已尝试暂停当前媒体" : "已切回掌心窗陪伴页";
+    return { content: [{ type: "text", text: JSON.stringify({
+      ok, action, result, note: label + (ok ? "" : "（设备可能未在线或未授权相关权限）")
+    }, null, 2) }] };
+  });
+
 
 
 

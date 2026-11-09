@@ -22,6 +22,14 @@ public class BootCompletedReceiver extends BroadcastReceiver {
             } else {
                 context.startService(new Intent(context, CompanionService.class));
             }
+            // 伴看守护(MediaSync)随开机/更新自启，保证同屏伴看能力也常驻。
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= 26) {
+                    context.startForegroundService(new Intent(context, MediaSyncService.class));
+                } else {
+                    context.startService(new Intent(context, MediaSyncService.class));
+                }
+            } catch (Exception ignored) { }
             DebugState.append(context, boot ? "开机自启：守护服务与调度器已拉起" : "应用更新后自启：守护服务与调度器已拉起");
         } catch (Exception e) {
             DebugState.append(context, "开机自启失败：" + ScreenshotService.shortMsg(e));

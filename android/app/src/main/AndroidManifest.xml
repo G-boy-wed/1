@@ -131,6 +131,12 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- 同屏流媒体/短视频伴看守护：前台保活，监听白名单媒体 App 进入/离开，上报伴看事件与进度，管理画中画小挂件。 -->
+        <service
+            android:name=".MediaSyncService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <service
             android:name=".ScreenshotService"
             android:label="@string/accessibility_name"

@@ -80,7 +80,8 @@ KNOWN_APPS = {
 SENSITIVE_PACKAGES = {"com.eg.android.AlipayGphone", "com.tencent.mm.plugin.wallet"}
 ALLOWED_ACTIONS = {"noop", "peek", "open_app", "home", "back", "recents", "screen_off", "turn_screen_off", "lock_screen", "phone_screen_off", "tap", "swipe", "set_alarm", "send_notification", "run_sequence", "save_known_app", "get_screen_nodes", "tap_text", "input_text", "lock_app", "unlock_app", "temporary_unlock_app", "extend_lock", "deny_unlock_request", "get_lock_state", "set_emergency_passphrase", "add_locked_app", "remove_locked_app", "list_lockable_apps", "screen_break_app", "start_screen_break", "screen_break", "end_screen_break", "stop_screen_break", "temporary_screen_break_release", "temporary_screen_release", "extend_screen_break", "deny_screen_break_release_request", "deny_break_release_request", "get_screen_break_state", "set_screen_break_passphrase", "add_screen_break_app", "remove_screen_break_app", "list_screen_break_apps", "get_focus_status", "get_life_state", "start_focus_mode", "end_focus_mode", "set_focus_plan", "reply_focus_request", "approve_focus_unlock", "deny_focus_unlock", "request_focus_unlock", "create_focus_request", "get_guidian_state", "set_guidian_config", "trigger_guidian", "mark_guidian_returned", "get_calendar_state", "upsert_calendar_event", "add_calendar_event", "delete_calendar_event", "create_diary_book", "list_diary_books", "rename_diary_book", "update_diary_book_cover", "write_diary_entry", "list_diary_entries", "read_diary_entry", "read_diary_entry_with_annotations", "add_diary_annotation", "list_diary_annotations", "mark_diary_annotations_seen", "delete_diary_annotation", "search_diary_entries", "update_diary_entry", "delete_diary_entry", "delete_diary_book",
 "show_center_alert", "force_back_to_chat", "start_tour", "stop_tour",
-"set_companion_emotion", "get_companion_emotion"}
+"set_companion_emotion", "get_companion_emotion",
+"send_watch_whisper", "pause_media", "media_switch_screen", "get_live_media_context"}
 
 def load_dotenv(path: Path) -> None:
     if not path.exists(): return
@@ -127,6 +128,8 @@ class State:
         self.command_history: dict[str, dict] = {}
         self.commands_lock = Lock()
         self.device_states: dict[str, dict] = {}
+        self.media_live: dict[str, dict] = {}
+        self.media_events: dict[str, list] = {}
         self.unlock_requests: list[dict] = []
         self.companion_path = self.data_dir / "companion_state.json"
         self.companion_lock = Lock()
@@ -507,6 +510,12 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/mcp", "/sse"):
             self._json(400, {"ok": False, "error": "LINJIAN_ERR_WRONG_SERVICE", "message": "你访问的是掌心窗 server 服务，不是 MCP 服务。请单独部署 mcp 目录，并在 MCP 客户端填写 MCP 服务域名 + /mcp 或 /sse。"})
             return
+        if path == "/api/media/context":
+            if not self._require_token(): return
+            device_id = qs.get("device_id", [DEFAULT_DEVICE])[0]
+            live = self.state.media_live.get(device_id) or {}
+            events = self.state.media_events.get(device_id) or []
+            self._json(200, {"ok": True, "device_id": device_id, "media_state": live.get("media_state", {}), "last_event": live.get("event", ""), "recent_events": events[-20:]}); return
         if path == "/api/companion/state":
             if not self._require_token(): return
             limit = max(1, min(50, int(qs.get("limit", ["20"])[0] or 20)))
@@ -650,6 +659,24 @@ class Handler(BaseHTTPRequestHandler):
             data = self._read_json()
             event = self.state.add_activity_event(data, max(0, min(300, int(data.get("dedupe_seconds") or 0))))
             self._json(200, {"ok": True, "event": event}); return
+        if path == "/api/media/sync":
+            if not self._require_token(): return
+            data = self._read_json()
+            device_id = data.get("device_id") or DEFAULT_DEVICE
+            media_state = data.get("media_state") if isinstance(data.get("media_state"), dict) else {}
+            event = (data.get("event") or "").strip()
+            with self.state.commands_lock:
+                self.state.media_live[device_id] = {
+                    "media_state": media_state,
+                    "event": event,
+                    "updated_at": now_iso(),
+                }
+                if event:
+                    lst = self.state.media_events.get(device_id) or []
+                    lst.append({"event": event, "at": now_iso(), "media_state": media_state})
+                    if len(lst) > 50: lst = lst[-50:]
+                    self.state.media_events[device_id] = lst
+            self._json(200, {"ok": True, "device_id": device_id}); return
         if path == "/api/peek":
             if not self._require_token(): return
             self._queue(make_command(DEFAULT_DEVICE, "peek")); self._json(200, {"ok": True, "queued": True}); return
@@ -692,7 +719,8 @@ class Handler(BaseHTTPRequestHandler):
                 "read_diary_entry_with_annotations": "读取日记批注", "add_diary_annotation": "保存页边纸条", "list_diary_annotations": "读取页边纸条", "mark_diary_annotations_seen": "标记纸条已看", "delete_diary_annotation": "删除页边纸条",
                 "peek": "查看屏幕", "run_sequence": "执行组合动作", "home": "回到手机桌面", "back": "返回上一页", "recents": "打开最近任务",
                 "show_center_alert": "屏幕居中弹窗", "force_back_to_chat": "分级拉回弹窗", "start_tour": "开始巡回查岗", "stop_tour": "停止巡回查岗",
-                "set_companion_emotion": "写入陪伴对象情绪", "get_companion_emotion": "查看陪伴对象情绪"
+                "set_companion_emotion": "写入陪伴对象情绪", "get_companion_emotion": "查看陪伴对象情绪",
+                "send_watch_whisper": "发送伴看气泡", "pause_media": "暂停当前媒体", "media_switch_screen": "切回掌心窗陪伴页", "get_live_media_context": "读取实时伴看上下文"
             }
             event = self.state.add_activity_event({
                 "id": cmd.get("id"), "device_id": cmd.get("device_id"), "source": "companion", "type": activity_type_for_action(action),

@@ -104,7 +104,11 @@ public class ScreenshotService extends AccessibilityService {
         CharSequence pkg = event.getPackageName();
         if (pkg != null) currentPackage = pkg.toString();
         int t = event.getEventType();
-        if (t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || t == AccessibilityEvent.TYPE_WINDOWS_CHANGED || t == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED || t == AccessibilityEvent.TYPE_VIEW_SCROLLED) updateScreenText();
+        if (t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || t == AccessibilityEvent.TYPE_WINDOWS_CHANGED || t == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED || t == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+            updateScreenText();
+            // 伴看守护：把当前前台 App 的读屏文本交给 MediaState，短视频(抖音/B站/小红书)可结构化出视频文案/作者。
+            MediaState.setScreenContext(currentPackage, screenText());
+        }
         if (t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && pkg != null) {
             ActivityEventStore.recordForegroundChange(this, pkg.toString());
             FocusMode.onForegroundPackage(this, pkg.toString());

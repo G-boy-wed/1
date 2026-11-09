@@ -1,0 +1,480 @@
+diff --git a/android/app/src/main/AndroidManifest.xml b/android/app/src/main/AndroidManifest.xml
+index f523bfd..294a89b 100644
+--- a/android/app/src/main/AndroidManifest.xml
++++ b/android/app/src/main/AndroidManifest.xml
+@@ -131,6 +131,12 @@
+             android:exported="false"
+             android:foregroundServiceType="dataSync" />
+ 
++        <!-- 同屏流媒体/短视频伴看守护：前台保活，监听白名单媒体 App 进入/离开，上报伴看事件与进度，管理画中画小挂件。 -->
++        <service
++            android:name=".MediaSyncService"
++            android:exported="false"
++            android:foregroundServiceType="dataSync" />
++
+         <service
+             android:name=".ScreenshotService"
+             android:label="@string/accessibility_name"
+diff --git a/android/app/src/main/java/dev/linjian/peek/BootCompletedReceiver.java b/android/app/src/main/java/dev/linjian/peek/BootCompletedReceiver.java
+index 425bef3..24857cd 100644
+--- a/android/app/src/main/java/dev/linjian/peek/BootCompletedReceiver.java
++++ b/android/app/src/main/java/dev/linjian/peek/BootCompletedReceiver.java
+@@ -22,6 +22,14 @@ public class BootCompletedReceiver extends BroadcastReceiver {
+             } else {
+                 context.startService(new Intent(context, CompanionService.class));
+             }
++            // 伴看守护(MediaSync)随开机/更新自启，保证同屏伴看能力也常驻。
++            try {
++                if (android.os.Build.VERSION.SDK_INT >= 26) {
++                    context.startForegroundService(new Intent(context, MediaSyncService.class));
++                } else {
++                    context.startService(new Intent(context, MediaSyncService.class));
++                }
++            } catch (Exception ignored) { }
+             DebugState.append(context, boot ? "开机自启：守护服务与调度器已拉起" : "应用更新后自启：守护服务与调度器已拉起");
+         } catch (Exception e) {
+             DebugState.append(context, "开机自启失败：" + ScreenshotService.shortMsg(e));
+diff --git a/android/app/src/main/java/dev/linjian/peek/CompanionService.java b/android/app/src/main/java/dev/linjian/peek/CompanionService.java
+index 7984ccc..43b4996 100644
+--- a/android/app/src/main/java/dev/linjian/peek/CompanionService.java
++++ b/android/app/src/main/java/dev/linjian/peek/CompanionService.java
+@@ -82,6 +82,8 @@ public class CompanionService extends Service {
+         // 服务拉起即对齐一次：把本机最后写入的管理配置推给服务器（内部 15 分钟节流），
+         // 保证保存设置那一刻没网也不会永久失联；此后每次轮询周期内自动重试对齐。
+         PolicySync.pushAll(this, false);
++        // 伴看守护(MediaSync)前台保活：与守护服务同生共死，vivo/OriginOS 锁后台也不易失活。
++        startMediaSync(this);
+         return START_STICKY;
+     }
+ 
+@@ -426,6 +428,22 @@ public class CompanionService extends Service {
+                 else { ok = setAlarm(ctx, hour, minute, message, vibrate, skipUi); result = ok ? "alarm " + hour + ":" + minute : "cannot set alarm"; }
+             } else if ("send_notification".equals(action)) { ok = showReminderNotification(ctx, title, message); result = ok ? "heads_up_notification_sent" : "notification permission missing";
+             } else if ("get_guidian_state".equals(action) || "set_guidian_config".equals(action) || "trigger_guidian".equals(action) || "mark_guidian_returned".equals(action)) { JSONObject rr = GuidianState.handleCommand(ctx, new JSONObject().put("action", action)); ok = rr.optBoolean("ok", false); result = rr.toString();
++            } else if ("send_watch_whisper".equals(action)) {
++                // 伴看气泡：在画中画小挂件上弹出一句陪伴/吐槽；无浮窗权限时静默忽略。
++                String whisper = (message != null && message.trim().length() > 0) ? message.trim() : "我在陪你看呢~";
++                CompanionFloatingWidget.showWhisper(whisper);
++                ok = true; result = "watch_whisper_shown";
++            } else if ("pause_media".equals(action)) {
++                // 强制暂停当前媒体：提醒顾钰看自己或休息。返回是否成功发起暂停。
++                ok = MediaState.pauseActiveMedia(ctx);
++                result = ok ? "media_paused" : "no_active_media_or_pause_failed";
++            } else if ("media_switch_screen".equals(action)) {
++                // 把画面切回掌心窗陪伴页（聊天界面）。
++                CompanionService.bringAppToFront(ctx);
++                ok = true; result = "switched_to_chat";
++            } else if ("get_live_media_context".equals(action)) {
++                // 读取当前播放上下文（标题/博主/进度等），供陪伴对象实时了解对方在刷什么。
++                ok = true; result = MediaState.collect(ctx).toString();
+             } else { ok = true; result = "noop"; }
+         } catch (Exception e) { result = ScreenshotService.shortMsg(e); }
+         try { out.put("ok", ok); out.put("action", action); out.put("result", result); } catch (Exception ignored) { }
+@@ -811,8 +829,21 @@ public class CompanionService extends Service {
+         if (netCallback != null) {
+             try { ((ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE)).unregisterNetworkCallback(netCallback); } catch (Exception ignored) { }
+         }
++        try { stopService(new Intent(this, MediaSyncService.class)); } catch (Exception ignored) { }
+         PolicyScheduler.stop(this, "companion");
+         if (pollThread != null) pollThread.quitSafely();
+         super.onDestroy();
+     }
++
++    /** 启动伴看守护前台服务（锁后台保活）。 */
++    public static void startMediaSync(Context ctx) {
++        if (ctx == null) return;
++        try {
++            Intent mi = new Intent(ctx, MediaSyncService.class);
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(mi);
++            else ctx.startService(mi);
++        } catch (Exception e) {
++            DebugState.append(ctx, "启动伴看守护失败：" + ScreenshotService.shortMsg(e));
++        }
++    }
+ }
+diff --git a/android/app/src/main/java/dev/linjian/peek/MediaState.java b/android/app/src/main/java/dev/linjian/peek/MediaState.java
+index eee8e8b..bf9772d 100644
+--- a/android/app/src/main/java/dev/linjian/peek/MediaState.java
++++ b/android/app/src/main/java/dev/linjian/peek/MediaState.java
+@@ -18,17 +18,71 @@ import android.text.TextUtils;
+ import org.json.JSONObject;
+ 
+ import java.text.SimpleDateFormat;
++import java.util.Arrays;
+ import java.util.Date;
++import java.util.HashSet;
+ import java.util.List;
+ import java.util.Locale;
++import java.util.Set;
+ 
+ /**
+  * 公开版媒体状态：仅在用户开启通知使用权后，从本机媒体通知/MediaSession 读取正在播放的标题、歌手与状态。
+  * 不读取聊天正文，不上传通知全文；只用于「此刻状态」卡片和 life_state 的 media_state。
++ *
++ * 伴看守护扩展（Companion Media Sync）：
++ *  - 增加白名单分类：短视频 / 长视频 / 音乐，并标记 is_watchable（是否属于「同屏伴看」可感知的流媒体 App）。
++ *  - 增加播放进度 position_ms / duration_ms / position_percent。
++ *  - 短视频（抖音/B站/小红书等）前台时，结合无障碍读屏文本结构化出 caption / author（视频文案、作者名）。
++ *  - 提供 pauseActiveMedia() 供后端「强制暂停」指令调用。
+  */
+ public class MediaState {
+     private static volatile Snapshot latest = Snapshot.empty("等待媒体通知");
+ 
++    // —— 伴看白名单：仅这些包名进入会被当作「同屏伴看」感知对象 ——
++    private static final Set<String> SHORT_VIDEO = new HashSet<>(Arrays.asList(
++            "com.ss.android.ugc.aweme",        // 抖音
++            "com.ss.android.ugc.aweme.lite",   // 抖音极速版
++            "com.kuaishou.nebula",             // 快手极速版
++            "com.smile.gifmaker",              // 快手
++            "com.xingin.xhs"                   // 小红书
++    ));
++    private static final Set<String> LONG_VIDEO = new HashSet<>(Arrays.asList(
++            "com.tencent.qqlive",              // 腾讯视频
++            "tv.danmaku.bili",                 // 哔哩哔哩
++            "com.qiyi.video",                  // 爱奇艺
++            "com.youku.phone",                // 优酷
++            "com.mgtv.mobile",                // 芒果TV
++            "com.sina.video.play",            // 新浪视频
++            "com.bilibili.studio"             // 必哩必哩
++    ));
++    private static final Set<String> MUSIC = new HashSet<>(Arrays.asList(
++            "com.netease.cloudmusic",         // 网易云音乐
++            "com.tencent.qqmusic",           // QQ音乐
++            "com.kugou.android",             // 酷狗
++            "com.sds.android.ttpod"          // 天天动听
++    ));
++
++    // 无障碍读屏喂入的短视频前台文本（最近一次），用于结构化 caption/author。
++    private static volatile String screenPkg = "";
++    private static volatile String screenText = "";
++
++    public static void setScreenContext(String pkg, String text) {
++        screenPkg = pkg == null ? "" : pkg;
++        screenText = text == null ? "" : text;
++    }
++
++    public static boolean isWatchablePackage(String pkg) {
++        if (pkg == null) return false;
++        return SHORT_VIDEO.contains(pkg) || LONG_VIDEO.contains(pkg);
++    }
++
++    private static String contentTypeOf(String pkg) {
++        if (SHORT_VIDEO.contains(pkg)) return "short_video";
++        if (LONG_VIDEO.contains(pkg)) return "video";
++        if (MUSIC.contains(pkg)) return "music";
++        return "unknown";
++    }
++
+     public static JSONObject collect(Context ctx) {
+         JSONObject out = new JSONObject();
+         try {
+@@ -50,12 +104,26 @@ public class MediaState {
+             out.put("state", s.state);
+             out.put("state_label", stateLabel(s.state));
+             out.put("is_playing", "playing".equals(s.state));
++            out.put("content_type", contentTypeOf(s.pkg));
++            out.put("is_watchable", isWatchablePackage(s.pkg));
++            out.put("watchable_app", isWatchablePackage(s.pkg) ? s.app : "");
++            out.put("position_ms", s.positionMs);
++            out.put("duration_ms", s.durationMs);
++            out.put("position_percent", s.durationMs > 0 ? (int) (s.positionMs * 100L / s.durationMs) : 0);
+             out.put("updated_at_ms", s.updatedAtMs);
+             out.put("updated_at_local", s.updatedAtMs <= 0 ? "" : formatLocal(s.updatedAtMs));
++            if (SHORT_VIDEO.contains(s.pkg)) {
++                JSONObject cap = parseShortVideoContext(s.pkg);
++                if (cap != null) {
++                    if (!empty(cap.optString("author"))) out.put("author", cap.optString("author"));
++                    if (!empty(cap.optString("caption"))) out.put("caption", cap.optString("caption"));
++                    if (!empty(cap.optString("bg_audio"))) out.put("bg_audio", cap.optString("bg_audio"));
++                }
++            }
+             if (!granted) out.put("reason", "通知使用权未开启");
+             else if (!s.hasMedia()) out.put("reason", s.reason == null || s.reason.length() == 0 ? "暂无媒体播放" : s.reason);
+             out.put("summary", summary(ctx));
+-            out.put("privacy_note", "媒体状态仅在你开启通知使用权后读取，用于显示正在播放的歌曲/音频；不读取聊天内容。");
++            out.put("privacy_note", "媒体状态仅在你开启通知使用权后读取，用于显示正在播放的歌曲/视频；不读取聊天内容。");
+         } catch (Exception e) {
+             try { out.put("available", false); out.put("error", ScreenshotService.shortMsg(e)); } catch (Exception ignored) { }
+         }
+@@ -82,6 +150,38 @@ public class MediaState {
+         return (live != null && live.hasMedia()) ? live : (latest == null ? Snapshot.empty("等待媒体通知") : latest);
+     }
+ 
++    /**
++     * 强制暂停当前正在播放的媒体（伴看「提醒休息/看我」指令）。
++     * 遍历系统活跃 MediaSession，对正在播放且属于可感知包的会话调用 transportControls.pause()。
++     * 返回是否成功发起暂停。
++     */
++    public static boolean pauseActiveMedia(Context ctx) {
++        if (ctx == null) return false;
++        try {
++            MediaSessionManager msm = (MediaSessionManager) ctx.getSystemService(Context.MEDIA_SESSION_SERVICE);
++            if (msm == null) return false;
++            ComponentName listener = new ComponentName(ctx, MediaNotificationService.class);
++            List<MediaController> controllers = msm.getActiveSessions(listener);
++            if (controllers == null) return false;
++            boolean paused = false;
++            for (MediaController c : controllers) {
++                if (c == null) continue;
++                PlaybackState ps = c.getPlaybackState();
++                if (ps == null) continue;
++                if (ps.getState() != PlaybackState.STATE_PLAYING && ps.getState() != PlaybackState.STATE_BUFFERING) continue;
++                try {
++                    if (c.getTransportControls() != null) { c.getTransportControls().pause(); paused = true; }
++                } catch (Exception ignored) { }
++            }
++            if (paused) latest = Snapshot.empty("已暂停");
++            return paused;
++        } catch (SecurityException ignored) {
++            return false;
++        } catch (Exception ignored) {
++            return false;
++        }
++    }
++
+     public static boolean hasNotificationListenerAccess(Context ctx) {
+         if (ctx == null) return false;
+         try {
+@@ -255,10 +355,21 @@ public class MediaState {
+                         if (empty(s.album)) s.album = safeText(desc.getDescription());
+                     }
+                 } catch (Exception ignored) { }
++                long dur = md.getLong(MediaMetadata.METADATA_KEY_DURATION);
++                if (dur > 0) s.durationMs = dur;
+             }
+             PlaybackState ps = controller.getPlaybackState();
+-            if (ps != null) s.state = playbackState(ps.getState());
+-            else s.state = "unknown";
++            if (ps != null) {
++                s.state = playbackState(ps.getState());
++                s.positionMs = ps.getPosition();
++                try {
++                    Bundle pe = ps.getExtras();
++                    if (pe != null) {
++                        long d = pe.getLong("android.media.extra.DURATION", -1);
++                        if (d > 0) s.durationMs = d;
++                    }
++                } catch (Exception ignored) { }
++            } else s.state = "unknown";
+             s.updatedAtMs = System.currentTimeMillis();
+             s.reason = "";
+             if (empty(s.title) && empty(s.artist) && empty(s.album)) return null;
+@@ -268,6 +379,44 @@ public class MediaState {
+         }
+     }
+ 
++    private static JSONObject parseShortVideoContext(String pkg) {
++        if (!SHORT_VIDEO.contains(pkg)) return null;
++        if (empty(screenText)) return null;
++        JSONObject out = new JSONObject();
++        try {
++            String[] parts = screenText.split("\\|");
++            String caption = "";
++            String author = "";
++            for (String rawPart : parts) {
++                String p = rawPart == null ? "" : rawPart.trim();
++                if (p.isEmpty()) continue;
++                if (p.contains("@")) {
++                    author = p.length() > 60 ? p.substring(0, 60) : p;
++                } else if (caption.isEmpty() && p.length() >= 2 && !isControlNoise(p)) {
++                    caption = p.length() > 200 ? p.substring(0, 200) : p;
++                }
++            }
++            if (author.isEmpty()) {
++                int idx = screenText.indexOf('@');
++                if (idx >= 0) {
++                    int end = screenText.indexOf('|', idx);
++                    if (end < 0) end = Math.min(screenText.length(), idx + 40);
++                    author = screenText.substring(idx, end).trim();
++                }
++            }
++            if (!author.isEmpty()) out.put("author", author);
++            if (!caption.isEmpty()) out.put("caption", caption);
++        } catch (Exception ignored) { }
++        return out;
++    }
++
++    private static boolean isControlNoise(String s) {
++        if (s == null) return true;
++        String[] noise = {"赞", "评论", "收藏", "分享", "关注", "首页", "朋友", "我的", "消息", "搜索", "+", "关注页", "推荐", "关注 ", "私信"};
++        for (String n : noise) if (s.equals(n) || s.contains(n)) return true;
++        return false;
++    }
++
+     private static int score(Snapshot s) {
+         int score = 0;
+         if ("playing".equals(s.state)) score += 100;
+@@ -344,6 +493,8 @@ public class MediaState {
+         String artist = "";
+         String album = "";
+         String state = "unknown";
++        long positionMs = 0L;
++        long durationMs = 0L;
+         long updatedAtMs = 0L;
+         String reason = "";
+         boolean hasMedia() { return !MediaState.empty(title) || !MediaState.empty(artist) || !MediaState.empty(album); }
+diff --git a/android/app/src/main/java/dev/linjian/peek/ScreenshotService.java b/android/app/src/main/java/dev/linjian/peek/ScreenshotService.java
+index 1613ab0..3d36c50 100644
+--- a/android/app/src/main/java/dev/linjian/peek/ScreenshotService.java
++++ b/android/app/src/main/java/dev/linjian/peek/ScreenshotService.java
+@@ -104,7 +104,11 @@ public class ScreenshotService extends AccessibilityService {
+         CharSequence pkg = event.getPackageName();
+         if (pkg != null) currentPackage = pkg.toString();
+         int t = event.getEventType();
+-        if (t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || t == AccessibilityEvent.TYPE_WINDOWS_CHANGED || t == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED || t == AccessibilityEvent.TYPE_VIEW_SCROLLED) updateScreenText();
++        if (t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || t == AccessibilityEvent.TYPE_WINDOWS_CHANGED || t == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED || t == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
++            updateScreenText();
++            // 伴看守护：把当前前台 App 的读屏文本交给 MediaState，短视频(抖音/B站/小红书)可结构化出视频文案/作者。
++            MediaState.setScreenContext(currentPackage, screenText());
++        }
+         if (t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && pkg != null) {
+             ActivityEventStore.recordForegroundChange(this, pkg.toString());
+             FocusMode.onForegroundPackage(this, pkg.toString());
+diff --git a/mcp/server.js b/mcp/server.js
+index e243917..4b02679 100644
+--- a/mcp/server.js
++++ b/mcp/server.js
+@@ -1373,6 +1373,72 @@ function makeServer() {
+     return { content: [{ type: "text", text: JSON.stringify(sanitizeScreenState(data), null, 2) }] };
+   });
+ 
++  server.tool("get_live_media_context", "读取顾钰当前正在看的流媒体/短视频上下文：APP、视频标题、博主/作者、播放状态、当前进度与总时长、进度百分比、短视频文案与作者名、是否处于「同屏伴看」中，以及最近几次伴看事件（进入/离开/超时）。陪伴对象想实时了解对方在刷什么、看到哪了、刷了多久时调用。", { device_id: z.string().default(DEFAULT_DEVICE) }, async ({ device_id = DEFAULT_DEVICE }) => {
++    const enc = encodeURIComponent(device_id);
++    let live = {};
++    try {
++      const life = await linjianFetch(`/api/life_state?device_id=${enc}`).then((r) => r.json()).catch(() => null);
++      live = (life && life.media_state) || {};
++    } catch (e) { }
++    let fresh = null;
++    let usedFresh = false;
++    try {
++      const res = await postCommand({ action: "get_live_media_context", device_id, payload: {} });
++      const status = await waitCommand(res?.command?.id, 6);
++      const result = status?.command?.result;
++      if (result && typeof result === "string" && result.trim().startsWith("{")) {
++        try { fresh = JSON.parse(result); usedFresh = true; } catch (e) { }
++      }
++    } catch (e) { }
++    if (fresh) live = fresh;
++    let recent_events = [];
++    try {
++      const mc = await linjianFetch(`/api/media/context?device_id=${enc}`).then((r) => r.json()).catch(() => null);
++      recent_events = (mc && Array.isArray(mc.recent_events)) ? mc.recent_events : [];
++    } catch (e) { }
++    return { content: [{ type: "text", text: JSON.stringify({
++      available: !!live.available,
++      app: live.app || "",
++      watchable_app: live.watchable_app || "",
++      title: live.title || "",
++      artist: live.artist || "",
++      author: live.author || "",
++      caption: live.caption || "",
++      bg_audio: live.bg_audio || "",
++      content_type: live.content_type || "unknown",
++      is_watchable: !!live.is_watchable,
++      state: live.state || "unknown",
++      state_label: live.state_label || "",
++      is_playing: !!live.is_playing,
++      position_ms: live.position_ms || 0,
++      duration_ms: live.duration_ms || 0,
++      position_percent: live.position_percent || 0,
++      recent_events,
++      source: usedFresh ? "device_realtime" : "cached_life_state"
++    }, null, 2) }] };
++  });
++
++  server.tool("companion_media_interact", "伴看互动：给顾钰正在看的视频/直播发一句陪伴或吐槽气泡(whisper)、强制暂停当前媒体提醒休息(pause)、或把画面切回掌心窗陪伴页(聊天界面)(switch_screen)。陪伴对象想主动陪伴、提醒休息或管束时调用，需明确说出要做什么。", {
++    interaction: z.enum(["whisper", "pause", "switch_screen"]).describe("whisper=发一句伴看气泡；pause=强制暂停当前媒体；switch_screen=把画面切回掌心窗"),
++    message: z.string().max(200).default("").describe("whisper 时的气泡文案；为空时用默认陪伴语"),
++    device_id: z.string().default(DEFAULT_DEVICE),
++    wait_seconds: z.number().int().min(3).max(20).default(6)
++  }, async ({ interaction, message = "", device_id = DEFAULT_DEVICE, wait_seconds = 6 }) => {
++    let action;
++    let payload = {};
++    if (interaction === "whisper") { action = "send_watch_whisper"; payload = { message: message && message.trim().length() > 0 ? message.trim() : "我在陪你看呢~" }; }
++    else if (interaction === "pause") { action = "pause_media"; }
++    else { action = "media_switch_screen"; payload = { message: message || "" }; }
++    const res = await postCommand({ action, device_id, payload, explicit: true });
++    const status = await waitCommand(res?.command?.id, wait_seconds);
++    const ok = status?.command?.ok;
++    const result = status?.command?.result;
++    const label = interaction === "whisper" ? "已发伴看气泡" : interaction === "pause" ? "已尝试暂停当前媒体" : "已切回掌心窗陪伴页";
++    return { content: [{ type: "text", text: JSON.stringify({
++      ok, action, result, note: label + (ok ? "" : "（设备可能未在线或未授权相关权限）")
++    }, null, 2) }] };
++  });
++
+ 
+ 
+ 
+diff --git a/server/linjian_server.py b/server/linjian_server.py
+index ae33a13..0d2154a 100644
+--- a/server/linjian_server.py
++++ b/server/linjian_server.py
+@@ -80,7 +80,8 @@ KNOWN_APPS = {
+ SENSITIVE_PACKAGES = {"com.eg.android.AlipayGphone", "com.tencent.mm.plugin.wallet"}
+ ALLOWED_ACTIONS = {"noop", "peek", "open_app", "home", "back", "recents", "screen_off", "turn_screen_off", "lock_screen", "phone_screen_off", "tap", "swipe", "set_alarm", "send_notification", "run_sequence", "save_known_app", "get_screen_nodes", "tap_text", "input_text", "lock_app", "unlock_app", "temporary_unlock_app", "extend_lock", "deny_unlock_request", "get_lock_state", "set_emergency_passphrase", "add_locked_app", "remove_locked_app", "list_lockable_apps", "screen_break_app", "start_screen_break", "screen_break", "end_screen_break", "stop_screen_break", "temporary_screen_break_release", "temporary_screen_release", "extend_screen_break", "deny_screen_break_release_request", "deny_break_release_request", "get_screen_break_state", "set_screen_break_passphrase", "add_screen_break_app", "remove_screen_break_app", "list_screen_break_apps", "get_focus_status", "get_life_state", "start_focus_mode", "end_focus_mode", "set_focus_plan", "reply_focus_request", "approve_focus_unlock", "deny_focus_unlock", "request_focus_unlock", "create_focus_request", "get_guidian_state", "set_guidian_config", "trigger_guidian", "mark_guidian_returned", "get_calendar_state", "upsert_calendar_event", "add_calendar_event", "delete_calendar_event", "create_diary_book", "list_diary_books", "rename_diary_book", "update_diary_book_cover", "write_diary_entry", "list_diary_entries", "read_diary_entry", "read_diary_entry_with_annotations", "add_diary_annotation", "list_diary_annotations", "mark_diary_annotations_seen", "delete_diary_annotation", "search_diary_entries", "update_diary_entry", "delete_diary_entry", "delete_diary_book",
+ "show_center_alert", "force_back_to_chat", "start_tour", "stop_tour",
+-"set_companion_emotion", "get_companion_emotion"}
++"set_companion_emotion", "get_companion_emotion",
++"send_watch_whisper", "pause_media", "media_switch_screen", "get_live_media_context"}
+ 
+ def load_dotenv(path: Path) -> None:
+     if not path.exists(): return
+@@ -127,6 +128,8 @@ class State:
+         self.command_history: dict[str, dict] = {}
+         self.commands_lock = Lock()
+         self.device_states: dict[str, dict] = {}
++        self.media_live: dict[str, dict] = {}
++        self.media_events: dict[str, list] = {}
+         self.unlock_requests: list[dict] = []
+         self.companion_path = self.data_dir / "companion_state.json"
+         self.companion_lock = Lock()
+@@ -507,6 +510,12 @@ class Handler(BaseHTTPRequestHandler):
+         if path in ("/mcp", "/sse"):
+             self._json(400, {"ok": False, "error": "LINJIAN_ERR_WRONG_SERVICE", "message": "你访问的是掌心窗 server 服务，不是 MCP 服务。请单独部署 mcp 目录，并在 MCP 客户端填写 MCP 服务域名 + /mcp 或 /sse。"})
+             return
++        if path == "/api/media/context":
++            if not self._require_token(): return
++            device_id = qs.get("device_id", [DEFAULT_DEVICE])[0]
++            live = self.state.media_live.get(device_id) or {}
++            events = self.state.media_events.get(device_id) or []
++            self._json(200, {"ok": True, "device_id": device_id, "media_state": live.get("media_state", {}), "last_event": live.get("event", ""), "recent_events": events[-20:]}); return
+         if path == "/api/companion/state":
+             if not self._require_token(): return
+             limit = max(1, min(50, int(qs.get("limit", ["20"])[0] or 20)))
+@@ -650,6 +659,24 @@ class Handler(BaseHTTPRequestHandler):
+             data = self._read_json()
+             event = self.state.add_activity_event(data, max(0, min(300, int(data.get("dedupe_seconds") or 0))))
+             self._json(200, {"ok": True, "event": event}); return
++        if path == "/api/media/sync":
++            if not self._require_token(): return
++            data = self._read_json()
++            device_id = data.get("device_id") or DEFAULT_DEVICE
++            media_state = data.get("media_state") if isinstance(data.get("media_state"), dict) else {}
++            event = (data.get("event") or "").strip()
++            with self.state.commands_lock:
++                self.state.media_live[device_id] = {
++                    "media_state": media_state,
++                    "event": event,
++                    "updated_at": now_iso(),
++                }
++                if event:
++                    lst = self.state.media_events.get(device_id) or []
++                    lst.append({"event": event, "at": now_iso(), "media_state": media_state})
++                    if len(lst) > 50: lst = lst[-50:]
++                    self.state.media_events[device_id] = lst
++            self._json(200, {"ok": True, "device_id": device_id}); return
+         if path == "/api/peek":
+             if not self._require_token(): return
+             self._queue(make_command(DEFAULT_DEVICE, "peek")); self._json(200, {"ok": True, "queued": True}); return
+@@ -692,7 +719,8 @@ class Handler(BaseHTTPRequestHandler):
+                 "read_diary_entry_with_annotations": "读取日记批注", "add_diary_annotation": "保存页边纸条", "list_diary_annotations": "读取页边纸条", "mark_diary_annotations_seen": "标记纸条已看", "delete_diary_annotation": "删除页边纸条",
+                 "peek": "查看屏幕", "run_sequence": "执行组合动作", "home": "回到手机桌面", "back": "返回上一页", "recents": "打开最近任务",
+                 "show_center_alert": "屏幕居中弹窗", "force_back_to_chat": "分级拉回弹窗", "start_tour": "开始巡回查岗", "stop_tour": "停止巡回查岗",
+-                "set_companion_emotion": "写入陪伴对象情绪", "get_companion_emotion": "查看陪伴对象情绪"
++                "set_companion_emotion": "写入陪伴对象情绪", "get_companion_emotion": "查看陪伴对象情绪",
++                "send_watch_whisper": "发送伴看气泡", "pause_media": "暂停当前媒体", "media_switch_screen": "切回掌心窗陪伴页", "get_live_media_context": "读取实时伴看上下文"
+             }
+             event = self.state.add_activity_event({
+                 "id": cmd.get("id"), "device_id": cmd.get("device_id"), "source": "companion", "type": activity_type_for_action(action),
