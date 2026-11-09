@@ -57,6 +57,8 @@ public class CompanionService extends Service {
         if (intent != null && "STOP".equals(intent.getAction())) { stopSelf(); return START_NOT_STICKY; }
         createNotificationChannel();
         NowState.start(this);
+        // Bug#3：常驻前台服务里注册真实解锁广播，保证 unlock_count_today 不再常年为 0。
+        UnlockTracker.register(this);
         startForeground(NOTIFICATION_ID, buildNotification("已启动，等待掌心窗命令"));
         if (intent != null) {
             serverUrl = ScreenshotService.normalizeUrl(intent.getStringExtra("server_url"));
@@ -903,6 +905,7 @@ public class CompanionService extends Service {
     @Override public void onDestroy() {
         running = false;
         DebugState.append(this, "服务已销毁/停止");
+        try { UnlockTracker.unregister(this); } catch (Exception ignored) { }
         if (netCallback != null) {
             try { ((ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE)).unregisterNetworkCallback(netCallback); } catch (Exception ignored) { }
         }

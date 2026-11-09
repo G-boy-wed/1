@@ -29,7 +29,7 @@ from urllib.request import Request, urlopen
 DEFAULT_PORT = 8513
 DEFAULT_KEEP = 3
 MAX_UPLOAD_BYTES = 24 * 1024 * 1024
-VERSION = "0.4.0.0-python-unified"
+VERSION = "0.4.1.0-python-unified"
 DEFAULT_DEVICE = os.environ.get("LINJIAN_DEFAULT_DEVICE", "android-phone")
 ACTIVITY_EVENT_LIMIT = 500
 # Bug #3：/api/companion/state 过滤陪伴/指令事件用的扫描窗口，需大于活动事件总量上限，
@@ -137,6 +137,8 @@ class State:
         self.media_live: dict[str, dict] = {}
         self.media_events: dict[str, list] = {}
         self.unlock_requests: list[dict] = []
+        # Bug#5：保护 unlock_requests 的并发读写与后台定时清理。
+        self.unlock_requests_lock = Lock()
         self.companion_path = self.data_dir / "companion_state.json"
         self.companion_lock = Lock()
         self.companion_state = self._load_companion_state()
@@ -812,7 +814,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"ok": bool(found), "command": found}); return
         if path == "/api/appgate/unlock_requests":
             if not self._require_token(): return
-            self._json(200, {"ok": True, "requests": self.state.unlock_requests[-50:]}); return
+            # Bug#5：读前先清理 24h 以上的 expired 记录，保证返回的状态不臃肿。
+            cleanup_expired_requests(self.state)
+            with self.state.unlock_requests_lock:
+                requests_snapshot = list(self.state.unlock_requests[-50:])
+            self._json(200, {"ok": True, "requests": requests_snapshot}); return
         if path == "/api/known_apps":
             self._json(200, {"ok": True, "apps": KNOWN_APPS}); return
         if path == "/api/usage_snapshot":
@@ -966,9 +972,23 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/appgate/unlock_request":
             if not self._require_token(): return
             data = self._read_json(); data.setdefault("created_at", now_iso())
-            self.state.unlock_requests.append(data)
-            self.state.unlock_requests = self.state.unlock_requests[-50:]
-            self._json(200, {"ok": True, "request": data, "count": len(self.state.unlock_requests)}); return
+            # Bug#5：写入前清理过期记录；服务端再做一次 3 秒防抖，兜住多端/重放产生的重复申请。
+            cleanup_expired_requests(self.state)
+            now_ms = time.time() * 1000.0
+            dedup = None
+            with self.state.unlock_requests_lock:
+                for prev in reversed(self.state.unlock_requests[-5:]):
+                    if str(prev.get("package") or "") == str(data.get("package") or "") \
+                            and _request_age_ms(prev, now_ms) < 3000:
+                        dedup = dict(prev)
+                        break
+                if dedup is None:
+                    self.state.unlock_requests.append(data)
+                    self.state.unlock_requests = self.state.unlock_requests[-50:]
+                count = len(self.state.unlock_requests)
+            if dedup is not None:
+                self._json(200, {"ok": True, "request": dedup, "count": count, "deduplicated": True}); return
+            self._json(200, {"ok": True, "request": data, "count": count}); return
         if path == "/api/screenshot":
             if not self._require_token(): return
             self._handle_screenshot(); return
@@ -1705,6 +1725,54 @@ def tour_step_force_back(state: "State", sched: dict, device_id: str = DEFAULT_D
             "threshold": threshold, "emotion_tag": emo.get("emotion_tag", "平静")}
 
 
+def _request_age_ms(req: dict, now_ms: float) -> float:
+    """Bug#5：取申请年龄（毫秒）；优先用手机上报的 created_at_ms，回退 created_at ISO 字符串。"""
+    v = req.get("created_at_ms")
+    try:
+        if isinstance(v, (int, float)) and float(v) > 0:
+            return max(0.0, now_ms - float(v))
+    except Exception:
+        pass
+    try:
+        return max(0.0, now_ms - parse_iso_seconds(str(req.get("created_at") or "")) * 1000.0)
+    except Exception:
+        return 0.0
+
+
+def cleanup_expired_requests(state: "State") -> None:
+    """Bug#5：超时未处理的 pending 标记 expired；24 小时以上的 expired 记录直接删除；列表上限 50 条。"""
+    now_ms = time.time() * 1000.0
+    cutoff_ms = 24 * 3600 * 1000.0
+    with state.unlock_requests_lock:
+        kept: list[dict] = []
+        for req in list(state.unlock_requests):
+            if not isinstance(req, dict):
+                continue
+            status = str(req.get("status") or "pending")
+            age = _request_age_ms(req, now_ms)
+            if status == "pending" and age > cutoff_ms:
+                req["status"] = "expired"
+                req["expired_at"] = now_iso()
+                req["expired_reason"] = "timeout_24h"
+                status = "expired"
+            if status == "expired" and age > cutoff_ms:
+                continue
+            kept.append(req)
+        if len(kept) > 50:
+            kept = kept[-50:]
+        state.unlock_requests = kept
+
+
+def state_cleanup_loop(state: "State") -> None:
+    """Bug#5：后台定时（每 5 分钟）清理过期求助记录，独立于查岗调度开关，常驻生效。"""
+    while not getattr(state, "_stop", False):
+        try:
+            cleanup_expired_requests(state)
+        except Exception as exc:
+            sys.stderr.write("[cleanup] 过期求助清理失败: %s\n" % exc)
+        time.sleep(300)
+
+
 def tour_scheduler_loop(state: "State") -> None:
     """后台调度循环：按周期执行查岗 / 强制拉回，遵守安静时段与冷却。"""
     last_check_in = 0.0
@@ -1880,7 +1948,9 @@ class McpBackend:
                 "last_event": live.get("event", ""), "recent_events": (self.state.media_events.get(device_id) or [])[-20:]}
 
     def unlock_requests(self) -> list:
-        return list(self.state.unlock_requests[-50:])
+        cleanup_expired_requests(self.state)
+        with self.state.unlock_requests_lock:
+            return list(self.state.unlock_requests[-50:])
 
     def ocr_analyze(self, data: dict) -> dict:
         # 返回最近一次可见文本/OCR 摘要；视觉推理需部署带视觉能力模型。
@@ -1963,6 +2033,9 @@ def main() -> None:
         import threading
         threading.Thread(target=tour_scheduler_loop, args=(state,), daemon=True).start()
         sys.stderr.write("[tour] 巡回查岗调度器已启动\n")
+        # Bug#5：过期求助记录定时清理（每 5 分钟），与查岗调度同进程常驻。
+        threading.Thread(target=state_cleanup_loop, args=(state,), daemon=True).start()
+        sys.stderr.write("[cleanup] 过期求助定时清理已启动（每5分钟）\n")
     except Exception as exc:
         sys.stderr.write("tour scheduler start failed: %s\n" % exc)
     print("=" * 60)

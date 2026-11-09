@@ -28,12 +28,19 @@ public class WeatherState {
                 // Bug #3：把真实地理编码得到的精确经纬度与省/市回填进 current。
                 // 这样上传的 current_weather_location 自带标准坐标，服务端可按坐标直接查天气，
                 // 不再用城市名重新做名称地理编码，避免「绵阳北川」被错配到贵州遵义等省市漂移。
-                double lat = live.optDouble("latitude", 0);
-                double lon = live.optDouble("longitude", 0);
-                if (lat != 0 || lon != 0) {
-                    current.put("latitude", lat);
-                    current.put("longitude", lon);
+                double liveLat = live.optDouble("latitude", 0);
+                double liveLon = live.optDouble("longitude", 0);
+                double curLat = current.optDouble("latitude", 0);
+                double curLon = current.optDouble("longitude", 0);
+                // Bug#2：本机定位坐标（device_location）优先；只在没有设备坐标时才回填 geocoding 坐标，
+                // 避免把「北川」被 geocoding 错配到贵州遵义的坐标覆盖回来。
+                if ((curLat == 0 && curLon == 0) && (liveLat != 0 || liveLon != 0)) {
+                    current.put("latitude", liveLat);
+                    current.put("longitude", liveLon);
                 }
+                // Bug#2：解析结果（省+市 / 当前定位）透传给前端做二次确认。
+                if (live.has("geo_display") && !live.optString("geo_display", "").isEmpty()) current.put("geo_display", live.optString("geo_display", ""));
+                if (live.has("geo_source") && !live.optString("geo_source", "").isEmpty()) current.put("geo_source", live.optString("geo_source", ""));
                 if (live.has("admin1") && !live.optString("admin1", "").isEmpty()) current.put("admin1", live.optString("admin1", ""));
                 if (live.has("admin2") && !live.optString("admin2", "").isEmpty()) current.put("admin2", live.optString("admin2", ""));
                 if (live.has("resolved_city") && !live.optString("resolved_city", "").isEmpty()) current.put("resolved_city", live.optString("resolved_city", ""));
@@ -56,6 +63,10 @@ public class WeatherState {
                 o.put("district", loc.district);
                 o.put("note", loc.note);
                 o.put("current", loc.current);
+                if (loc.latitude != 0 || loc.longitude != 0) {
+                    o.put("latitude", loc.latitude);
+                    o.put("longitude", loc.longitude);
+                }
                 arr.put(o);
             }
         } catch (Exception ignored) { }
@@ -76,6 +87,12 @@ public class WeatherState {
             o.put("district", chosen.district);
             o.put("note", chosen.note);
             o.put("current", true);
+            // Bug#2：把本机定位坐标带进 current_weather_location，服务端/MCP 可直接按坐标查天气。
+            if (chosen.latitude != 0 || chosen.longitude != 0) {
+                o.put("latitude", chosen.latitude);
+                o.put("longitude", chosen.longitude);
+                o.put("coords_source", "device_location");
+            }
         } catch (Exception ignored) { }
         return o;
     }
@@ -125,10 +142,41 @@ public class WeatherState {
         if (makeCurrent) for (Location loc : map.values()) loc.current = false;
         Location old = map.get(name);
         if (old == null) old = new Location(name, city, district, note, makeCurrent);
+        // Bug#2：手改城市/区县后，旧的定位坐标不再适用，必须清掉，避免继续按旧坐标出天气。
+        boolean geoChanged = !city.equals(old.city) || !district.equals(old.district);
         old.city = city; old.district = district; old.note = note; old.current = makeCurrent || old.current;
+        if (geoChanged) { old.latitude = 0; old.longitude = 0; }
         map.put(name, old);
         writeLocations(ctx, map);
         if (old.current) syncLegacy(ctx, old);
+    }
+
+    /**
+     * Bug#2：「使用当前定位」——把本机经纬度写到指定地点；name 为空时写当前地点。
+     * 之后天气刷新走坐标优先路径，跳过名称地理编码，杜绝中文长地名省市漂移。
+     */
+    public static void saveLocationCoords(Context ctx, String name, double lat, double lon) {
+        if ((lat == 0 && lon == 0) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
+        LinkedHashMap<String, Location> map = readLocations(ctx);
+        String key = clean(name);
+        Location target = key.isEmpty() ? null : map.get(key);
+        if (target == null) for (Location loc : map.values()) if (loc.current) { target = loc; break; }
+        if (target == null) for (Location loc : map.values()) { target = loc; break; }
+        if (target == null) {
+            target = new Location("当前位置", "", "", "", true);
+            map.put(target.name, target);
+        }
+        target.latitude = lat; target.longitude = lon;
+        writeLocations(ctx, map);
+        if (target.current) syncLegacy(ctx, target);
+    }
+
+    private static double parseCoord(String s) {
+        try { return Double.parseDouble(clean(s)); } catch (Exception e) { return 0; }
+    }
+
+    private static String fmtCoord(double v) {
+        return v == 0 ? "" : Double.toString(v);
     }
 
     public static boolean setCurrent(Context ctx, String name) {
@@ -161,10 +209,13 @@ public class WeatherState {
             // 兼容旧 4 段格式（名称|城市|备注|当前）：旧数据无区县，段[2]=备注、段[3]=当前。
             String district = "", note = "";
             boolean current = false;
+            double lat = 0, lon = 0;
             if (parts.length >= 5) {
                 district = clean(parts[2]);
                 note = clean(parts[3]);
                 current = "1".equals(parts[4].trim());
+                // v0.4.1：第 6/7 段为本机定位坐标（「使用当前定位」写入）。旧 5 段数据无坐标，保持兼容。
+                if (parts.length >= 7) { lat = parseCoord(parts[5]); lon = parseCoord(parts[6]); }
             } else if (parts.length == 4) {
                 note = clean(parts[2]);
                 current = "1".equals(parts[3].trim());
@@ -172,7 +223,9 @@ public class WeatherState {
                 note = clean(parts[2]);
             }
             if (name.isEmpty()) continue;
-            map.put(name, new Location(name, city, district, note, current));
+            Location loc = new Location(name, city, district, note, current);
+            loc.latitude = lat; loc.longitude = lon;
+            map.put(name, loc);
         }
         if (map.isEmpty()) {
             map.put("家", new Location("家", p.getString(AppPrefs.KEY_CITY, "石家庄"), "", p.getString(AppPrefs.KEY_WEATHER_NOTE, ""), true));
@@ -192,7 +245,9 @@ public class WeatherState {
         for (Map.Entry<String, Location> e : map.entrySet()) {
             Location l = e.getValue();
             sb.append(escape(l.name)).append("|").append(escape(l.city)).append("|")
-              .append(escape(l.district)).append("|").append(escape(l.note)).append("|").append(l.current ? "1" : "0").append("\n");
+              .append(escape(l.district)).append("|").append(escape(l.note)).append("|")
+              .append(l.current ? "1" : "0").append("|")
+              .append(fmtCoord(l.latitude)).append("|").append(fmtCoord(l.longitude)).append("\n");
         }
         AppPrefs.get(ctx).edit().putString(AppPrefs.KEY_WEATHER_LOCATIONS, sb.toString()).commit();
     }
@@ -212,6 +267,8 @@ public class WeatherState {
 
     private static class Location {
         String name; String city; String district; String note; boolean current;
+        // Bug#2：本机定位坐标（「使用当前定位」写入），0 表示未设置。
+        double latitude; double longitude;
         Location(String name, String city, String district, String note, boolean current) {
             this.name = name; this.city = city; this.district = district; this.note = note; this.current = current;
         }

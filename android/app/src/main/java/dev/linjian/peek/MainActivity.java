@@ -74,13 +74,14 @@ public class MainActivity extends Activity {
     private String latestApkUrl = "";
     private String latestChangelog = "";
     private TextView brandText, headerTitle, headerSubtitle, statusText, debugText, lifeStatusText, lifeSummaryText, knownAppsText, homeModeStatusText, gateStatusText, nowStateText, nowStatePermissionText;
-    private TextView heroLabelText, overviewAdviceText, overviewSecondaryText, overviewMetaText, overviewBatteryText, overviewBatteryDetail, overviewAppText, overviewAppDetail, overviewScreenText, overviewScreenDetail, overviewWeatherText, overviewWeatherDetail, weatherLocationsText, themeText, calendarSummaryText, calendarDetailText;
+    private TextView heroLabelText, overviewAdviceText, overviewSecondaryText, overviewMetaText, overviewBatteryText, overviewBatteryDetail, overviewAppText, overviewAppDetail, overviewScreenText, overviewScreenDetail, overviewWeatherText, overviewWeatherDetail, weatherLocationsText, themeText, calendarSummaryText, calendarDetailText, weatherGeoConfirmText;
+    private View mediaPermissionHint;
     private TextView overviewBatteryLabel, overviewAppLabel, overviewScreenLabel, overviewWeatherLabel, quickSeeTitle, quickSeeDetail, quickSeeArrow, quickGuardTitle, quickGuardDetail, quickGuardArrow;
     private ImageView quickSeeIcon, quickGuardIcon;
     private TextView guidianSummaryText, guidianDetailText, guidianSettingsStatusText, guidianAvatarText, versionStatusText, updateChangelogText, licenseSummaryText;
     private TextView emotionSummaryText;
     private Button toggleButton, accessibilityButton, usageAccessButton, testButton, openXhsButton, openTargetAppButton, homeButton, backButton, recentsButton, alarmTestButton, notifyTestButton, refreshLifeButton;
-    private Button addPackageButton, testPackageButton, sequenceTestButton, refreshGateButton, addGateAppButton, addWeatherLocationButton, setCurrentWeatherButton;
+    private Button addPackageButton, testPackageButton, sequenceTestButton, refreshGateButton, addGateAppButton, addWeatherLocationButton, setCurrentWeatherButton, useCurrentLocationButton;
     private Button testGuidianButton, saveGuidianSettingsButton, chooseGuidianAvatarButton, guidianThemeDuskButton, guidianThemeCloudButton, guidianThemeBerryButton;
     private Button themeCreamButton, themeBlueButton, themePeachButton, themeNightButton, themeMintButton, themePurpleButton, drawerThemeButton, drawerNowStateButton, locationPermissionButton, overlayPermissionButton, notificationListenerButton;
     private Button drawerConnectionButton, drawerPermissionButton, drawerControlTestButton, drawerKnownAppsButton, drawerHomeModeButton, drawerGateAddButton, drawerReminderButton, drawerCycleButton, drawerDebugButton, drawerLifeDetailsButton, drawerAppGateButton, drawerWeatherButton, drawerVersionButton, checkUpdateButton, downloadUpdateButton;
@@ -169,6 +170,7 @@ public class MainActivity extends Activity {
         if (addGateAppButton != null) addGateAppButton.setOnClickListener(v -> addGateApp());
         if (addWeatherLocationButton != null) addWeatherLocationButton.setOnClickListener(v -> addWeatherLocation(false));
         if (setCurrentWeatherButton != null) setCurrentWeatherButton.setOnClickListener(v -> addWeatherLocation(true));
+        if (useCurrentLocationButton != null) useCurrentLocationButton.setOnClickListener(v -> useCurrentLocationForWeather());
         if (checkUpdateButton != null) checkUpdateButton.setOnClickListener(v -> checkForUpdates(true));
         if (downloadUpdateButton != null) downloadUpdateButton.setOnClickListener(v -> downloadLatestApk());
         if (testGuidianButton != null) testGuidianButton.setOnClickListener(v -> { saveSettings(); GuidianState.showPrompt(this, true); CompanionWindowState.recordJourney(this, "回应归电", "回到" + AppPrefs.companionName(this) + "的窗边"); updateUI(); });
@@ -222,11 +224,11 @@ public class MainActivity extends Activity {
 
     private void bindViews() {
         topHeader = findViewById(R.id.topHeader); brandText = findViewById(R.id.brandText); headerTitle = findViewById(R.id.headerTitle); headerSubtitle = findViewById(R.id.headerSubtitle); statusText = findViewById(R.id.statusText); debugText = findViewById(R.id.debugText); lifeStatusText = findViewById(R.id.lifeStatusText); lifeSummaryText = findViewById(R.id.lifeSummaryText); knownAppsText = findViewById(R.id.knownAppsText); homeModeStatusText = findViewById(R.id.homeModeStatusText); gateStatusText = findViewById(R.id.gateStatusText); nowStatePermissionText = findViewById(R.id.nowStatePermissionText);
-        heroLabelText = findViewById(R.id.heroLabelText); overviewAdviceText = findViewById(R.id.overviewAdviceText); overviewSecondaryText = findViewById(R.id.overviewSecondaryText); overviewMetaText = findViewById(R.id.overviewMetaText); overviewBatteryText = findViewById(R.id.overviewBatteryText); overviewBatteryDetail = findViewById(R.id.overviewBatteryDetail); overviewAppText = findViewById(R.id.overviewAppText); overviewAppDetail = findViewById(R.id.overviewAppDetail); overviewScreenText = findViewById(R.id.overviewScreenText); overviewScreenDetail = findViewById(R.id.overviewScreenDetail); overviewWeatherText = findViewById(R.id.overviewWeatherText); overviewWeatherDetail = findViewById(R.id.overviewWeatherDetail); weatherLocationsText = findViewById(R.id.weatherLocationsText); themeText = findViewById(R.id.themeText); calendarSummaryText = findViewById(R.id.calendarSummaryText); calendarDetailText = findViewById(R.id.calendarDetailText);
+        heroLabelText = findViewById(R.id.heroLabelText); overviewAdviceText = findViewById(R.id.overviewAdviceText); overviewSecondaryText = findViewById(R.id.overviewSecondaryText); overviewMetaText = findViewById(R.id.overviewMetaText); overviewBatteryText = findViewById(R.id.overviewBatteryText); overviewBatteryDetail = findViewById(R.id.overviewBatteryDetail); overviewAppText = findViewById(R.id.overviewAppText); overviewAppDetail = findViewById(R.id.overviewAppDetail); overviewScreenText = findViewById(R.id.overviewScreenText); overviewScreenDetail = findViewById(R.id.overviewScreenDetail); overviewWeatherText = findViewById(R.id.overviewWeatherText); overviewWeatherDetail = findViewById(R.id.overviewWeatherDetail); weatherLocationsText = findViewById(R.id.weatherLocationsText); themeText = findViewById(R.id.themeText); calendarSummaryText = findViewById(R.id.calendarSummaryText); calendarDetailText = findViewById(R.id.calendarDetailText); weatherGeoConfirmText = findViewById(R.id.weatherGeoConfirmText);
         overviewBatteryLabel = findViewById(R.id.overviewBatteryLabel); overviewAppLabel = findViewById(R.id.overviewAppLabel); overviewScreenLabel = findViewById(R.id.overviewScreenLabel); overviewWeatherLabel = findViewById(R.id.overviewWeatherLabel); quickSeeTitle = findViewById(R.id.quickSeeTitle); quickSeeDetail = findViewById(R.id.quickSeeDetail); quickSeeArrow = findViewById(R.id.quickSeeArrow); quickGuardTitle = findViewById(R.id.quickGuardTitle); quickGuardDetail = findViewById(R.id.quickGuardDetail); quickGuardArrow = findViewById(R.id.quickGuardArrow); quickSeeIcon = findViewById(R.id.quickSeeIcon); quickGuardIcon = findViewById(R.id.quickGuardIcon);
         guidianSummaryText = findViewById(R.id.guidianSummaryText); guidianDetailText = findViewById(R.id.guidianDetailText); guidianSettingsStatusText = findViewById(R.id.guidianSettingsStatusText); guidianAvatarText = findViewById(R.id.guidianAvatarText); versionStatusText = findViewById(R.id.versionStatusText); updateChangelogText = findViewById(R.id.updateChangelogText); licenseSummaryText = findViewById(R.id.licenseSummaryText);
         toggleButton = findViewById(R.id.toggleButton); accessibilityButton = findViewById(R.id.accessibilityButton); usageAccessButton = findViewById(R.id.usageAccessButton); testButton = findViewById(R.id.testButton); openXhsButton = findViewById(R.id.openXhsButton); openTargetAppButton = findViewById(R.id.openTargetAppButton); homeButton = findViewById(R.id.homeButton); backButton = findViewById(R.id.backButton); recentsButton = findViewById(R.id.recentsButton); alarmTestButton = findViewById(R.id.alarmTestButton); notifyTestButton = findViewById(R.id.notifyTestButton); refreshLifeButton = findViewById(R.id.refreshLifeButton);
-        addPackageButton = findViewById(R.id.addPackageButton); testPackageButton = findViewById(R.id.testPackageButton); sequenceTestButton = findViewById(R.id.sequenceTestButton); refreshGateButton = findViewById(R.id.refreshGateButton); addGateAppButton = findViewById(R.id.addGateAppButton); addWeatherLocationButton = findViewById(R.id.addWeatherLocationButton); setCurrentWeatherButton = findViewById(R.id.setCurrentWeatherButton);
+        addPackageButton = findViewById(R.id.addPackageButton); testPackageButton = findViewById(R.id.testPackageButton); sequenceTestButton = findViewById(R.id.sequenceTestButton); refreshGateButton = findViewById(R.id.refreshGateButton); addGateAppButton = findViewById(R.id.addGateAppButton); addWeatherLocationButton = findViewById(R.id.addWeatherLocationButton); setCurrentWeatherButton = findViewById(R.id.setCurrentWeatherButton); useCurrentLocationButton = findViewById(R.id.useCurrentLocationButton);
         testGuidianButton = findViewById(R.id.testGuidianButton); saveGuidianSettingsButton = findViewById(R.id.saveGuidianSettingsButton); chooseGuidianAvatarButton = findViewById(R.id.chooseGuidianAvatarButton); guidianThemeDuskButton = findViewById(R.id.guidianThemeDuskButton); guidianThemeCloudButton = findViewById(R.id.guidianThemeCloudButton); guidianThemeBerryButton = findViewById(R.id.guidianThemeBerryButton);
         themeCreamButton = findViewById(R.id.themeCreamButton); themeBlueButton = findViewById(R.id.themeBlueButton); themePeachButton = findViewById(R.id.themePeachButton); themeNightButton = findViewById(R.id.themeNightButton); themeMintButton = findViewById(R.id.themeMintButton); themePurpleButton = findViewById(R.id.themePurpleButton); drawerThemeButton = findViewById(R.id.drawerThemeButton); drawerNowStateButton = findViewById(R.id.drawerNowStateButton); locationPermissionButton = findViewById(R.id.locationPermissionButton); overlayPermissionButton = findViewById(R.id.overlayPermissionButton); notificationListenerButton = findViewById(R.id.notificationListenerButton);
         drawerConnectionButton = findViewById(R.id.drawerConnectionButton); drawerPermissionButton = findViewById(R.id.drawerPermissionButton); drawerControlTestButton = findViewById(R.id.drawerControlTestButton); drawerKnownAppsButton = findViewById(R.id.drawerKnownAppsButton); drawerHomeModeButton = findViewById(R.id.drawerHomeModeButton); drawerGateAddButton = findViewById(R.id.drawerGateAddButton); drawerReminderButton = findViewById(R.id.drawerReminderButton); drawerCycleButton = findViewById(R.id.drawerCycleButton); drawerDebugButton = findViewById(R.id.drawerDebugButton); drawerLifeDetailsButton = findViewById(R.id.drawerLifeDetailsButton); drawerAppGateButton = findViewById(R.id.drawerAppGateButton); drawerWeatherButton = findViewById(R.id.drawerWeatherButton); drawerVersionButton = findViewById(R.id.drawerVersionButton); checkUpdateButton = findViewById(R.id.checkUpdateButton); downloadUpdateButton = findViewById(R.id.downloadUpdateButton);
@@ -1120,6 +1122,22 @@ public class MainActivity extends Activity {
         LinearLayout root = pageColumn();
 
         root.addView(sectionHeading("守护功能"), marginBottom(8));
+
+        // Bug#4：媒体监听权限引导。未开启「通知使用权」时，media_state 会显示未开启且伴看/媒体状态
+        // 完全不可用；过去设置页没有醒目提示与直达入口，这里在守护页顶部给出警示块 + 一键跳转授权。
+        TextView mediaHint = new TextView(this);
+        mediaHint.setText("⚠ 媒体监听未开启 · 伴看 / 正在播放 / 媒体状态都不可用　→　点此一键授权");
+        mediaHint.setTextSize(11);
+        mediaHint.setTextColor(0xFFB4532A);
+        mediaHint.setPadding(dp(10), dp(8), dp(10), dp(8));
+        android.graphics.drawable.GradientDrawable hintBg = new android.graphics.drawable.GradientDrawable();
+        hintBg.setColor(0xFFFFF1E4);
+        hintBg.setCornerRadius(dp(8));
+        mediaHint.setBackground(hintBg);
+        mediaHint.setOnClickListener(v -> openNotificationListenerSettings());
+        mediaHint.setVisibility(MediaState.hasNotificationListenerAccess(this) ? View.GONE : View.VISIBLE);
+        mediaPermissionHint = mediaHint;
+        root.addView(mediaPermissionHint, marginBottom(10));
 
         // 每张守护卡片右侧都带一个真实生效的开关：关掉即停用该能力，打开即恢复；
         // 开关写入的是各能力底层存储（与设置页、MCP 同一份数据），点卡片本体仍可进详细设置。
@@ -2768,15 +2786,63 @@ public class MainActivity extends Activity {
     }
 
     private void addWeatherLocation(boolean makeCurrent) {
-                String alias = weatherAliasInput == null ? "" : weatherAliasInput.getText().toString().trim();
+        String alias = weatherAliasInput == null ? "" : weatherAliasInput.getText().toString().trim();
         String city = weatherCityInput == null ? "" : weatherCityInput.getText().toString().trim();
         String district = weatherDistrictInput == null ? "" : weatherDistrictInput.getText().toString().trim();
         String note = weatherNoteInput == null ? "" : weatherNoteInput.getText().toString().trim();
         if (alias.isEmpty() && city.isEmpty()) { Toast.makeText(this, "先填地区名或城市", Toast.LENGTH_SHORT).show(); return; }
+        // Bug#2：中文长地名（如「北川羌族自治县」）先剥掉行政后缀取核心城市名再检索，
+        // 并把解析结果回显给用户做二次确认，避免整串被 Open-Meteo 模糊匹配到外省。
+        String normalized = WeatherLive.normalizeCityName(city);
+        if (!normalized.isEmpty() && !normalized.equals(city) && weatherCityInput != null) {
+            weatherCityInput.setText(normalized);
+            city = normalized;
+        }
+        WeatherLive.invalidateCache(this);
         WeatherState.saveLocation(this, alias, city, district, note, makeCurrent);
         DebugState.append(this, (makeCurrent ? "已设置当前天气地区：" : "已保存天气地区：") + (alias.isEmpty() ? city : alias));
+        if (weatherGeoConfirmText != null) {
+            String core = city.isEmpty() ? (normalized.isEmpty() ? "未设城市" : normalized) : city;
+            weatherGeoConfirmText.setText("地名检索：「" + core + "」" + (district.isEmpty() ? "" : " · " + district)
+                    + "；若省市不对，请点「使用当前定位」用本机坐标取天气");
+        }
         Toast.makeText(this, makeCurrent ? "已设为当前地区" : "已保存地区", Toast.LENGTH_SHORT).show();
         updateUI();
+    }
+
+    /**
+     * Bug#2：「使用当前定位」按钮——取本机最后已知经纬度，保存到当前地点，并立即按坐标刷新天气。
+     * 坐标优先路径完全跳过名称地理编码，从根上解决「北川羌族自治县」被错配到贵州遵义。
+     */
+    private void useCurrentLocationForWeather() {
+        double[] loc = NowState.lastKnownLocation(this);
+        if (loc == null) {
+            Toast.makeText(this, "未获取到当前位置，请检查系统定位权限", Toast.LENGTH_SHORT).show();
+            if (weatherGeoConfirmText != null) weatherGeoConfirmText.setText("定位未授权或暂不可用：请先点「打开定位权限」，再回来用当前定位；也可手填城市。");
+            requestLocationPermission();
+            return;
+        }
+        String alias = weatherAliasInput == null ? "" : weatherAliasInput.getText().toString().trim();
+        WeatherState.saveLocationCoords(this, alias, loc[0], loc[1]);
+        String label = String.format(java.util.Locale.US, "%.4f, %.4f", loc[0], loc[1]);
+        DebugState.append(this, "天气已使用当前定位：" + label);
+        Toast.makeText(this, "已使用当前位置定位", Toast.LENGTH_SHORT).show();
+        if (weatherGeoConfirmText != null) weatherGeoConfirmText.setText("已用当前定位 " + label + " 取天气（坐标优先，不再按地名匹配）");
+        // 主动定位立刻生效：先让旧缓存失效，再按坐标刷新，不等 45 分钟新鲜度窗口。
+        WeatherLive.invalidateCache(this);
+        weatherFetching = true;
+        lastWeatherFetchAt = System.currentTimeMillis();
+        String city = weatherCityInput == null ? "" : weatherCityInput.getText().toString().trim();
+        String district = weatherDistrictInput == null ? "" : weatherDistrictInput.getText().toString().trim();
+        WeatherLive.refreshAsync(this, city, district, loc[0], loc[1], weather -> runOnUiThread(() -> {
+            weatherFetching = false;
+            if (weather != null && weather.optBoolean("ok")) {
+                if (overviewWeatherText != null) overviewWeatherText.setText(weather.optInt("temperature", 0) + "℃");
+                if (overviewWeatherDetail != null) overviewWeatherDetail.setText((alias.isEmpty() ? "当前位置" : alias) + " · " + weather.optString("condition", "天气"));
+                if (weatherGeoConfirmText != null) weatherGeoConfirmText.setText("天气解析：" + weather.optString("geo_display", label) + "（如有误可改城市或重新定位）");
+            }
+            try { updateUI(); } catch (Exception ignored) { }
+        }));
     }
 
 
@@ -3098,7 +3164,9 @@ public class MainActivity extends Activity {
         if (usageAccessButton != null) usageAccessButton.setText(usageOk ? "使用情况权限：已开启" : "打开使用情况访问权限");
         if (locationPermissionButton != null) locationPermissionButton.setText(NowState.hasLocationPermission(this) ? "定位权限：已开启" : "打开定位权限");
         if (overlayPermissionButton != null) overlayPermissionButton.setText((Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this)) ? "悬浮窗权限：已开启" : "打开悬浮窗权限");
-        if (notificationListenerButton != null) notificationListenerButton.setText(MediaState.hasNotificationListenerAccess(this) ? "媒体状态权限：已开启" : "打开媒体状态权限");
+        boolean mediaGranted = MediaState.hasNotificationListenerAccess(this);
+        if (notificationListenerButton != null) notificationListenerButton.setText(mediaGranted ? "媒体状态权限：已开启" : "⚠ 媒体监听未开启 · 点此一键授权");
+        if (mediaPermissionHint != null) mediaPermissionHint.setVisibility(mediaGranted ? View.GONE : View.VISIBLE);
         if (nowStatePermissionText != null) nowStatePermissionText.setText("此刻状态：" + (NowState.hasLocationPermission(this) ? "定位已授权" : "定位未授权") + " · " + ((Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this)) ? "悬浮窗已授权" : "悬浮窗未授权") + " · " + (MediaState.hasNotificationListenerAccess(this) ? "媒体已授权" : "媒体未授权") + "\n用于状态卡片、应用门禁悬浮页和正在播放媒体显示。权限均由用户在本机开启。");
         try {
             JSONObject s = LifeState.collect(this);
@@ -3274,10 +3342,14 @@ public class MainActivity extends Activity {
             if (overviewWeatherDetail != null) overviewWeatherDetail.setText(city.isEmpty() ? "未设城市" : (district.isEmpty() ? city : (district + "·" + city)));
         }
         long now = System.currentTimeMillis();
-        if (!city.isEmpty() && !weatherFetching && !WeatherLive.isFresh(this, city, district, 45L * 60L * 1000L) && now - lastWeatherFetchAt > 45_000L) {
+        // Bug#2：当前地点带本机定位坐标时走坐标优先刷新（跳过名称地理编码，杜绝省市漂移）。
+        double lat = w == null ? 0 : w.optDouble("latitude", 0);
+        double lon = w == null ? 0 : w.optDouble("longitude", 0);
+        boolean hasCoords = lat != 0 || lon != 0;
+        if ((!city.isEmpty() || hasCoords) && !weatherFetching && !WeatherLive.isFresh(this, city, district, 45L * 60L * 1000L) && now - lastWeatherFetchAt > 45_000L) {
             weatherFetching = true;
             lastWeatherFetchAt = now;
-            WeatherLive.refreshAsync(this, city, district, weather -> runOnUiThread(() -> {
+            WeatherLive.refreshAsync(this, city, district, lat, lon, weather -> runOnUiThread(() -> {
                 weatherFetching = false;
                 if (weather != null && weather.optBoolean("ok")) {
                     overviewWeatherText.setText(weather.optInt("temperature", 0) + "℃");

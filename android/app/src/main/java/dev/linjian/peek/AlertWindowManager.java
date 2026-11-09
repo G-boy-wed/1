@@ -47,10 +47,14 @@ public final class AlertWindowManager {
         CompanionService.showCenterAlert(ctx, title + (sub.isEmpty() ? "" : " · " + sub), text, "gentle", "我记着呢", "守护日历", false);
     }
 
-    /** 训诫强制弹窗（不可滑掉 + 震动），文案由 DisciplineController 加工。 */
+    /** 训诫强制弹窗（不可滑掉 + 震动），文案与语气标签统一由 DisciplineController 加工。 */
     public static void showDiscipline(Context ctx, String text) {
-        boolean strong = "strict".equals(PolicyStore.disciplineMode(ctx)) || PolicyStore.disciplineLevel(ctx) >= 2;
-        CompanionService.showCenterAlert(ctx, "训诫", text, strong ? "angry" : "gentle", "我错了", "训诫管束", true);
+        boolean strictMode = "strict".equals(PolicyStore.disciplineMode(ctx));
+        boolean strong = strictMode || PolicyStore.disciplineLevel(ctx) >= 2;
+        String msg = (text == null || text.trim().isEmpty())
+                ? DisciplineController.resolveDisciplineText(ctx, null) : text;
+        String title = DisciplineController.toneBadge(ctx) + " 掌心窗管束";
+        CompanionService.showCenterAlert(ctx, title, msg, strong ? "angry" : "gentle", "我错了", "训诫管束", true);
     }
 
     /** 情绪驱动的强行拉回：软/强级别交给现有 PullBackActivity 统一渲染。 */

@@ -134,6 +134,21 @@ public class NowState {
                 || ctx.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
     }
 
+    /**
+     * Bug#2：供「使用当前定位」按钮直接取本机最后已知经纬度（不依赖网络地理编码）。
+     * 返回 [lat, lon]；未授权或暂无定位时返回 null。
+     */
+    public static double[] lastKnownLocation(Context ctx) {
+        try {
+            JSONObject o = location(ctx);
+            if (!o.optBoolean("permission_granted", false)) return null;
+            double lat = o.optDouble("latitude", 0);
+            double lon = o.optDouble("longitude", 0);
+            if (lat == 0 && lon == 0) return null;
+            return new double[]{lat, lon};
+        } catch (Exception e) { return null; }
+    }
+
     private static JSONObject location(Context ctx) throws Exception {
         JSONObject o = new JSONObject();
         boolean fine = ctx.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;

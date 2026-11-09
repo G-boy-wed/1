@@ -84,13 +84,20 @@ public class LifeState {
             state.put("accessibility_ready", ScreenshotService.ready());
             state.put("usage_permission_ready", usageReady);
             state.put("screen_time_today_minutes", usage.screenTimeMinutes);
-            // R3/#49/#6a：亮屏>0 却 0 次解锁说明采集端没拿到解锁事件，
-            // 显式标注 unreliable，避免下游把 0 当真实值参与统计/情绪计算
-            int unlockCount = usage.unlockCount;
-            boolean unlockReliable = unlockCount > 0 || usage.screenTimeMinutes <= 0 || usage.lastUnlockAt > 0;
+            // Bug#3：优先采用真实系统广播（ACTION_USER_PRESENT，由前台服务 UnlockTracker 统计）
+            // 覆盖 UsageStats 推断。UsageStats 在国产 ROM 常拿不到解锁事件导致常年 0 / unreliable=false，
+            // 广播计数按自然日持久化，进程重启也不丢。仅当广播尚无数据时才回退旧统计并标注不可靠。
+            JSONObject unlock = UnlockTracker.snapshot(ctx);
+            int broadcastCount = unlock.optInt("count", 0);
+            long broadcastLast = unlock.optLong("last_unlock_at", 0);
+            boolean broadcastReliable = unlock.optBoolean("reliable", false) || broadcastCount > 0;
+            int unlockCount = broadcastCount > 0 ? broadcastCount : usage.unlockCount;
+            long lastUnlockAt = broadcastLast > 0 ? broadcastLast : usage.lastUnlockAt;
+            boolean unlockReliable = broadcastReliable || unlockCount > 0 || usage.screenTimeMinutes <= 0 || lastUnlockAt > 0;
             state.put("unlock_count_today", unlockCount);
             state.put("unlock_count_reliable", unlockReliable);
-            state.put("last_unlock_at", usage.lastUnlockAt <= 0 ? "" : formatIsoLocal(usage.lastUnlockAt));
+            state.put("unlock_count_source", broadcastReliable ? "broadcast_user_present" : "usage_stats");
+            state.put("last_unlock_at", lastUnlockAt <= 0 ? "" : formatIsoLocal(lastUnlockAt));
             state.put("top_apps_today", usage.topApps);
             state.put("city", prefs.city());
             state.put("weather_note", prefs.weatherNote());
@@ -111,7 +118,7 @@ public class LifeState {
             state.put("media_state", mediaState);
             state.put("now_state", nowState);
             state.put("current_state", nowState);
-            state.put("summary", makeSummary(batteryPercent, charging, currentApp, usage.screenTimeMinutes, usage.unlockCount, usageReady));
+            state.put("summary", makeSummary(batteryPercent, charging, currentApp, usage.screenTimeMinutes, unlockCount, usageReady));
         } catch (Exception e) {
             try { state.put("error", ScreenshotService.shortMsg(e)); } catch (Exception ignored) { }
         }

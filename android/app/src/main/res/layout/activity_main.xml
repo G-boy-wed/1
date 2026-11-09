@@ -395,6 +395,8 @@
                         <Button android:id="@+id/addWeatherLocationButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="保存" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginRight="4dp" />
                         <Button android:id="@+id/setCurrentWeatherButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="设为当前" android:textSize="11sp" android:textColor="#FFFFFFFF" android:background="@drawable/pill_primary" android:layout_marginLeft="4dp" />
                     </LinearLayout>
+                    <Button android:id="@+id/useCurrentLocationButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="使用当前定位（精准坐标）" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginTop="6dp" />
+                    <TextView android:id="@+id/weatherGeoConfirmText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="" android:textSize="10sp" android:textColor="#FF596D66" android:paddingTop="4dp" />
                 </LinearLayout>
 
                 <Button android:id="@+id/drawerReminderButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="主动提醒规则  ›" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginBottom="8dp" />

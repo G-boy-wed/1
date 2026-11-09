@@ -634,9 +634,15 @@ public class AppGate {
         } catch (Exception e) { return false; }
     }
 
+    // Bug#5：拦截页连续狂点（几毫秒内重复提交）3 秒全局防抖，避免灌入大量时间戳相近的重复申请。
+    private static volatile long lastSubmitTimeMs = 0L;
+    private static final long SUBMIT_DEBOUNCE_MS = 3000L;
+
     public static void submitUnlockRequest(final Context ctx, final String pkg, final String reason) {
+        final long now = System.currentTimeMillis();
+        if (now - lastSubmitTimeMs < SUBMIT_DEBOUNCE_MS) return;
+        lastSubmitTimeMs = now;
         try {
-            long now = System.currentTimeMillis();
             String text = reason == null ? "" : reason.trim();
             JSONObject s = state(ctx);
             JSONArray arr = s.optJSONArray("requests"); if (arr == null) arr = new JSONArray();
@@ -720,7 +726,10 @@ public class AppGate {
             if (reqs != null) {
                 // Bug #2：解锁申请过期归档。超过 24 小时未处理的申请自动标记为 expired，
                 // 不再常驻 pending 占用状态（与专注求助同样的逻辑，避免历史申请堆积触发异常提示）。
+                // Bug#5：标记后 24 小时以上的 expired 记录直接删除归档，并限制数组上限，
+                // 避免状态 JSON 随使用时长无限膨胀。
                 final long REQ_EXPIRY_MS = 24L * 60L * 60L * 1000L;
+                JSONArray kept = new JSONArray();
                 for (int i = 0; i < reqs.length(); i++) {
                     JSONObject r = reqs.optJSONObject(i); if (r == null) continue;
                     if (!r.has("status")) { r.put("status", "pending"); changed = true; }
@@ -736,7 +745,16 @@ public class AppGate {
                             changed = true;
                         }
                     }
+                    if ("expired".equals(r.optString("status"))) {
+                        long ref = r.optLong("expired_at_ms", 0L);
+                        if (ref <= 0) ref = r.optLong("created_at_ms", 0L);
+                        if (ref > 0 && (now - ref) > REQ_EXPIRY_MS) { changed = true; continue; }
+                    }
+                    kept.put(r);
                 }
+                while (kept.length() > 20) { kept.remove(0); changed = true; }
+                if (kept.length() != reqs.length()) changed = true;
+                s.put("requests", kept);
             }
         } catch (Exception ignored) { }
         if (changed) save(ctx, s);

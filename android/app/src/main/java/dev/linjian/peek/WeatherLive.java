@@ -64,14 +64,25 @@ public class WeatherLive {
     }
 
     public static void refreshAsync(Context ctx, String city, Callback callback) {
-        refreshAsync(ctx, city, "", callback);
+        refreshAsync(ctx, city, "", 0, 0, callback);
     }
 
     public static void refreshAsync(Context ctx, String city, String district, Callback callback) {
+        refreshAsync(ctx, city, district, 0, 0, callback);
+    }
+
+    /**
+     * Bug#2：坐标优先刷新。传入标准经纬度（本机定位 / 用户「使用当前定位」保存）时，
+     * 直接按坐标查 forecast，完全跳过名称地理编码，从根本上杜绝「北川羌族自治县」被
+     * Open-Meteo 模糊匹配到贵州遵义（27.5385,106.439）这类省市漂移。仅无坐标时才回退名称检索。
+     */
+    public static void refreshAsync(Context ctx, String city, String district,
+                                    double lat, double lon, Callback callback) {
         final Context app = ctx.getApplicationContext();
         final String chosenCity = clean(city);
         final String chosenDistrict = clean(district);
-        if (chosenCity.isEmpty()) {
+        final boolean hasCoords = (lat != 0 || lon != 0) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+        if (chosenCity.isEmpty() && !hasCoords) {
             if (callback != null) callback.onResult(error("missing_city", chosenCity));
             return;
         }
@@ -83,13 +94,15 @@ public class WeatherLive {
         new Thread(() -> {
             JSONObject result;
             try {
-                result = fetch(chosenCity, chosenDistrict);
+                result = hasCoords ? fetchByCoords(lat, lon, chosenCity, chosenDistrict)
+                                   : fetch(chosenCity, chosenDistrict);
                 AppPrefs.get(app).edit()
                         .putString(KEY_CITY, cacheKey(chosenCity, chosenDistrict))
                         .putString(KEY_JSON, result.toString())
                         .putLong(KEY_AT, System.currentTimeMillis())
                         .apply();
-                DebugState.append(app, "天气已刷新：" + cacheKey(chosenCity, chosenDistrict) + " · " + result.optString("condition", ""));
+                DebugState.append(app, "天气已刷新：" + cacheKey(chosenCity, chosenDistrict)
+                        + " · " + result.optString("condition", "") + " · " + result.optString("source", ""));
             } catch (Exception e) {
                 result = error(ScreenshotService.shortMsg(e), cacheKey(chosenCity, chosenDistrict));
                 DebugState.append(app, "天气刷新失败：" + cacheKey(chosenCity, chosenDistrict) + " · " + ScreenshotService.shortMsg(e));
@@ -102,26 +115,139 @@ public class WeatherLive {
         return fetch(city, "");
     }
 
+    // Bug#2：已知易错的中文长地名内置坐标兜底。Open-Meteo 会把「北川羌族自治县」等模糊到外省，
+    // 命中此表直接按坐标取天气，跳过名称地理编码，杜绝省市漂移（坐标取本机定位实测值）。
+    private static final String[][] CITY_COORD_OVERRIDES = {
+            {"北川羌族自治县", "四川", "绵阳", "31.596", "104.458"},
+            {"北川县", "四川", "绵阳", "31.596", "104.458"},
+            {"北川", "四川", "绵阳", "31.596", "104.458"},
+            {"绵阳", "四川", "绵阳", "31.4694", "104.6759"},
+    };
+
+    /**
+     * Bug#2：中文地名容错归一化——逐级剥掉「省/市/区/县/自治州/自治县」等行政后缀，
+     * 取核心城市名用于地理编码检索，避免「北川羌族自治县」整串被模糊匹配到外省。
+     * 对应需求的 searchGeoFuzzy：city = input.replace(行政后缀正则, "")。
+     */
+    public static String normalizeCityName(String raw) {
+        String s = clean(raw);
+        if (s.isEmpty()) return "";
+        String[] suffixes = {"羌族自治县", "各族自治县", "自治县", "自治州", "地区", "省", "市", "区", "县", "盟", "旗"};
+        boolean changed = true;
+        while (changed && !s.isEmpty()) {
+            changed = false;
+            for (String suf : suffixes) {
+                if (s.length() > suf.length() && s.endsWith(suf)) {
+                    s = s.substring(0, s.length() - suf.length());
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        // 兼容需求里的正则语义：出现首个行政层级词即截断其后内容。
+        String truncated = s.replaceAll("(省|市|区|县|自治州|自治县).*$", "");
+        if (!truncated.isEmpty()) s = truncated;
+        return s.isEmpty() ? clean(raw) : s;
+    }
+
+    private static JSONObject coordOverride(String raw) {
+        String key = clean(raw);
+        if (key.isEmpty()) return null;
+        for (String[] row : CITY_COORD_OVERRIDES) {
+            if (key.equals(row[0]) || key.contains(row[0])) {
+                try {
+                    return new JSONObject()
+                            .put("latitude", Double.parseDouble(row[3]))
+                            .put("longitude", Double.parseDouble(row[4]))
+                            .put("name", row[0])
+                            .put("admin1", row[1])
+                            .put("resolved_city", row[2])
+                            .put("country", "中国");
+                } catch (Exception ignored) { }
+            }
+        }
+        return null;
+    }
+
+    /** Bug#2：坐标优先取天气——只按经纬度查 forecast，零名称地理编码，天然不会省市漂移。 */
+    private static JSONObject fetchByCoords(double lat, double lon, String city, String district) throws Exception {
+        JSONObject out = forecast(lat, lon);
+        String c = clean(city);
+        String d = clean(district);
+        out.put("source", "device_coords");
+        out.put("queried_city", c.isEmpty() ? "当前位置" : c);
+        out.put("resolved_city", c.isEmpty() ? "当前位置" : c);
+        out.put("admin1", "");
+        out.put("admin2", d);
+        out.put("district", d);
+        out.put("country", "中国");
+        out.put("latitude", lat);
+        out.put("longitude", lon);
+        out.put("geo_display", "当前定位 · " + String.format(Locale.US, "%.4f", lat) + "," + String.format(Locale.US, "%.4f", lon));
+        out.put("geo_source", "device_location");
+        finalizeWeather(out);
+        return out;
+    }
+
     private static JSONObject fetch(String city, String district) throws Exception {
         String chosenCity = clean(city);
         String chosenDistrict = clean(district);
         if (chosenCity.isEmpty()) return error("missing_city", chosenDistrict);
-        // 中文「区县 + 城市」地理编码在 Open-Meteo 经常返回空结果（实测「长安区 石家庄」「徐汇区 上海」都查不到），
-        // 因此改为：先试「区县 城市」，拿不到坐标就退回「城市」单独查坐标（实测稳定可用）。
-        // 显示的区县名以用户填写的为准（权威），坐标取城市级即可——同城市内天气基本一致。
-        String[] queries = chosenDistrict.isEmpty()
-                ? new String[]{ chosenCity }
-                : new String[]{ chosenDistrict + " " + chosenCity, chosenCity };
-        JSONObject hit = null;
-        for (String q : queries) {
-            String geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=" + URLEncoder.encode(q, "UTF-8") + "&count=1&language=zh&format=json";
-            JSONObject geo = new JSONObject(get(geoUrl));
-            JSONArray results = geo.optJSONArray("results");
-            if (results != null && results.length() > 0) { hit = results.getJSONObject(0); break; }
+
+        // ① 已知易错地名：直接命中内置坐标，跳过 geocoding。
+        JSONObject hit = coordOverride(chosenCity);
+        if (hit == null) hit = coordOverride(normalizeCityName(chosenCity));
+        boolean fromOverride = hit != null;
+        String queryUsed = fromOverride ? "local_override" : "";
+
+        // ② 未命中：优先用剥掉行政后缀的核心城市名检索，再试「区县 + 城市」「原始全名」。
+        if (!fromOverride) {
+            String core = normalizeCityName(chosenCity);
+            java.util.LinkedHashSet<String> queries = new java.util.LinkedHashSet<>();
+            if (!core.isEmpty()) queries.add(core);
+            if (!chosenDistrict.isEmpty()) queries.add(chosenDistrict + " " + (core.isEmpty() ? chosenCity : core));
+            if (!core.isEmpty() && !chosenDistrict.isEmpty()) queries.add(chosenDistrict + " " + chosenCity);
+            queries.add(chosenCity);
+            for (String q : queries) {
+                JSONObject one = geocode(q);
+                if (one != null) { hit = one; queryUsed = q; break; }
+            }
         }
         if (hit == null) return error("city_not_found", chosenCity);
         double lat = hit.optDouble("latitude", 0);
         double lon = hit.optDouble("longitude", 0);
+        if (lat == 0 && lon == 0) return error("city_not_found", chosenCity);
+
+        JSONObject out = forecast(lat, lon);
+        out.put("source", fromOverride ? "local_override" : "open-meteo");
+        out.put("queried_city", chosenCity);
+        out.put("resolved_city", hit.optString("name", chosenCity));
+        out.put("admin1", hit.optString("admin1", ""));
+        out.put("admin2", hit.optString("admin2", ""));
+        out.put("district", chosenDistrict.isEmpty() ? hit.optString("admin2", "") : chosenDistrict);
+        out.put("country", hit.optString("country", ""));
+        out.put("latitude", lat);
+        out.put("longitude", lon);
+        // Bug#2：解析结果以「省 + 市」回传，前端保存时展示给用户二次确认，不再静默错配。
+        String display = hit.optString("admin1", "") + hit.optString("name", chosenCity);
+        out.put("geo_display", display.isEmpty() ? chosenCity : display);
+        out.put("geo_query_used", queryUsed);
+        out.put("geo_source", fromOverride ? "local_override" : "geocoding");
+        finalizeWeather(out);
+        return out;
+    }
+
+    private static JSONObject geocode(String q) throws Exception {
+        String geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name="
+                + URLEncoder.encode(q, "UTF-8") + "&count=1&language=zh&format=json";
+        JSONObject geo = new JSONObject(get(geoUrl));
+        JSONArray results = geo.optJSONArray("results");
+        if (results != null && results.length() > 0) return results.getJSONObject(0);
+        return null;
+    }
+
+    /** 按坐标请求 Open-Meteo forecast，组装与展示无关的气象字段（fetch / fetchByCoords 共用）。 */
+    private static JSONObject forecast(double lat, double lon) throws Exception {
         String forecastUrl = String.format(Locale.US,
                 "https://api.open-meteo.com/v1/forecast?latitude=%.6f&longitude=%.6f&current=temperature_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=2",
                 lat, lon);
@@ -136,16 +262,6 @@ public class WeatherLive {
         int rain = (int) Math.round(firstDouble(daily, "precipitation_probability_max", 0));
         JSONObject out = new JSONObject();
         out.put("ok", true);
-        out.put("source", "open-meteo");
-        out.put("queried_city", chosenCity);
-        out.put("resolved_city", hit.optString("name", chosenCity));
-        out.put("admin1", hit.optString("admin1", ""));
-        out.put("admin2", hit.optString("admin2", ""));
-        // 展示用的区县以用户填写的为准，没填才退回地理编码返回的 admin2。
-        out.put("district", chosenDistrict.isEmpty() ? hit.optString("admin2", "") : chosenDistrict);
-        out.put("country", hit.optString("country", ""));
-        out.put("latitude", lat);
-        out.put("longitude", lon);
         out.put("temperature", Math.round(temp));
         out.put("temperature_raw", temp);
         out.put("weather_code", code);
@@ -155,9 +271,14 @@ public class WeatherLive {
         out.put("temp_min", Math.round(min));
         out.put("precipitation_probability", rain);
         out.put("updated_at_ms", System.currentTimeMillis());
-        out.put("summary", cardText(out, ""));
-        out.put("advice", advice(out, "当前地区"));
         return out;
+    }
+
+    private static void finalizeWeather(JSONObject out) {
+        try {
+            out.put("summary", cardText(out, ""));
+            out.put("advice", advice(out, "当前地区"));
+        } catch (Exception ignored) { }
     }
 
     private static double firstDouble(JSONObject obj, String key, double fallback) {
@@ -242,6 +363,11 @@ public class WeatherLive {
             case 99: return "强雷暴伴冰雹";
             default: return "天气代码 " + code;
         }
+    }
+
+    /** Bug#2：主动「使用当前定位」或手改城市后强制缓存失效，下一次刷新立即走新坐标/新城市。 */
+    public static void invalidateCache(Context ctx) {
+        try { AppPrefs.get(ctx.getApplicationContext()).edit().remove(KEY_AT).apply(); } catch (Exception ignored) { }
     }
 
     private static String clean(String s) { return s == null ? "" : s.trim(); }

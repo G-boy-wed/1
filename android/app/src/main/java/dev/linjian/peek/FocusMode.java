@@ -29,6 +29,9 @@ public class FocusMode {
     // Bug #2：求助申请过期阈值。超过 24 小时未处理、或属于已结束的上一专注会话的申请，
     // 自动标记为 expired，不再常驻 pending 占用状态、触发 pending_timeout 异常提示。
     private static final long REQUEST_EXPIRY_MS = 24L * 60L * 60L * 1000L;
+    // Bug#5：专注拦截页连续狂点（几毫秒内重复提交）3 秒全局防抖。
+    private static volatile long lastSubmitTimeMs = 0L;
+    private static final long SUBMIT_DEBOUNCE_MS = 3000L;
 
     private static JSONObject defaultState() {
         JSONObject s = new JSONObject();
@@ -166,6 +169,12 @@ public class FocusMode {
     }
 
     private static JSONObject createRequest(Context ctx, String reason) throws Exception {
+        // Bug#5：3 秒全局防抖，狂点不入库（返回去重结果，调用方不会误判为失败）。
+        long now = System.currentTimeMillis();
+        if (now - lastSubmitTimeMs < SUBMIT_DEBOUNCE_MS) {
+            return put(new JSONObject(), true, "focus_request_deduplicated");
+        }
+        lastSubmitTimeMs = now;
         JSONObject s = state(ctx);
         String text = reason == null ? "" : reason.trim();
         if (text.length() == 0) text = "我想申请应急解锁。";
@@ -398,21 +407,31 @@ public class FocusMode {
             long reqSessionStart = s.optLong("started_at_ms", 0L);
             JSONArray reqsAll = s.optJSONArray("requests");
             if (reqsAll != null) {
-                boolean reqChanged = false;
+                JSONArray kept = new JSONArray();
                 for (int i = 0; i < reqsAll.length(); i++) {
                     JSONObject r = reqsAll.optJSONObject(i);
-                    if (r == null || !"pending".equals(r.optString("status", "pending"))) continue;
-                    long rc = r.optLong("created_at_ms", 0L);
-                    boolean fromPrevSession = reqSessionStart > 0 && rc > 0 && rc < reqSessionStart;
-                    boolean tooOld = rc > 0 && (now - rc) > REQUEST_EXPIRY_MS;
-                    if (fromPrevSession || tooOld) {
-                        r.put("status", "expired");
-                        r.put("expired_at_ms", now);
-                        r.put("expired_reason", fromPrevSession ? "session_ended" : "timeout_24h");
-                        reqChanged = true;
+                    if (r == null) continue;
+                    if (!r.has("status")) r.put("status", "pending");
+                    if ("pending".equals(r.optString("status", "pending"))) {
+                        long rc = r.optLong("created_at_ms", 0L);
+                        boolean fromPrevSession = reqSessionStart > 0 && rc > 0 && rc < reqSessionStart;
+                        boolean tooOld = rc > 0 && (now - rc) > REQUEST_EXPIRY_MS;
+                        if (fromPrevSession || tooOld) {
+                            r.put("status", "expired");
+                            r.put("expired_at_ms", now);
+                            r.put("expired_reason", fromPrevSession ? "session_ended" : "timeout_24h");
+                        }
                     }
+                    // Bug#5：24 小时以上的 expired 记录直接归档删除 + 上限保护，状态 JSON 不再无限膨胀。
+                    if ("expired".equals(r.optString("status"))) {
+                        long ref = r.optLong("expired_at_ms", 0L);
+                        if (ref <= 0) ref = r.optLong("created_at_ms", 0L);
+                        if (ref > 0 && (now - ref) > REQUEST_EXPIRY_MS) continue;
+                    }
+                    kept.put(r);
                 }
-                if (reqChanged) s.put("requests", reqsAll);
+                while (kept.length() > 20) kept.remove(0);
+                s.put("requests", kept);
             }
             // P0-5/#37：应急额度按「专注会话」归零，离线放行不走 start 也正确
             long sessionAt = s.optLong("emergency_session_started_at_ms", started);

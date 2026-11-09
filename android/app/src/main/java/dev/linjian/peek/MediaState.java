@@ -120,8 +120,14 @@ public class MediaState {
                     if (!empty(cap.optString("bg_audio"))) out.put("bg_audio", cap.optString("bg_audio"));
                 }
             }
-            if (!granted) out.put("reason", "通知使用权未开启");
-            else if (!s.hasMedia()) out.put("reason", s.reason == null || s.reason.length() == 0 ? "暂无媒体播放" : s.reason);
+            if (!granted) {
+                // Bug#4：未授权时除了原因，还把「一键授权」的动作信息带给前端，
+                // 让设置页/守护页能直接渲染出提示与入口，不再出现「不可用却没处开」。
+                out.put("reason", "通知使用权未开启");
+                out.put("needs_permission", true);
+                out.put("grant_action", "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS");
+                out.put("action_hint", "伴看与媒体状态未开启：请到「设置 → 通知使用权」开启掌心窗媒体状态，或在守护页一键授权。");
+            } else if (!s.hasMedia()) out.put("reason", s.reason == null || s.reason.length() == 0 ? "暂无媒体播放" : s.reason);
             out.put("summary", summary(ctx));
             out.put("privacy_note", "媒体状态仅在你开启通知使用权后读取，用于显示正在播放的歌曲/视频；不读取聊天内容。");
         } catch (Exception e) {
