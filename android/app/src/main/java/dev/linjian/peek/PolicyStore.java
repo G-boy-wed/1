@@ -77,6 +77,11 @@ public final class PolicyStore {
     public static final String KEY_DISTRACTION_LOOP_TIMES = PREFIX + "dist_loop_times";     // 来回次数阈值，默认 2
     public static final String KEY_DISTRACTION_LOOP_WINDOW = PREFIX + "dist_loop_window";   // 来回时间窗口(秒)，默认 90
     public static final String KEY_DISCIPLINE_MODE = PREFIX + "disc_mode";       // 训诫语气 gentle / strict，默认 gentle
+    public static final String KEY_DISCIPLINE_TEXT = PREFIX + "disc_text";        // 陪伴对象直出训诫文案（空则用默认）
+
+    // —— 每日弹窗去重（天气首次解锁 / 日历解锁横幅，每天最多弹一次）——
+    public static final String KEY_WEATHER_ALERT_DATE = PREFIX + "weather_alert_date";
+    public static final String KEY_CAL_BANNER_DATE = PREFIX + "cal_banner_date";
 
     // —— 应用使用时长自动锁 ——
     public static final String KEY_USAGE_LOCK_ENABLED = PREFIX + "usage_lock_enabled"; // 连续使用超 N 分钟自动锁，默认 false
@@ -309,6 +314,25 @@ public final class PolicyStore {
     }
     public static void setDisciplineMode(Context ctx, String v) {
         putString(ctx, KEY_DISCIPLINE_MODE, "strict".equalsIgnoreCase(v) ? "strict" : "gentle", "训诫语气模式");
+    }
+
+    /** 陪伴对象直出训诫文案：文案由陪伴对象编写，禁止轻浮兜底。空字符串表示使用默认严厉文案。 */
+    public static String disciplineText(Context ctx) {
+        return getString(ctx, KEY_DISCIPLINE_TEXT, "");
+    }
+    public static void setDisciplineText(Context ctx, String v) {
+        putString(ctx, KEY_DISCIPLINE_TEXT, v == null ? "" : v, "训诫文案");
+    }
+
+    /** 每日天气/日历弹窗去重：返回今天是否已弹过（基于本地日期）。 */
+    public static boolean dailyAlertShown(Context ctx, String key) {
+        String today = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.CHINA).format(new java.util.Date());
+        return today.equals(getString(ctx, key, ""));
+    }
+    public static void markDailyAlertShown(Context ctx, String key) {
+        String today = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.CHINA).format(new java.util.Date());
+        SharedPreferences.Editor e = sp(ctx).edit();
+        e.putString(key, today).commit();
     }
 
     // —— 分心判定 ——

@@ -1,0 +1,292 @@
+diff --git a/android/app/src/main/java/dev/linjian/peek/CompanionService.java b/android/app/src/main/java/dev/linjian/peek/CompanionService.java
+index 43b4996..c6fdada 100644
+--- a/android/app/src/main/java/dev/linjian/peek/CompanionService.java
++++ b/android/app/src/main/java/dev/linjian/peek/CompanionService.java
+@@ -277,7 +277,8 @@ public class CompanionService extends Service {
+                 return;
+             }
+             if (action.contains("ocr") || "extract_screen".equals(action) || "scan_screen".equals(action)) {
+-                JSONObject rr = OcrPlugin.handleCommand(ctx, cmd);
++                // screen_ocr 走 ScreenOcrService（含位图截屏 + 服务端视觉增强）；其余仍走本地 OcrPlugin。
++                JSONObject rr = "screen_ocr".equals(action) ? ScreenOcrService.handleCommand(ctx, cmd) : OcrPlugin.handleCommand(ctx, cmd);
+                 boolean ok = rr.optBoolean("ok", false);
+                 String result = rr.optString("result", rr.toString());
+                 DebugState.append(ctx, "执行识图命令 " + action + "：" + result);
+@@ -318,6 +319,39 @@ public class CompanionService extends Service {
+                 try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, true); } catch (Exception ignored) { }
+                 return;
+             }
++
++            // —— 训诫管束模块（DisciplineController）：set/get/trigger ——
++            if ("set_discipline_mode".equals(action) || "get_discipline_state".equals(action) || "trigger_discipline".equals(action)) {
++                JSONObject rr = DisciplineController.handleCommand(ctx, cmd);
++                boolean ok = rr.optBoolean("ok", false);
++                String result = rr.optString("result", rr.toString());
++                DebugState.append(ctx, "执行训诫命令 " + action + "：" + result);
++                try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, true); } catch (Exception ignored) { }
++                return;
++            }
++
++            // —— 课表导入（TimetableParser）：ICS / 图片OCR / JSON ——
++            if ("import_timetable".equals(action) || "parse_timetable".equals(action)) {
++                JSONObject rr = new JSONObject();
++                try {
++                    if (cmd.has("ics") || cmd.has("text")) {
++                        rr = TimetableParser.importFromText(ctx, cmd.optString(cmd.has("ics") ? "ics" : "text", ""));
++                    } else if (cmd.has("image_ocr") || cmd.has("ocr_result")) {
++                        rr = TimetableParser.importFromImageOcr(ctx, cmd.optJSONObject(cmd.has("image_ocr") ? "image_ocr" : "ocr_result"));
++                    } else if (cmd.has("entries")) {
++                        ClassScheduleState.importEntries(ctx, cmd.optJSONArray("entries"));
++                        rr.put("ok", true).put("result", "timetable_imported_entries");
++                    } else {
++                        rr.put("ok", false).put("error", "no_timetable_source");
++                    }
++                } catch (Exception e) { try { rr.put("ok", false).put("error", ScreenshotService.shortMsg(e)); } catch (Exception ignored) { } }
++                boolean ok = rr.optBoolean("ok", false);
++                String result = rr.optString("result", rr.toString());
++                DebugState.append(ctx, "执行课表导入命令 " + action + "：" + result);
++                try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, true); } catch (Exception ignored) { }
++                return;
++            }
++
+             if ("start_tour".equals(action) || "stop_tour".equals(action)) {
+                 try { reportCommand(ctx, serverUrl, token, id, true, action + "_ack"); } catch (Exception ignored) { }
+                 return;
+@@ -573,7 +607,13 @@ public class CompanionService extends Service {
+     }
+ 
+     public static void showCenterAlert(Context ctx, String title, String message, String tone, String buttonText, String kindLabel) {
++        showCenterAlert(ctx, title, message, tone, buttonText, kindLabel, false);
++    }
++
++    /** 带震动标志的居中弹窗：训诫等强制类弹窗调用，弹窗同时震动提示。 */
++    public static void showCenterAlert(Context ctx, String title, String message, String tone, String buttonText, String kindLabel, boolean vibrate) {
+         try {
++            if (vibrate) vibrate(ctx, "strict".equalsIgnoreCase(tone) || "angry".equalsIgnoreCase(tone));
+             if (AlertCenterOverlay.canShow(ctx) && AlertCenterOverlay.show(ctx, title, message, tone, buttonText, kindLabel)) {
+                 DebugState.append(ctx, "屏幕居中弹窗已下发（悬浮窗，类型=" + kindLabel + "）：" + (title == null ? "" : title));
+                 return;
+@@ -591,6 +631,25 @@ public class CompanionService extends Service {
+         } catch (Exception e) { DebugState.append(ctx, "居中弹窗异常：" + ScreenshotService.shortMsg(e)); }
+     }
+ 
++    /** 震动提示：strong=true 用较长较强模式（训诫），否则短促一震。无权限/旧系统静默失败。 */
++    public static void vibrate(Context ctx, boolean strong) {
++        try {
++            if (Build.VERSION.SDK_INT >= 23) {
++                android.os.Vibrator v = (android.os.Vibrator) ctx.getSystemService(Context.VIBRATOR_SERVICE);
++                if (v == null || !v.hasVibrator()) return;
++                if (Build.VERSION.SDK_INT >= 26) {
++                    long[] pattern = strong ? new long[]{0, 120, 60, 120, 60, 220} : new long[]{0, 90, 50, 90};
++                    v.vibrate(android.os.VibrationEffect.createWaveform(pattern, -1));
++                } else {
++                    v.vibrate(strong ? new long[]{0, 120, 60, 120, 60, 220} : new long[]{0, 90, 50, 90}, -1);
++                }
++            } else {
++                android.os.Vibrator v = (android.os.Vibrator) ctx.getSystemService(Context.VIBRATOR_SERVICE);
++                if (v != null) v.vibrate(strong ? 500 : 200);
++            }
++        } catch (Exception ignored) { }
++    }
++
+     /** 强制拉回：不管用户当前停在哪个 App，都把手机切回掌心窗陪伴页（聊天界面）。 */
+     public static void bringAppToFront(Context ctx) {
+         try {
+diff --git a/android/app/src/main/java/dev/linjian/peek/LifeState.java b/android/app/src/main/java/dev/linjian/peek/LifeState.java
+index 9dcb0c5..bf42716 100644
+--- a/android/app/src/main/java/dev/linjian/peek/LifeState.java
++++ b/android/app/src/main/java/dev/linjian/peek/LifeState.java
+@@ -106,6 +106,7 @@ public class LifeState {
+             state.put("focus_mode", FocusMode.config(ctx));
+             state.put("cycle_state", CycleState.collect(ctx));
+             state.put("calendar_state", CalendarState.collect(ctx));
++            state.put("discipline_state", DisciplineController.config(ctx));
+             state.put("guidian_state", GuidianState.config(ctx));
+             state.put("media_state", mediaState);
+             state.put("now_state", nowState);
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java b/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
+index c897ce1..82bab1e 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
++++ b/android/app/src/main/java/dev/linjian/peek/PolicyScheduler.java
+@@ -243,6 +243,9 @@ public final class PolicyScheduler {
+         }
+         evaluateClassSchedule();
+ 
++        // 弹窗矩阵每日触发：天气出门 / 守护日历大事件（每天各一次，上课/安静时段不弹）。
++        try { AlertWindowManager.onTick(appCtx); } catch (Exception ignored) { }
++
+         // 检测到「刚进入上课」：立即关闭当前任何正在显示的弹窗，落实上课静默。
+         if (inClass && !wasInClass) {
+             try { PopupMutex.dismissAll(); } catch (Exception ignored) { }
+diff --git a/android/app/src/main/java/dev/linjian/peek/PolicyStore.java b/android/app/src/main/java/dev/linjian/peek/PolicyStore.java
+index dccfaf7..fc2df36 100644
+--- a/android/app/src/main/java/dev/linjian/peek/PolicyStore.java
++++ b/android/app/src/main/java/dev/linjian/peek/PolicyStore.java
+@@ -77,6 +77,11 @@ public final class PolicyStore {
+     public static final String KEY_DISTRACTION_LOOP_TIMES = PREFIX + "dist_loop_times";     // 来回次数阈值，默认 2
+     public static final String KEY_DISTRACTION_LOOP_WINDOW = PREFIX + "dist_loop_window";   // 来回时间窗口(秒)，默认 90
+     public static final String KEY_DISCIPLINE_MODE = PREFIX + "disc_mode";       // 训诫语气 gentle / strict，默认 gentle
++    public static final String KEY_DISCIPLINE_TEXT = PREFIX + "disc_text";        // 陪伴对象直出训诫文案（空则用默认）
++
++    // —— 每日弹窗去重（天气首次解锁 / 日历解锁横幅，每天最多弹一次）——
++    public static final String KEY_WEATHER_ALERT_DATE = PREFIX + "weather_alert_date";
++    public static final String KEY_CAL_BANNER_DATE = PREFIX + "cal_banner_date";
+ 
+     // —— 应用使用时长自动锁 ——
+     public static final String KEY_USAGE_LOCK_ENABLED = PREFIX + "usage_lock_enabled"; // 连续使用超 N 分钟自动锁，默认 false
+@@ -311,6 +316,25 @@ public final class PolicyStore {
+         putString(ctx, KEY_DISCIPLINE_MODE, "strict".equalsIgnoreCase(v) ? "strict" : "gentle", "训诫语气模式");
+     }
+ 
++    /** 陪伴对象直出训诫文案：文案由陪伴对象编写，禁止轻浮兜底。空字符串表示使用默认严厉文案。 */
++    public static String disciplineText(Context ctx) {
++        return getString(ctx, KEY_DISCIPLINE_TEXT, "");
++    }
++    public static void setDisciplineText(Context ctx, String v) {
++        putString(ctx, KEY_DISCIPLINE_TEXT, v == null ? "" : v, "训诫文案");
++    }
++
++    /** 每日天气/日历弹窗去重：返回今天是否已弹过（基于本地日期）。 */
++    public static boolean dailyAlertShown(Context ctx, String key) {
++        String today = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.CHINA).format(new java.util.Date());
++        return today.equals(getString(ctx, key, ""));
++    }
++    public static void markDailyAlertShown(Context ctx, String key) {
++        String today = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.CHINA).format(new java.util.Date());
++        SharedPreferences.Editor e = sp(ctx).edit();
++        e.putString(key, today).commit();
++    }
++
+     // —— 分心判定 ——
+     public static boolean distractionEnabled(Context ctx) { return getBool(ctx, KEY_DISTRACTION_ENABLED, DEF_DIST_ENABLED); }
+     public static void setDistractionEnabled(Context ctx, boolean v) { putBool(ctx, KEY_DISTRACTION_ENABLED, v, "切屏算分心"); }
+diff --git a/mcp/server.js b/mcp/server.js
+index 4b02679..647f3bf 100644
+--- a/mcp/server.js
++++ b/mcp/server.js
+@@ -1450,6 +1450,61 @@ function makeServer() {
+     return { content: [{ type: "text", text: JSON.stringify({ ok: true, device_id, calendar_state: state?.calendar_state || {}, life_state_version: state?.life_state_version || "" }, null, 2) }] };
+   });
+ 
++  // ============ 训诫管束（设备侧）：真正在手机上弹不可滑掉弹窗 + 联动门禁 ============
++  server.tool("trigger_discipline", "立即在顾钰手机上触发一次训诫：强行弹出不可直接滑掉的居中弹窗（仅按钮可关）+ 震动；若训诫为 strict/强档，还会联动应用门禁把当前非白名单前台应用切入临时休息/锁屏。需明确说出要训诫时才调用（如「好好说/管他一下」）。", {
++    reason: z.string().max(200).default("").describe("训诫事由（如深夜不睡/单App沉迷/拒归电），会展示在弹窗上"),
++    device_id: z.string().default(DEFAULT_DEVICE),
++    wait_seconds: z.number().int().min(3).max(20).default(8)
++  }, async ({ reason = "", device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
++    const res = await postCommand({ action: "trigger_discipline", device_id, payload: { reason: reason || "" }, explicit: true });
++    const status = await waitCommand(res?.command?.id, wait_seconds);
++    const result = status?.command?.result;
++    return { content: [{ type: "text", text: JSON.stringify({ ok: status?.command?.ok, action: "trigger_discipline", result, note: "已在设备侧触发训诫弹窗" + (status?.command?.gate_locked ? "，并已联动门禁锁当前前台应用" : "") }, null, 2) }] };
++  });
++
++  server.tool("get_discipline_state", "读取顾钰手机端训诫模块的实时状态：是否开启、档位(0~4)、语气(gentle/strict)、陪伴对象直出文案、是否强制强弹。", {
++    device_id: z.string().default(DEFAULT_DEVICE),
++    wait_seconds: z.number().int().min(3).max(20).default(8)
++  }, async ({ device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
++    const res = await postCommand({ action: "get_discipline_state", device_id, payload: {}, explicit: true });
++    const status = await waitCommand(res?.command?.id, wait_seconds);
++    return { content: [{ type: "text", text: JSON.stringify({ ok: status?.command?.ok, discipline_state: status?.command || null }, null, 2) }] };
++  });
++
++  // ============ 课表导入（设备侧）：ICS / 图片OCR / JSON ============
++  server.tool("import_timetable", "把课表导入顾钰手机端本地课表（用于上课静默守护、课前/下课提醒）。支持 ICS 文本(高校教务导出)、JSON 课表数组、或服务端视觉模型从课表截图解析出的条目。需用户/陪伴明确要导入才调用。", {
++    ics: z.string().optional().describe("ICS 文本（含 BEGIN:VCALENDAR / VEVENT 的教务课表导出）"),
++    text: z.string().optional().describe("ICS 或 JSON 课表文本"),
++    entries: z.array(z.object({ weekday: z.number().int().min(1).max(7), start: z.string(), end: z.string(), subject: z.string().optional(), room: z.string().optional() })).optional().describe("直接给课表条目数组"),
++    image_ocr: z.object({}).passthrough().optional().describe("服务端视觉模型解析课表截图后返回的结构化结果（含 entries/timetable 数组）"),
++    device_id: z.string().default(DEFAULT_DEVICE),
++    wait_seconds: z.number().int().min(3).max(20).default(8)
++  }, async ({ ics, text, entries, image_ocr, device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
++    const payload = {};
++    if (ics) payload.ics = ics;
++    if (text) payload.text = text;
++    if (entries) payload.entries = entries;
++    if (image_ocr) payload.image_ocr = image_ocr;
++    const res = await postCommand({ action: "import_timetable", device_id, payload, explicit: true });
++    const status = await waitCommand(res?.command?.id, wait_seconds);
++    const result = status?.command?.result;
++    return { content: [{ type: "text", text: JSON.stringify({ ok: status?.command?.ok, action: "import_timetable", result, note: "课表已写入手机端本地；随后上课时段会自动静默、课前/下课提醒。" }, null, 2) }] };
++  });
++
++  // ============ 实时识图与视窗理解（设备侧）============
++  server.tool("screen_ocr", "实时识图：抓取顾钰当前屏幕的关键文字、报错信息、短视频/图片内容，解决「陪你看这里」的诉求。优先本地无障碍节点结构化提取，可选发服务端视觉模型增强。", {
++    remote: z.boolean().default(false).describe("true=把本地结果发服务端视觉模型增强；false=仅本地提取"),
++    device_id: z.string().default(DEFAULT_DEVICE),
++    wait_seconds: z.number().int().min(3).max(20).default(8)
++  }, async ({ remote = false, device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
++    const res = await postCommand({ action: "screen_ocr", device_id, payload: { remote }, explicit: true });
++    const status = await waitCommand(res?.command?.id, wait_seconds);
++    const out = status?.command?.result ? (() => { try { return JSON.parse(status.command.result); } catch { return status.command.result; } })() : null;
++    const data = out?.data || out;
++    return { content: [{ type: "text", text: JSON.stringify({ ok: status?.command?.ok, screen: data, note: "本地可见文本已提取；bitmap_capture_available 表示是否已拿到真实位图截屏。" }, null, 2) }] };
++  });
++
++
+   server.tool("add_guardian_calendar_event", "给手机端守护日历添加/更新一个重要日期。支持阳历/农历、每年重复/不重复、分组、备注、提前几天横幅提醒。适合陪伴对象帮用户记七夕、生日、绑定日、考试、项目节点。", {
+     title: z.string().min(1).max(80),
+     date: z.string().min(3).max(20).describe("阳历：2026-08-23 或 08-23；农历：07-07"),
+@@ -2146,17 +2201,27 @@ function makeServer() {
+   });
+ 
+   // ============ 训诫模块（小圈管束）：严厉 / 温柔 ============
+-  server.tool("set_discipline_mode", "设置训诫模块（小圈管束）的开启状态与语气模式。开启后陪伴对象人设语气增加管束意味；mode 决定语气：gentle=温柔（以撒娇和关心包裹管束），strict=严厉（措辞更硬、更有管束力度）。开启时陪伴对象应按所选模式调整说话方式。", {
++  server.tool("set_discipline_mode", "设置训诫模块（小圈管束）的开启状态与语气模式。开启后陪伴对象人设语气增加管束意味；mode 决定语气：gentle=温柔（以撒娇和关心包裹管束），strict=严厉（措辞更硬、更有管束力度）。开启时陪伴对象应按所选模式调整说话方式。该设置会同时下发手机端（设备侧真正执行弹窗与联动门禁）。", {
+     enabled: z.boolean().optional().describe("是否开启训诫"),
+     mode: z.enum(["gentle", "strict"]).optional().describe("语气模式：温柔 / 严厉"),
+-    level: z.number().int().min(0).max(4).optional().describe("训诫档位 0~4")
+-  }, async ({ enabled, mode, level }) => {
++    level: z.number().int().min(0).max(4).optional().describe("训诫档位 0~4"),
++    text: z.string().max(500).optional().describe("陪伴对象直出训诫文案（空则用默认严厉文案）"),
++    device_id: z.string().default(DEFAULT_DEVICE)
++  }, async ({ enabled, mode, level, text, device_id = DEFAULT_DEVICE }) => {
+     const payload = {};
+     if (enabled !== undefined) payload.enabled = enabled;
+     if (mode !== undefined) payload.mode = mode;
+     if (level !== undefined) payload.level = level;
++    if (text !== undefined) payload.text = text;
+     const res = await linjianFetch("/api/discipline", { method: "POST", timeout_ms: COMMAND_QUEUE_TIMEOUT_MS, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
+-    return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
++    // 同时下发手机端，让设备侧真正执行（弹窗 + 联动门禁）。
++    let device = null;
++    try {
++      const dr = await postCommand({ action: "set_discipline_mode", device_id, payload: { enabled, mode, level, text }, explicit: true });
++      const status = await waitCommand(dr?.command?.id, 8);
++      device = status?.command || null;
++    } catch (e) { device = { error: String(e) }; }
++    return { content: [{ type: "text", text: JSON.stringify({ server: res, device, note: "已同步下发手机端训诫设置" }, null, 2) }] };
+   });
+ 
+   server.tool("get_discipline_mode", "读取训诫模块（小圈管束）当前状态：是否开启、语气模式（温柔/严厉）、档位。", {
+diff --git a/server/linjian_server.py b/server/linjian_server.py
+index 0d2154a..009e147 100644
+--- a/server/linjian_server.py
++++ b/server/linjian_server.py
+@@ -81,7 +81,9 @@ SENSITIVE_PACKAGES = {"com.eg.android.AlipayGphone", "com.tencent.mm.plugin.wall
+ ALLOWED_ACTIONS = {"noop", "peek", "open_app", "home", "back", "recents", "screen_off", "turn_screen_off", "lock_screen", "phone_screen_off", "tap", "swipe", "set_alarm", "send_notification", "run_sequence", "save_known_app", "get_screen_nodes", "tap_text", "input_text", "lock_app", "unlock_app", "temporary_unlock_app", "extend_lock", "deny_unlock_request", "get_lock_state", "set_emergency_passphrase", "add_locked_app", "remove_locked_app", "list_lockable_apps", "screen_break_app", "start_screen_break", "screen_break", "end_screen_break", "stop_screen_break", "temporary_screen_break_release", "temporary_screen_release", "extend_screen_break", "deny_screen_break_release_request", "deny_break_release_request", "get_screen_break_state", "set_screen_break_passphrase", "add_screen_break_app", "remove_screen_break_app", "list_screen_break_apps", "get_focus_status", "get_life_state", "start_focus_mode", "end_focus_mode", "set_focus_plan", "reply_focus_request", "approve_focus_unlock", "deny_focus_unlock", "request_focus_unlock", "create_focus_request", "get_guidian_state", "set_guidian_config", "trigger_guidian", "mark_guidian_returned", "get_calendar_state", "upsert_calendar_event", "add_calendar_event", "delete_calendar_event", "create_diary_book", "list_diary_books", "rename_diary_book", "update_diary_book_cover", "write_diary_entry", "list_diary_entries", "read_diary_entry", "read_diary_entry_with_annotations", "add_diary_annotation", "list_diary_annotations", "mark_diary_annotations_seen", "delete_diary_annotation", "search_diary_entries", "update_diary_entry", "delete_diary_entry", "delete_diary_book",
+ "show_center_alert", "force_back_to_chat", "start_tour", "stop_tour",
+ "set_companion_emotion", "get_companion_emotion",
+-"send_watch_whisper", "pause_media", "media_switch_screen", "get_live_media_context"}
++"send_watch_whisper", "pause_media", "media_switch_screen", "get_live_media_context",
++"set_discipline_mode", "get_discipline_state", "trigger_discipline",
++"import_timetable", "parse_timetable", "screen_ocr"}
+ 
+ def load_dotenv(path: Path) -> None:
+     if not path.exists(): return
+@@ -925,6 +927,16 @@ class Handler(BaseHTTPRequestHandler):
+             except Exception:
+                 ocr_text = ""
+             self._json(200, {"ok": True, "text": ocr_text or "", "image_path": image_path, "note": note}); return
++        if path == "/api/ocr/analyze":
++            # 手机端 ScreenOcrService / OcrPlugin 把本地结构化屏幕结果发来，服务端做语义推理。
++            # best-effort：若无外部视觉模型，返回原始可见文本供调用方自行理解。
++            if not self._require_token(): return
++            data = self._read_json() or {}
++            visible = data.get("visible_texts") or data.get("screen_text") or ""
++            if isinstance(visible, list): visible = "\n".join([str(x) for x in visible])
++            self._json(200, {"ok": True, "entries": [],
++                             "summary": str(visible)[:2000],
++                             "note": "服务端未内置视觉大模型；已回传原始可见文本，条目抽取建议由陪伴对象侧完成。"}); return
+         # 旧的专用豁免端点已移除；豁免改为通用 exempt_packages 配置（见 /api/tour/schedule）。
+         self._json(404, {"ok": False, "error": ERR_BAD_METHOD})
+ 

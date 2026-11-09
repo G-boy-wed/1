@@ -243,6 +243,9 @@ public final class PolicyScheduler {
         }
         evaluateClassSchedule();
 
+        // 弹窗矩阵每日触发：天气出门 / 守护日历大事件（每天各一次，上课/安静时段不弹）。
+        try { AlertWindowManager.onTick(appCtx); } catch (Exception ignored) { }
+
         // 检测到「刚进入上课」：立即关闭当前任何正在显示的弹窗，落实上课静默。
         if (inClass && !wasInClass) {
             try { PopupMutex.dismissAll(); } catch (Exception ignored) { }

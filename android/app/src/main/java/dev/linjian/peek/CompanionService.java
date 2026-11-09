@@ -277,7 +277,8 @@ public class CompanionService extends Service {
                 return;
             }
             if (action.contains("ocr") || "extract_screen".equals(action) || "scan_screen".equals(action)) {
-                JSONObject rr = OcrPlugin.handleCommand(ctx, cmd);
+                // screen_ocr 走 ScreenOcrService（含位图截屏 + 服务端视觉增强）；其余仍走本地 OcrPlugin。
+                JSONObject rr = "screen_ocr".equals(action) ? ScreenOcrService.handleCommand(ctx, cmd) : OcrPlugin.handleCommand(ctx, cmd);
                 boolean ok = rr.optBoolean("ok", false);
                 String result = rr.optString("result", rr.toString());
                 DebugState.append(ctx, "执行识图命令 " + action + "：" + result);
@@ -318,6 +319,39 @@ public class CompanionService extends Service {
                 try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, true); } catch (Exception ignored) { }
                 return;
             }
+
+            // —— 训诫管束模块（DisciplineController）：set/get/trigger ——
+            if ("set_discipline_mode".equals(action) || "get_discipline_state".equals(action) || "trigger_discipline".equals(action)) {
+                JSONObject rr = DisciplineController.handleCommand(ctx, cmd);
+                boolean ok = rr.optBoolean("ok", false);
+                String result = rr.optString("result", rr.toString());
+                DebugState.append(ctx, "执行训诫命令 " + action + "：" + result);
+                try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, true); } catch (Exception ignored) { }
+                return;
+            }
+
+            // —— 课表导入（TimetableParser）：ICS / 图片OCR / JSON ——
+            if ("import_timetable".equals(action) || "parse_timetable".equals(action)) {
+                JSONObject rr = new JSONObject();
+                try {
+                    if (cmd.has("ics") || cmd.has("text")) {
+                        rr = TimetableParser.importFromText(ctx, cmd.optString(cmd.has("ics") ? "ics" : "text", ""));
+                    } else if (cmd.has("image_ocr") || cmd.has("ocr_result")) {
+                        rr = TimetableParser.importFromImageOcr(ctx, cmd.optJSONObject(cmd.has("image_ocr") ? "image_ocr" : "ocr_result"));
+                    } else if (cmd.has("entries")) {
+                        ClassScheduleState.importEntries(ctx, cmd.optJSONArray("entries"));
+                        rr.put("ok", true).put("result", "timetable_imported_entries");
+                    } else {
+                        rr.put("ok", false).put("error", "no_timetable_source");
+                    }
+                } catch (Exception e) { try { rr.put("ok", false).put("error", ScreenshotService.shortMsg(e)); } catch (Exception ignored) { } }
+                boolean ok = rr.optBoolean("ok", false);
+                String result = rr.optString("result", rr.toString());
+                DebugState.append(ctx, "执行课表导入命令 " + action + "：" + result);
+                try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, true); } catch (Exception ignored) { }
+                return;
+            }
+
             if ("start_tour".equals(action) || "stop_tour".equals(action)) {
                 try { reportCommand(ctx, serverUrl, token, id, true, action + "_ack"); } catch (Exception ignored) { }
                 return;
@@ -573,7 +607,13 @@ public class CompanionService extends Service {
     }
 
     public static void showCenterAlert(Context ctx, String title, String message, String tone, String buttonText, String kindLabel) {
+        showCenterAlert(ctx, title, message, tone, buttonText, kindLabel, false);
+    }
+
+    /** 带震动标志的居中弹窗：训诫等强制类弹窗调用，弹窗同时震动提示。 */
+    public static void showCenterAlert(Context ctx, String title, String message, String tone, String buttonText, String kindLabel, boolean vibrate) {
         try {
+            if (vibrate) vibrate(ctx, "strict".equalsIgnoreCase(tone) || "angry".equalsIgnoreCase(tone));
             if (AlertCenterOverlay.canShow(ctx) && AlertCenterOverlay.show(ctx, title, message, tone, buttonText, kindLabel)) {
                 DebugState.append(ctx, "屏幕居中弹窗已下发（悬浮窗，类型=" + kindLabel + "）：" + (title == null ? "" : title));
                 return;
@@ -589,6 +629,25 @@ public class CompanionService extends Service {
             ctx.startActivity(i);
             DebugState.append(ctx, "屏幕居中弹窗已下发（Activity 兜底，类型=" + kindLabel + "）：" + (title == null ? "" : title));
         } catch (Exception e) { DebugState.append(ctx, "居中弹窗异常：" + ScreenshotService.shortMsg(e)); }
+    }
+
+    /** 震动提示：strong=true 用较长较强模式（训诫），否则短促一震。无权限/旧系统静默失败。 */
+    public static void vibrate(Context ctx, boolean strong) {
+        try {
+            if (Build.VERSION.SDK_INT >= 23) {
+                android.os.Vibrator v = (android.os.Vibrator) ctx.getSystemService(Context.VIBRATOR_SERVICE);
+                if (v == null || !v.hasVibrator()) return;
+                if (Build.VERSION.SDK_INT >= 26) {
+                    long[] pattern = strong ? new long[]{0, 120, 60, 120, 60, 220} : new long[]{0, 90, 50, 90};
+                    v.vibrate(android.os.VibrationEffect.createWaveform(pattern, -1));
+                } else {
+                    v.vibrate(strong ? new long[]{0, 120, 60, 120, 60, 220} : new long[]{0, 90, 50, 90}, -1);
+                }
+            } else {
+                android.os.Vibrator v = (android.os.Vibrator) ctx.getSystemService(Context.VIBRATOR_SERVICE);
+                if (v != null) v.vibrate(strong ? 500 : 200);
+            }
+        } catch (Exception ignored) { }
     }
 
     /** 强制拉回：不管用户当前停在哪个 App，都把手机切回掌心窗陪伴页（聊天界面）。 */

@@ -81,7 +81,9 @@ SENSITIVE_PACKAGES = {"com.eg.android.AlipayGphone", "com.tencent.mm.plugin.wall
 ALLOWED_ACTIONS = {"noop", "peek", "open_app", "home", "back", "recents", "screen_off", "turn_screen_off", "lock_screen", "phone_screen_off", "tap", "swipe", "set_alarm", "send_notification", "run_sequence", "save_known_app", "get_screen_nodes", "tap_text", "input_text", "lock_app", "unlock_app", "temporary_unlock_app", "extend_lock", "deny_unlock_request", "get_lock_state", "set_emergency_passphrase", "add_locked_app", "remove_locked_app", "list_lockable_apps", "screen_break_app", "start_screen_break", "screen_break", "end_screen_break", "stop_screen_break", "temporary_screen_break_release", "temporary_screen_release", "extend_screen_break", "deny_screen_break_release_request", "deny_break_release_request", "get_screen_break_state", "set_screen_break_passphrase", "add_screen_break_app", "remove_screen_break_app", "list_screen_break_apps", "get_focus_status", "get_life_state", "start_focus_mode", "end_focus_mode", "set_focus_plan", "reply_focus_request", "approve_focus_unlock", "deny_focus_unlock", "request_focus_unlock", "create_focus_request", "get_guidian_state", "set_guidian_config", "trigger_guidian", "mark_guidian_returned", "get_calendar_state", "upsert_calendar_event", "add_calendar_event", "delete_calendar_event", "create_diary_book", "list_diary_books", "rename_diary_book", "update_diary_book_cover", "write_diary_entry", "list_diary_entries", "read_diary_entry", "read_diary_entry_with_annotations", "add_diary_annotation", "list_diary_annotations", "mark_diary_annotations_seen", "delete_diary_annotation", "search_diary_entries", "update_diary_entry", "delete_diary_entry", "delete_diary_book",
 "show_center_alert", "force_back_to_chat", "start_tour", "stop_tour",
 "set_companion_emotion", "get_companion_emotion",
-"send_watch_whisper", "pause_media", "media_switch_screen", "get_live_media_context"}
+"send_watch_whisper", "pause_media", "media_switch_screen", "get_live_media_context",
+"set_discipline_mode", "get_discipline_state", "trigger_discipline",
+"import_timetable", "parse_timetable", "screen_ocr"}
 
 def load_dotenv(path: Path) -> None:
     if not path.exists(): return
@@ -925,6 +927,16 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 ocr_text = ""
             self._json(200, {"ok": True, "text": ocr_text or "", "image_path": image_path, "note": note}); return
+        if path == "/api/ocr/analyze":
+            # 手机端 ScreenOcrService / OcrPlugin 把本地结构化屏幕结果发来，服务端做语义推理。
+            # best-effort：若无外部视觉模型，返回原始可见文本供调用方自行理解。
+            if not self._require_token(): return
+            data = self._read_json() or {}
+            visible = data.get("visible_texts") or data.get("screen_text") or ""
+            if isinstance(visible, list): visible = "\n".join([str(x) for x in visible])
+            self._json(200, {"ok": True, "entries": [],
+                             "summary": str(visible)[:2000],
+                             "note": "服务端未内置视觉大模型；已回传原始可见文本，条目抽取建议由陪伴对象侧完成。"}); return
         # 旧的专用豁免端点已移除；豁免改为通用 exempt_packages 配置（见 /api/tour/schedule）。
         self._json(404, {"ok": False, "error": ERR_BAD_METHOD})
 

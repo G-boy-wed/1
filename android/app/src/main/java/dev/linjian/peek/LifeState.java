@@ -106,6 +106,7 @@ public class LifeState {
             state.put("focus_mode", FocusMode.config(ctx));
             state.put("cycle_state", CycleState.collect(ctx));
             state.put("calendar_state", CalendarState.collect(ctx));
+            state.put("discipline_state", DisciplineController.config(ctx));
             state.put("guidian_state", GuidianState.config(ctx));
             state.put("media_state", mediaState);
             state.put("now_state", nowState);

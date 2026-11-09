@@ -1450,6 +1450,61 @@ function makeServer() {
     return { content: [{ type: "text", text: JSON.stringify({ ok: true, device_id, calendar_state: state?.calendar_state || {}, life_state_version: state?.life_state_version || "" }, null, 2) }] };
   });
 
+  // ============ 训诫管束（设备侧）：真正在手机上弹不可滑掉弹窗 + 联动门禁 ============
+  server.tool("trigger_discipline", "立即在顾钰手机上触发一次训诫：强行弹出不可直接滑掉的居中弹窗（仅按钮可关）+ 震动；若训诫为 strict/强档，还会联动应用门禁把当前非白名单前台应用切入临时休息/锁屏。需明确说出要训诫时才调用（如「好好说/管他一下」）。", {
+    reason: z.string().max(200).default("").describe("训诫事由（如深夜不睡/单App沉迷/拒归电），会展示在弹窗上"),
+    device_id: z.string().default(DEFAULT_DEVICE),
+    wait_seconds: z.number().int().min(3).max(20).default(8)
+  }, async ({ reason = "", device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
+    const res = await postCommand({ action: "trigger_discipline", device_id, payload: { reason: reason || "" }, explicit: true });
+    const status = await waitCommand(res?.command?.id, wait_seconds);
+    const result = status?.command?.result;
+    return { content: [{ type: "text", text: JSON.stringify({ ok: status?.command?.ok, action: "trigger_discipline", result, note: "已在设备侧触发训诫弹窗" + (status?.command?.gate_locked ? "，并已联动门禁锁当前前台应用" : "") }, null, 2) }] };
+  });
+
+  server.tool("get_discipline_state", "读取顾钰手机端训诫模块的实时状态：是否开启、档位(0~4)、语气(gentle/strict)、陪伴对象直出文案、是否强制强弹。", {
+    device_id: z.string().default(DEFAULT_DEVICE),
+    wait_seconds: z.number().int().min(3).max(20).default(8)
+  }, async ({ device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
+    const res = await postCommand({ action: "get_discipline_state", device_id, payload: {}, explicit: true });
+    const status = await waitCommand(res?.command?.id, wait_seconds);
+    return { content: [{ type: "text", text: JSON.stringify({ ok: status?.command?.ok, discipline_state: status?.command || null }, null, 2) }] };
+  });
+
+  // ============ 课表导入（设备侧）：ICS / 图片OCR / JSON ============
+  server.tool("import_timetable", "把课表导入顾钰手机端本地课表（用于上课静默守护、课前/下课提醒）。支持 ICS 文本(高校教务导出)、JSON 课表数组、或服务端视觉模型从课表截图解析出的条目。需用户/陪伴明确要导入才调用。", {
+    ics: z.string().optional().describe("ICS 文本（含 BEGIN:VCALENDAR / VEVENT 的教务课表导出）"),
+    text: z.string().optional().describe("ICS 或 JSON 课表文本"),
+    entries: z.array(z.object({ weekday: z.number().int().min(1).max(7), start: z.string(), end: z.string(), subject: z.string().optional(), room: z.string().optional() })).optional().describe("直接给课表条目数组"),
+    image_ocr: z.object({}).passthrough().optional().describe("服务端视觉模型解析课表截图后返回的结构化结果（含 entries/timetable 数组）"),
+    device_id: z.string().default(DEFAULT_DEVICE),
+    wait_seconds: z.number().int().min(3).max(20).default(8)
+  }, async ({ ics, text, entries, image_ocr, device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
+    const payload = {};
+    if (ics) payload.ics = ics;
+    if (text) payload.text = text;
+    if (entries) payload.entries = entries;
+    if (image_ocr) payload.image_ocr = image_ocr;
+    const res = await postCommand({ action: "import_timetable", device_id, payload, explicit: true });
+    const status = await waitCommand(res?.command?.id, wait_seconds);
+    const result = status?.command?.result;
+    return { content: [{ type: "text", text: JSON.stringify({ ok: status?.command?.ok, action: "import_timetable", result, note: "课表已写入手机端本地；随后上课时段会自动静默、课前/下课提醒。" }, null, 2) }] };
+  });
+
+  // ============ 实时识图与视窗理解（设备侧）============
+  server.tool("screen_ocr", "实时识图：抓取顾钰当前屏幕的关键文字、报错信息、短视频/图片内容，解决「陪你看这里」的诉求。优先本地无障碍节点结构化提取，可选发服务端视觉模型增强。", {
+    remote: z.boolean().default(false).describe("true=把本地结果发服务端视觉模型增强；false=仅本地提取"),
+    device_id: z.string().default(DEFAULT_DEVICE),
+    wait_seconds: z.number().int().min(3).max(20).default(8)
+  }, async ({ remote = false, device_id = DEFAULT_DEVICE, wait_seconds = 8 }) => {
+    const res = await postCommand({ action: "screen_ocr", device_id, payload: { remote }, explicit: true });
+    const status = await waitCommand(res?.command?.id, wait_seconds);
+    const out = status?.command?.result ? (() => { try { return JSON.parse(status.command.result); } catch { return status.command.result; } })() : null;
+    const data = out?.data || out;
+    return { content: [{ type: "text", text: JSON.stringify({ ok: status?.command?.ok, screen: data, note: "本地可见文本已提取；bitmap_capture_available 表示是否已拿到真实位图截屏。" }, null, 2) }] };
+  });
+
+
   server.tool("add_guardian_calendar_event", "给手机端守护日历添加/更新一个重要日期。支持阳历/农历、每年重复/不重复、分组、备注、提前几天横幅提醒。适合陪伴对象帮用户记七夕、生日、绑定日、考试、项目节点。", {
     title: z.string().min(1).max(80),
     date: z.string().min(3).max(20).describe("阳历：2026-08-23 或 08-23；农历：07-07"),
@@ -2146,17 +2201,27 @@ function makeServer() {
   });
 
   // ============ 训诫模块（小圈管束）：严厉 / 温柔 ============
-  server.tool("set_discipline_mode", "设置训诫模块（小圈管束）的开启状态与语气模式。开启后陪伴对象人设语气增加管束意味；mode 决定语气：gentle=温柔（以撒娇和关心包裹管束），strict=严厉（措辞更硬、更有管束力度）。开启时陪伴对象应按所选模式调整说话方式。", {
+  server.tool("set_discipline_mode", "设置训诫模块（小圈管束）的开启状态与语气模式。开启后陪伴对象人设语气增加管束意味；mode 决定语气：gentle=温柔（以撒娇和关心包裹管束），strict=严厉（措辞更硬、更有管束力度）。开启时陪伴对象应按所选模式调整说话方式。该设置会同时下发手机端（设备侧真正执行弹窗与联动门禁）。", {
     enabled: z.boolean().optional().describe("是否开启训诫"),
     mode: z.enum(["gentle", "strict"]).optional().describe("语气模式：温柔 / 严厉"),
-    level: z.number().int().min(0).max(4).optional().describe("训诫档位 0~4")
-  }, async ({ enabled, mode, level }) => {
+    level: z.number().int().min(0).max(4).optional().describe("训诫档位 0~4"),
+    text: z.string().max(500).optional().describe("陪伴对象直出训诫文案（空则用默认严厉文案）"),
+    device_id: z.string().default(DEFAULT_DEVICE)
+  }, async ({ enabled, mode, level, text, device_id = DEFAULT_DEVICE }) => {
     const payload = {};
     if (enabled !== undefined) payload.enabled = enabled;
     if (mode !== undefined) payload.mode = mode;
     if (level !== undefined) payload.level = level;
+    if (text !== undefined) payload.text = text;
     const res = await linjianFetch("/api/discipline", { method: "POST", timeout_ms: COMMAND_QUEUE_TIMEOUT_MS, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
-    return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
+    // 同时下发手机端，让设备侧真正执行（弹窗 + 联动门禁）。
+    let device = null;
+    try {
+      const dr = await postCommand({ action: "set_discipline_mode", device_id, payload: { enabled, mode, level, text }, explicit: true });
+      const status = await waitCommand(dr?.command?.id, 8);
+      device = status?.command || null;
+    } catch (e) { device = { error: String(e) }; }
+    return { content: [{ type: "text", text: JSON.stringify({ server: res, device, note: "已同步下发手机端训诫设置" }, null, 2) }] };
   });
 
   server.tool("get_discipline_mode", "读取训诫模块（小圈管束）当前状态：是否开启、语气模式（温柔/严厉）、档位。", {
