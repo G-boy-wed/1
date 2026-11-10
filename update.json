@@ -1,15 +1,14 @@
 {
-  "latest_version_name": "0.3.6.6",
-  "latest_version_code": 30606,
-  "apk_url": "https://github.com/linzhi-524/linjian-peek-public/releases/download/v0.3.6.6/zhangxinchuang-public-debug-apk.1.zip",
-  "sha256": "",
+  "latest_version_name": "0.3.9.0",
+  "latest_version_code": 30900,
+  "apk_url": "https://github.com/G-boy-wed/1/releases/download/v0.3.9.0/Zhangxinchuang-public-v0.3.9.0.apk",
+  "sha256": "b05a500fa038bc1d7da8874374b4686734fb4dbbc991932b113b885c8d33ab47",
   "required": false,
   "changelog": [
-    "修复今日屏幕时间跨凌晨不重置：改为按手机本地 0 点到当前时间统计，并用 UsageEvents 裁剪今日区间。",
-    "新增公开版“此刻状态”卡片：显示手机姿态、环境光、当前 App 与授权后的定位。",
-    "设置页新增“此刻状态”折叠抽屉，定位权限与悬浮窗权限均放在设置页由用户主动开启。",
-    "应用门禁新增无障碍触发后的悬浮锁定页；没有悬浮窗权限时自动回退到旧锁定页。",
-    "设置页主题改为折叠抽屉；移除“窗面与陪伴…”与“头像由你…”两张说明卡，陪伴页和守护页保持不改。",
-    "固定签名保持不变，支持覆盖安装旧版本。"
+    "修复 sta1n/OpenAI 兼容通道接入掌心窗 MCP 报 HTTP 400：服务端 tools/list 出口 Schema 强制合规化（array 补 items.type、object 补 properties）。",
+    "新建 Flutter 客户端 MCP 工具调用链路：解除 20s 超时截断、Schema 清洗裁剪、串行队列锁、截屏落盘。",
+    "新建 sta1n 聊天层：工具压缩注入 + 流式/非流式 tool_calls 解析 + role:tool 回写。",
+    "服务端 v0.4.x：单进程 Python(8513) 闭环、共同记忆 SQLite、悬浮窗/Heads-up、天气坐标优先。",
+    "部署提示：MCP 服务与 server 需重新部署；地址 :8513/mcp。"
   ]
 }
