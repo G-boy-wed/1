@@ -50,3 +50,11 @@ server/data/
 *.bak
 server/data/
 *.bak
+
+# Flutter / Dart（本地生成，不应进仓库）
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+pubspec.lock
+
