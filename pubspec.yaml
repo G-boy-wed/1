@@ -1,0 +1,16 @@
+name: zhangxinchuang_flutter
+description: 掌心窗 Flutter 客户端（MCP 工具调用链路重构）
+publish_to: 'none'
+version: 0.4.1
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.0            # McpToolService HTTP / Streamable HTTP MCP
+  path_provider: ^2.1.0   # 截屏 Base64 落盘缓存目录
+  path: ^1.8.0            # 缓存文件名拼接
+  provider: ^6.1.0        # McpProvider 状态管理
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
