@@ -599,6 +599,11 @@ def _clip_metadata(value, depth: int = 0):
 class Handler(BaseHTTPRequestHandler):
     state: State
 
+    # v0.4.2：显式启用 HTTP/1.1。BaseHTTPRequestHandler 默认 HTTP/1.0，
+    # 而 MCP Streamable HTTP / SSE 传输规范要求 HTTP/1.1（keep-alive、流式语义）。
+    # kelivo 等 Dart HttpClient 客户端在 HTTP/1.0 响应下 SSE 长流不可靠。
+    protocol_version = "HTTP/1.1"
+
     def log_message(self, fmt: str, *args) -> None:
         sys.stderr.write("[linjian-unified] %s - %s\n" % (self.address_string(), fmt % args))
 
@@ -657,6 +662,9 @@ class Handler(BaseHTTPRequestHandler):
             pass
         finally:
             engine.sse_close(sid)
+            # HTTP/1.1 下 SSE 响应无 Content-Length（由连接关闭界定），
+            # 结束时必须显式关闭连接，客户端（kelivo 等）据此感知流结束并重连。
+            self.close_connection = True
 
     def do_DELETE(self) -> None:
         # MCP Streamable HTTP 会话关闭（无状态实现，直接 204）。
@@ -677,11 +685,27 @@ class Handler(BaseHTTPRequestHandler):
         self._json(403, {"ok": False, "error": ERR_BAD_TOKEN}); return False
 
     def _read_json(self) -> dict:
-        length = int(self.headers.get("Content-Length", 0) or 0)
-        if length <= 0: return {}
-        raw = self.rfile.read(length)
-        try: return json.loads(raw.decode("utf-8"))
-        except Exception: return {}
+        raw = getattr(self, "_body_cache", None)
+        if raw is None:
+            raw = self._read_raw_body()
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except Exception:
+            return {}
+
+    def _read_raw_body(self) -> bytes:
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+        except (TypeError, ValueError):
+            length = 0
+        if length <= 0:
+            return b""
+        try:
+            return self.rfile.read(length)
+        except (OSError, ValueError):
+            return b""
 
 
     def _public_base(self) -> str:
@@ -861,6 +885,9 @@ class Handler(BaseHTTPRequestHandler):
         self._json(404, {"ok": False, "error": ERR_BAD_METHOD})
 
     def do_POST(self) -> None:
+        # HTTP/1.1 keep-alive 安全：无论命中哪个分支，先完整读出请求体缓存。
+        # 否则未消费的 body 字节会被连接复用时误解析为下一个请求（污染 keep-alive）。
+        self._body_cache = self._read_raw_body()
         parsed = urlparse(self.path)
         path = parsed.path
         # v0.4.0：Streamable HTTP MCP（无状态）。POST /mcp 直接处理 JSON-RPC 并返回 JSON。

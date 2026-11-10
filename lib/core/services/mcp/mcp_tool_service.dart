@@ -286,11 +286,24 @@ class McpSchemaSanitizer {
   static Map<String, dynamic> sanitizeSchema(Map<String, dynamic> schema) {
     final out = <String, dynamic>{};
 
-    // 1) 推理 type
+    // 1) 推理 type。联合类型数组（如 ["integer","null"]，Gemini 只接受单个
+    //    type 字符串）取第一个非 null 元素，保持与 server/mcp_engine.py、
+    //    cloudflare-worker worker.js 的 sanitize 行为一致。
     final type = schema['type'];
     final String inferredType;
-    if (type is String && _validTypes.contains(type)) {
-      inferredType = type;
+    String? singleType;
+    if (type is String) {
+      singleType = type;
+    } else if (type is List) {
+      for (final t in type) {
+        if (t is String && t != 'null' && t.isNotEmpty) {
+          singleType = t;
+          break;
+        }
+      }
+    }
+    if (singleType != null && _validTypes.contains(singleType)) {
+      inferredType = singleType;
     } else if (schema.containsKey('properties') ||
         schema.containsKey('required')) {
       inferredType = 'object';

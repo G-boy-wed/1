@@ -235,6 +235,72 @@ function bool(def = false) { return { type: "boolean", default: def }; }
 function anyObj() { return { type: "object", additionalProperties: true, default: {} }; }
 function arr(items = anyObj(), def = []) { const out = { type: "array", items }; if (def !== undefined) out.default = def; return out; }
 
+// ============================================================================
+// v0.4.4: MCP tools/list 出口 Schema 强制合规化（与 server/mcp_engine.py 同构）。
+// 根因：Gemini function_declarations 严格校验 Schema：
+//   - type 必须是单个字符串（"integer" | "null" 联合数组直接 400）；
+//   - type==array 必须带 items 且 items 有 type；
+//   - type==object 必须带 properties（可空）；
+//   - additionalProperties 不在 Gemini 支持的 OpenAPI 子集内。
+// sta1n / kelivo / OneAPI 等中转站把工具转成 Gemini 格式时报
+// "items: missing field" / "type: invalid" 的 HTTP 400 即由此而来。
+// ============================================================================
+function sanitizeMcpSchema(node) {
+  if (!node || typeof node !== "object") return { type: "object", properties: {} };
+  const out = {};
+  // 1) 归一 type：联合类型数组取第一个非 null 类型；缺失时按特征推断。
+  let t = node.type;
+  if (Array.isArray(t)) t = t.find(x => x && x !== "null") || t[0];
+  if (typeof t !== "string") {
+    if (node.properties || node.required) t = "object";
+    else if ("items" in node) t = "array";
+    else t = "string";
+  }
+  out.type = t;
+  if (typeof node.description === "string" && node.description.trim()) out.description = node.description.trim();
+  if (t === "array") {
+    if (node.items && typeof node.items === "object") out.items = sanitizeMcpSchema(node.items);
+    else out.items = { type: "string" }; // 缺 items 兜底，杜绝 "items: missing field"
+  } else if (t === "object") {
+    const props = {};
+    if (node.properties && typeof node.properties === "object") {
+      for (const k of Object.keys(node.properties)) {
+        const v = node.properties[k];
+        if (v && typeof v === "object") props[k] = sanitizeMcpSchema(v);
+      }
+    }
+    out.properties = props; // object 必带 properties（可空）
+  }
+  if (Array.isArray(node.required)) {
+    const req = node.required.filter(r => typeof r === "string" && out.properties && r in out.properties);
+    if (req.length) out.required = req;
+  }
+  // 保留 Gemini 合法的约束字段
+  if (Array.isArray(node.enum) && node.enum.length) out.enum = node.enum.filter(e => e !== null && e !== undefined);
+  if (node.default !== undefined) {
+    const dv = node.default;
+    const ok = (t === "string" && typeof dv === "string")
+      || (t === "integer" && Number.isInteger(dv))
+      || (t === "number" && typeof dv === "number")
+      || (t === "boolean" && typeof dv === "boolean")
+      || (t === "array" && Array.isArray(dv))
+      || (t === "object" && dv && typeof dv === "object" && !Array.isArray(dv));
+    if (ok) out.default = dv;
+  }
+  for (const ck of ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength", "minItems", "maxItems", "multipleOf"]) {
+    if (typeof node[ck] === "number") out[ck] = node[ck];
+  }
+  if (typeof node.pattern === "string") out.pattern = node.pattern;
+  if (typeof node.format === "string") out.format = node.format;
+  return out;
+}
+function sanitizeMcpTools(tools) {
+  return (tools || []).map(t => ({
+    ...t,
+    inputSchema: t.inputSchema ? sanitizeMcpSchema(t.inputSchema) : { type: "object", properties: {} },
+  }));
+}
+
 
 const STICKER_WIDGET_HTML = `<!doctype html>
 <html lang="zh-CN">
@@ -338,7 +404,7 @@ async function handleMcpMessage(msg, env) {
       if (uri !== STICKER_WIDGET_URI) return mcpError(id, -32602, `Unknown resource: ${uri}`);
       return mcpResult(id, { contents: [{ uri: STICKER_WIDGET_URI, mimeType: "text/html;profile=mcp-app", text: STICKER_WIDGET_HTML, _meta: { ui: { prefersBorder: false, domain: STICKER_WIDGET_ORIGIN, csp: { connectDomains: [], resourceDomains: [STICKER_WIDGET_ORIGIN] } }, "openai/widgetDescription": "直接显示掌心窗表情包图片。", "openai/widgetPrefersBorder": false, "openai/widgetDomain": STICKER_WIDGET_ORIGIN, "openai/widgetCSP": { connect_domains: [], resource_domains: [STICKER_WIDGET_ORIGIN] } } }] });
     }
-    if (method === "tools/list") return mcpResult(id, { tools: MCP_TOOLS });
+    if (method === "tools/list") return mcpResult(id, { tools: sanitizeMcpTools(MCP_TOOLS) });
     if (method === "tools/call") {
       const name = String(msg.params?.name || "");
       const args = msg.params?.arguments || {};
