@@ -550,11 +550,90 @@ class McpEngine:
     def tools_list(self) -> list[dict]:
         out = []
         for t in self.tools:
+            raw = t.get("inputSchema") or {"type": "object", "properties": {}, "additionalProperties": True}
+            # 出口处强制 Schema 合规化：保证任何中转站（sta1n / kelivo / OneAPI）
+            # 拿到的都是 Gemini function_declarations 合法 schema，杜绝
+            # "items: missing field" / "object missing properties" 类 400。
             out.append({
                 "name": t["name"],
                 "description": t.get("description", ""),
-                "inputSchema": t.get("inputSchema") or {"type": "object", "properties": {}, "additionalProperties": True},
+                "inputSchema": McpEngine.sanitize_tool_schema(raw),
             })
+        return out
+
+    # Gemini / OpenAI function_declarations 对 Schema 的硬性要求：
+    # - 每个节点必须有合法 type；
+    # - type==array 必须带 items，且 items 自身也是合法 schema（必须有 type）；
+    # - type==object 必须带 properties（可空）；
+    # 此函数递归修正/兜底，确保上方要求成立。
+    _VALID_TYPES = frozenset({"string", "number", "integer", "boolean", "array", "object", "null"})
+
+    @staticmethod
+    def sanitize_tool_schema(node) -> dict:
+        if not isinstance(node, dict):
+            # 非对象节点兜底成空对象 schema
+            return {"type": "object", "properties": {}}
+        out = {}
+        t = node.get("type")
+        if isinstance(t, str) and t in McpEngine._VALID_TYPES:
+            inferred = t
+        elif isinstance(node.get("properties"), dict) or isinstance(node.get("required"), list):
+            inferred = "object"
+        elif "items" in node:
+            inferred = "array"
+        else:
+            inferred = "string"
+        out["type"] = inferred
+
+        if isinstance(node.get("description"), str) and node["description"].strip():
+            out["description"] = node["description"].strip()
+
+        if inferred == "array":
+            items = node.get("items")
+            if isinstance(items, dict) and items:
+                out["items"] = McpEngine.sanitize_tool_schema(items)
+            else:
+                # 缺失 items 时兜底为 string，避免 "items: missing field"
+                out["items"] = {"type": "string"}
+        elif inferred == "object":
+            props = node.get("properties")
+            if isinstance(props, dict):
+                cleaned = {}
+                for k, v in props.items():
+                    if isinstance(v, dict):
+                        cleaned[k] = McpEngine.sanitize_tool_schema(v)
+                    # 非对象子节点直接丢弃，避免污染
+                out["properties"] = cleaned
+            else:
+                # object 必须带 properties（可空）
+                out["properties"] = {}
+
+        if isinstance(node.get("required"), list):
+            valid_req = [r for r in node["required"] if isinstance(r, str) and r in out.get("properties", {})]
+            if valid_req:
+                out["required"] = valid_req
+
+        # 保留其余 Gemini 合法字段，避免工具语义退化（仅当与当前 type 匹配）
+        if isinstance(node.get("enum"), list) and node["enum"]:
+            out["enum"] = [e for e in node["enum"] if e is not None]
+        if "default" in node:
+            dv = node["default"]
+            if not (isinstance(dv, str) and (".describe(" in dv or dv.startswith("z.") or "function" in dv)):
+                if (inferred in ("string",) and isinstance(dv, str)) or \
+                   (inferred in ("integer",) and isinstance(dv, int) and not isinstance(dv, bool)) or \
+                   (inferred in ("number",) and isinstance(dv, (int, float)) and not isinstance(dv, bool)) or \
+                   (inferred in ("boolean",) and isinstance(dv, bool)) or \
+                   (inferred in ("array",) and isinstance(dv, list)) or \
+                   (inferred in ("object",) and isinstance(dv, dict)):
+                    out["default"] = dv
+        for ck in ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+                   "minLength", "maxLength", "minItems", "maxItems", "multipleOf"):
+            if isinstance(node.get(ck), (int, float)) and not isinstance(node.get(ck), bool):
+                out[ck] = node[ck]
+        if isinstance(node.get("pattern"), str):
+            out["pattern"] = node["pattern"]
+        if isinstance(node.get("format"), str):
+            out["format"] = node["format"]
         return out
 
     # ---------------- SSE 会话管理 ----------------
