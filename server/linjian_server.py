@@ -652,7 +652,8 @@ class Handler(BaseHTTPRequestHandler):
             while time.time() < deadline and not self.state._stop:
                 try:
                     resp = q.get(timeout=15)
-                    payload = json.dumps(resp, ensure_ascii=False)
+                    # v0.4.5 最底层兜底：SSE 消息出网前最后一道 Schema 合规化拦截。
+                    payload = json.dumps(sanitize_mcp_response(resp), ensure_ascii=False)
                     self.wfile.write(("event: message\ndata: %s\n\n" % payload).encode("utf-8"))
                     self.wfile.flush()
                 except Empty:
@@ -900,7 +901,8 @@ class Handler(BaseHTTPRequestHandler):
             if resp is None:
                 # 纯通知：202 Accepted，无响应体。
                 self._send_bytes(202, b"", "application/json"); return
-            self._json(200, resp); return
+            # v0.4.5 最底层兜底：响应出网前最后一道 Schema 合规化拦截。
+            self._json(200, sanitize_mcp_response(resp)); return
         # SSE 传输的消息回传通道：/messages?sessionId=xxx
         if path == "/messages":
             qs = parse_qs(parsed.query)
@@ -2004,6 +2006,26 @@ class McpBackend:
             return None
 
 
+def sanitize_mcp_response(resp):
+    """v0.4.5 最底层全局兜底（JSON 序列化层拦截器）。
+
+    递归遍历即将发出的 MCP JSON-RPC 响应树：凡遇到 "type":"array" 且缺失
+    "items" 的节点，强制兜底注入 {"type":"string"}。与 mcp_engine.py 的
+    sanitize_tool_schema（引擎出口第一道）形成双保险，确保任何客户端
+    （kelivo / sta1n / OneAPI / Gemini 中转）拿到的 tools/list 响应
+    绝无 "items: missing field" 类 400。原位修补、无返回值开销。
+    """
+    if isinstance(resp, dict):
+        if resp.get("type") == "array" and "items" not in resp:
+            resp["items"] = {"type": "string"}
+        for v in resp.values():
+            sanitize_mcp_response(v)
+    elif isinstance(resp, list):
+        for v in resp:
+            sanitize_mcp_response(v)
+    return resp
+
+
 def build_mcp_engine(state: "State"):
     """加载工具表并构造内嵌 MCP 引擎，挂到 state 上供 HTTP/SSE/stdio 共用。"""
     import mcp_engine  # 同目录模块；纯标准库，无循环依赖
@@ -2028,7 +2050,8 @@ def run_mcp_stdio(state: "State") -> None:
             continue
         resp = engine.handle_batch(msg)
         if resp is not None:
-            sys.stdout.write(json.dumps(resp, ensure_ascii=False) + "\n")
+            # v0.4.5 最底层兜底：stdio 消息出网前最后一道 Schema 合规化拦截。
+            sys.stdout.write(json.dumps(sanitize_mcp_response(resp), ensure_ascii=False) + "\n")
             sys.stdout.flush()
 
 
