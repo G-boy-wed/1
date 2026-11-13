@@ -133,15 +133,23 @@ public final class DisciplineController {
             if ("set_discipline_mode".equals(action)) {
                 JSONObject p = cmd.optJSONObject("payload");
                 if (p == null) p = cmd;
+                // BE-14：payload 没带 text 时再退回顶层（命令可能被平铺），并兼容同义字段名。
                 int level = clamp(p.optInt("level", PolicyStore.disciplineLevel(ctx)), 0, 4);
                 String mode = normalizedMode(p.optString("mode", PolicyStore.disciplineMode(ctx)));
-                String text = p.optString("text", null);
-                if (text != null && text.trim().isEmpty()) text = null;
+                String text = null;
+                boolean textProvided = false;
+                for (String key : new String[]{"text", "custom_text", "discipline_text"}) {
+                    if (p.has(key)) { textProvided = true; text = p.optString(key, ""); break; }
+                    if (cmd.has(key)) { textProvided = true; text = cmd.optString(key, ""); break; }
+                }
                 if (p.has("enabled")) PolicyStore.setDisciplineEnabled(ctx, p.optBoolean("enabled", true));
                 PolicyStore.setDisciplineLevel(ctx, level);
                 PolicyStore.setDisciplineMode(ctx, mode);
-                if (text != null) PolicyStore.setDisciplineText(ctx, text);
-                DebugState.append(ctx, "训诫模式由 MCP 设置：level=" + level + " mode=" + mode);
+                // BE-14：传了 text（含空串）就一定写 custom_text；空串表示清空回退兜底，
+                // 旧逻辑把空串当 null 跳过，导致「清除自定义文案」失效、text_is_fallback 恒 true。
+                if (textProvided) PolicyStore.setDisciplineText(ctx, text == null ? "" : text.trim());
+                DebugState.append(ctx, "训诫模式由 MCP 设置：level=" + level + " mode=" + mode
+                        + (textProvided ? " custom_text=" + (text == null ? "" : text.trim()) : ""));
                 return config(ctx).put("ok", true).put("result", "discipline_saved");
             }
             if ("trigger_discipline".equals(action)) {

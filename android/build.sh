@@ -33,7 +33,10 @@ $BUILD_TOOLS/aapt2 link \
     -R "$OUT/compiled_res"/*.flat
 
 echo "=== Compiling Java ==="
-find "$SRC/java" -name "*.java" > "$OUT/sources.txt"
+# 只编译本工程 Java 源码：排除 Flutter 工具链偶尔生成到 java/ 下的
+# io/flutter/plugins/GeneratedPluginRegistrant.java 等残留（依赖 io.flutter.*，
+# 本工程无 Flutter 依赖，纳入 javac 会直接报 package does not exist）。
+find "$SRC/java" -name "*.java" -not -path "*/io/flutter/*" > "$OUT/sources.txt"
 echo "$OUT/gen/$PKG_PATH/R.java" >> "$OUT/sources.txt"
 javac -encoding UTF-8 -source 11 -target 11 -classpath "$PLATFORM" -d "$OUT/classes" @"$OUT/sources.txt"
 

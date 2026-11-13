@@ -2,13 +2,14 @@
   "latest_version_name": "0.3.9.0",
   "latest_version_code": 30900,
   "apk_url": "https://github.com/G-boy-wed/1/releases/download/v0.3.9.0/Zhangxinchuang-public-v0.3.9.0.apk",
-  "sha256": "6111888ad73013e761f0db3c7b2680b93326d5ad2de527e6c1c8876da427045f",
+  "sha256": "e81765383c60d5d8ed7378dce96bd0ae681414aae6ab7ca5ae473d30434f5548",
   "required": false,
   "changelog": [
     "修复 sta1n/OpenAI 兼容通道接入掌心窗 MCP 报 HTTP 400：服务端 tools/list 出口 Schema 强制合规化（array 补 items.type、object 补 properties）。",
     "新建 Flutter 客户端 MCP 工具调用链路：解除 20s 超时截断、Schema 清洗裁剪、串行队列锁、截屏落盘。",
     "新建 sta1n 聊天层：工具压缩注入 + 流式/非流式 tool_calls 解析 + role:tool 回写。",
     "服务端 v0.4.x：单进程 Python(8513) 闭环、共同记忆 SQLite、悬浮窗/Heads-up、天气坐标优先。",
-    "部署提示：MCP 服务与 server 需重新部署；地址 :8513/mcp。"
+    "部署提示：MCP 服务与 server 需重新部署；地址 :8513/mcp。",
+    "v2026-11-14-01：修复需求单 BE-01~BE-14（闹钟/情绪/查岗间隔/免打扰/专注归位/解锁统计/应用列表/前台抖动/设备状态/媒体会话/伴看事件/伴看互动/训诫文案），server + android 双端。"
   ]
 }

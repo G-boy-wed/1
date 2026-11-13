@@ -93,6 +93,15 @@ public class FocusMode {
         return put(new JSONObject(), false, "unknown_focus_action:" + action);
     }
 
+    /** BE-06：App 启动时调用一次，把过期/脏的专注状态收敛（active=false 时清 until 并置 enabled=false）。 */
+    public static void reconcile(Context ctx) {
+        try {
+            JSONObject s = state(ctx);
+            normalizeState(s, System.currentTimeMillis());
+            save(ctx, s);
+        } catch (Exception ignored) { }
+    }
+
     public static boolean isFocusAction(String action) {
         if (action == null) return false;
         return "get_focus_status".equals(action) || "start_focus_mode".equals(action) || "enable_focus_mode".equals(action)
@@ -389,6 +398,13 @@ public class FocusMode {
                 s.put("ended_at_ms", until);
                 s.put("ended_at_local", formatLocal(until));
                 s.put("temporary_until_ms", 0L);
+            }
+            // BE-06：非活跃态（超时结束 / 从未开始）一律清 until 并置 enabled=false，
+            // 杜绝「enabled=true, active=false, until=旧日期」的脏状态卡住守护页。
+            if (!active) {
+                s.put("enabled", false);
+                s.put("until_ms", 0L);
+                s.put("until_local", "");
             }
             // #39/#6b：结束不得早于开始，纠正历史脏数据
             long ended = s.optLong("ended_at_ms", 0L);

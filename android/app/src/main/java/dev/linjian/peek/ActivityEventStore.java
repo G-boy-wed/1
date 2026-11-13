@@ -3,6 +3,8 @@ package dev.linjian.peek;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
+import android.os.Handler;
+import android.os.Looper;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -21,6 +23,13 @@ public final class ActivityEventStore {
     private static final String KEY_EVENTS = "activity_events_v1";
     private static final String KEY_LAST_PACKAGE = "activity_last_foreground_package_v1";
     private static final int MAX_EVENTS = 500;
+
+    // BE-09：前台切换去抖。无障碍事件在弹窗/瞬态窗口/启动器横跳时会高频触发，
+    // 仅做「相邻同包去重」无法抑制 A↔B 抖动。此处要求同一包稳定前台达到 SETTLE_MS
+    // 才落一条 foreground_changed，从而滤掉瞬态抖动、避免重复事件。
+    private static final long SETTLE_MS = 800; // BE-09：需求指定 800ms debounce
+    private static volatile String pendingPackage = "";
+    private static Handler settleHandler = null;
 
     private ActivityEventStore() { }
 
@@ -44,20 +53,46 @@ public final class ActivityEventStore {
     public static void recordForegroundChange(Context ctx, String packageName) {
         if (!AppPrefs.get(ctx).getBoolean(AppPrefs.KEY_JOURNEY_ENABLED, true)) return;
         String pkg = packageName == null ? "" : packageName.trim();
-        if (pkg.isEmpty() || pkg.equals("com.android.systemui") || pkg.contains("inputmethod")) return;
+        // BE-09：与分心统计共用同一豁免名单（系统面板/输入法/交互池/vivo upslide/Kelivo…），
+        // 这些瞬时层既不记 app_open 事件，也不计分心，避免 1 分钟内十余次抖动。
+        if (pkg.isEmpty() || PolicyScheduler.isSystemExemptPackage(pkg)) return;
         SharedPreferences p = AppPrefs.get(ctx);
         String previous = p.getString(KEY_LAST_PACKAGE, "");
-        if (pkg.equals(previous)) return;
-        p.edit().putString(KEY_LAST_PACKAGE, pkg).apply();
-        String app = appLabel(ctx, pkg);
-        String previousLabel = previous.isEmpty() ? "" : appLabel(ctx, previous);
-        String subtitle = previousLabel.isEmpty() ? "" : "离开 " + previousLabel;
-        try {
-            add(ctx, new JSONObject().put("source", "phone").put("type", "app_open")
-                    .put("title", titleForPackage(ctx, pkg, app)).put("subtitle", subtitle)
-                    .put("app_name", app).put("package_name", pkg).put("action", "foreground_changed")
-                    .put("status", "completed").put("metadata_json", new JSONObject().put("previous_package", previous)), true);
-        } catch (Exception ignored) { }
+        // 又回到已记录的包：净无变化，取消任何待提交的抖动候选。
+        if (pkg.equals(previous)) { cancelPending(); return; }
+        // BE-09：不稳定前台不立即落库，先登记为候选，SETTLE_MS 内若无再次跳走才真正提交。
+        scheduleCommit(ctx, pkg);
+    }
+
+    private static void cancelPending() {
+        pendingPackage = "";
+        if (settleHandler != null) settleHandler.removeCallbacksAndMessages(null);
+    }
+
+    private static synchronized void scheduleCommit(Context ctx, String pkg) {
+        if (settleHandler == null) settleHandler = new Handler(Looper.getMainLooper());
+        pendingPackage = pkg;
+        settleHandler.removeCallbacksAndMessages(null);
+        final String target = pkg;
+        settleHandler.postDelayed(() -> {
+            if (!target.equals(pendingPackage)) return; // 期间又跳走了，丢弃
+            Context c = ctx;
+            if (c == null) return;
+            SharedPreferences p = AppPrefs.get(c);
+            String previous = p.getString(KEY_LAST_PACKAGE, "");
+            if (target.equals(previous)) return;        // 结算时又回到了旧包，净无变化
+            p.edit().putString(KEY_LAST_PACKAGE, target).apply();
+            pendingPackage = "";
+            String app = appLabel(c, target);
+            String previousLabel = previous.isEmpty() ? "" : appLabel(c, previous);
+            String subtitle = previousLabel.isEmpty() ? "" : "离开 " + previousLabel;
+            try {
+                add(c, new JSONObject().put("source", "phone").put("type", "app_open")
+                        .put("title", titleForPackage(c, target, app)).put("subtitle", subtitle)
+                        .put("app_name", app).put("package_name", target).put("action", "foreground_changed")
+                        .put("status", "completed").put("metadata_json", new JSONObject().put("previous_package", previous)), true);
+            } catch (Exception ignored) { }
+        }, SETTLE_MS);
     }
 
     public static void recordPhone(Context ctx, String type, String title, String subtitle) {

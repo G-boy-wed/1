@@ -1,6 +1,7 @@
 package dev.linjian.peek;
 
 import android.Manifest;
+import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -20,6 +21,7 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkRequest;
 import android.provider.AlarmClock;
+import android.provider.Settings;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -458,25 +460,42 @@ public class CompanionService extends Service {
             } else if ("tap".equals(action)) { ok = svc != null && svc.doTap(x, y); result = ok ? ("tap:" + x + "," + y) : "tap_failed_or_accessibility_missing";
             } else if ("swipe".equals(action)) { ok = svc != null && svc.doSwipe(x1, y1, x2, y2, duration); result = ok ? "swipe" : "swipe_failed_or_accessibility_missing";
             } else if ("set_alarm".equals(action)) {
-                // 定闹钟是强副作用：仅当命令明确带有 explicit（用户明确说「帮我定闹钟」并给出时间）时才执行；
-                // 任何自动/隐式触发的 set_alarm 一律拒绝，避免「没说要闹钟也被定」。
-                if (!explicit) { ok = false; result = "alarm_requires_explicit_request"; }
+                // BE-01：由 /api/poll 下发的 set_alarm 是用户/伴窗明确请求，只要携带合法时间就执行，
+                // 不再因「非 explicit」被一律拒绝（这正是「永不执行、status 卡在 dispatched」的根因）。
+                // 仅在时间非法时拒绝，避免误触。
+                if (hour < 0 || hour > 23 || minute < 0 || minute > 59) { ok = false; result = "alarm_invalid_time"; }
                 else { ok = setAlarm(ctx, hour, minute, message, vibrate, skipUi); result = ok ? "alarm " + hour + ":" + minute : "cannot set alarm"; }
             } else if ("send_notification".equals(action)) { ok = showReminderNotification(ctx, title, message); result = ok ? "heads_up_notification_sent" : "notification permission missing";
             } else if ("get_guidian_state".equals(action) || "set_guidian_config".equals(action) || "trigger_guidian".equals(action) || "mark_guidian_returned".equals(action)) { JSONObject rr = GuidianState.handleCommand(ctx, new JSONObject().put("action", action)); ok = rr.optBoolean("ok", false); result = rr.toString();
-            } else if ("send_watch_whisper".equals(action)) {
-                // 伴看气泡：在画中画小挂件上弹出一句陪伴/吐槽；无浮窗权限时静默忽略。
-                String whisper = (message != null && message.trim().length() > 0) ? message.trim() : "我在陪你看呢~";
-                CompanionFloatingWidget.showWhisper(whisper);
-                ok = true; result = "watch_whisper_shown";
-            } else if ("pause_media".equals(action)) {
-                // 强制暂停当前媒体：提醒顾钰看自己或休息。返回是否成功发起暂停。
-                ok = MediaState.pauseActiveMedia(ctx);
-                result = ok ? "media_paused" : "no_active_media_or_pause_failed";
-            } else if ("media_switch_screen".equals(action)) {
-                // 把画面切回掌心窗陪伴页（聊天界面）。
-                CompanionService.bringAppToFront(ctx);
-                ok = true; result = "switched_to_chat";
+            } else if ("send_watch_whisper".equals(action) || "pause_media".equals(action) || "media_switch_screen".equals(action)) {
+                // BE-13：伴看互动不再静默失败——先校验会话，再给明确回执。
+                JSONObject media = MediaState.collect(ctx);
+                boolean hasSession = media.optBoolean("available", false) || media.optBoolean("has_session", false);
+                if (!hasSession) {
+                    ok = false;
+                    result = new JSONObject().put("ok", false).put("code", "NO_SESSION")
+                            .put("hint", "当前没有可用的同屏伴看会话，请先打开视频 App 开始播放并确认媒体监听已连接。").toString();
+                } else if ("send_watch_whisper".equals(action)) {
+                    String whisper = (message != null && message.trim().length() > 0) ? message.trim() : "我在陪你看呢~";
+                    CompanionFloatingWidget.showWhisper(whisper);
+                    ok = true;
+                    result = new JSONObject().put("ok", true).put("code", "WHISPER_SHOWN").toString();
+                } else if ("pause_media".equals(action)) {
+                    if (!MediaState.canPauseActiveMedia(ctx)) {
+                        ok = false;
+                        result = new JSONObject().put("ok", false).put("code", "PAUSE_UNSUPPORTED")
+                                .put("hint", "当前媒体会话未提供可暂停的播放控制，无法执行 pause。").toString();
+                    } else {
+                        ok = MediaState.pauseActiveMedia(ctx);
+                        result = new JSONObject().put("ok", ok)
+                                .put("code", ok ? "MEDIA_PAUSED" : "PAUSE_UNSUPPORTED").toString();
+                    }
+                } else { // media_switch_screen
+                    CompanionService.bringAppToFront(ctx);
+                    ok = true;
+                    result = new JSONObject().put("ok", true).put("code", "SWITCHED")
+                            .put("target_page", "companion_chat").put("target_screen", "掌心窗陪伴聊天页").toString();
+                }
             } else if ("get_live_media_context".equals(action)) {
                 // 读取当前播放上下文（标题/博主/进度等），供陪伴对象实时了解对方在刷什么。
                 ok = true; result = MediaState.collect(ctx).toString();
@@ -826,14 +845,46 @@ public class CompanionService extends Service {
     private static boolean setAlarm(Context ctx, int hour, int minute, String message, boolean vibrate, boolean skipUi) {
         if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return false;
         try {
-            Intent i = new Intent(AlarmClock.ACTION_SET_ALARM);
-            i.putExtra(AlarmClock.EXTRA_HOUR, hour);
-            i.putExtra(AlarmClock.EXTRA_MINUTES, minute);
-            i.putExtra(AlarmClock.EXTRA_MESSAGE, message == null || message.length() == 0 ? "掌心窗闹钟" : message);
-            i.putExtra(AlarmClock.EXTRA_VIBRATE, vibrate);
-            i.putExtra(AlarmClock.EXTRA_SKIP_UI, skipUi);
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            ctx.startActivity(i);
+            Calendar c = Calendar.getInstance();
+            c.set(Calendar.HOUR_OF_DAY, hour);
+            c.set(Calendar.MINUTE, minute);
+            c.set(Calendar.SECOND, 0);
+            c.set(Calendar.MILLISECOND, 0);
+            if (c.getTimeInMillis() <= System.currentTimeMillis()) {
+                c.add(Calendar.DATE, 1); // 时间已过 → 顺延到次日，避免“设定即响/不响”
+            }
+            long triggerAt = c.getTimeInMillis();
+            AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
+            if (am == null) return false;
+            // BE-01/4：Android 12+ 精确闹钟需要 SCHEDULE_EXACT_ALARM 权限
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (!am.canScheduleExactAlarms()) {
+                    DebugState.append(ctx, "缺少 SCHEDULE_EXACT_ALARM 权限，跳转设置页授权（闹钟仍会尽力用 setAlarmClock 兜底）");
+                    try {
+                        Intent perm = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
+                        perm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        ctx.startActivity(perm);
+                    } catch (Exception ignored) { }
+                }
+            }
+            Intent i = new Intent(ctx, AlarmReceiver.class);
+            i.putExtra(AlarmReceiver.EXTRA_MESSAGE, message == null || message.length() == 0 ? "掌心窗闹钟" : message);
+            int piFlags = Build.VERSION.SDK_INT >= 23
+                    ? PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
+                    : PendingIntent.FLAG_UPDATE_CURRENT;
+            PendingIntent pi = PendingIntent.getBroadcast(ctx, 990000, i, piFlags);
+            // 优先用 setExactAndAllowWhileIdle(RTC_WAKEUP)：息屏/Doze 下也能精确唤醒响铃
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && am.canScheduleExactAlarms()) {
+                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                // 无精确权限时降级：setAlarmClock 仍会在时钟 App 显示并尽量准时触发
+                AlarmManager.AlarmClockInfo info = new AlarmManager.AlarmClockInfo(triggerAt, pi);
+                am.setAlarmClock(info, pi);
+            } else {
+                am.set(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+            }
+            String when = hour + ":" + String.format(Locale.CHINA, "%02d", minute);
+            DebugState.append(ctx, "本地闹钟已设定（AlarmManager）：" + when + (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !am.canScheduleExactAlarms() ? "（已申请精确权限）" : ""));
             return true;
         } catch (Exception e) { DebugState.append(ctx, "远程闹钟异常：" + ScreenshotService.shortMsg(e)); return false; }
     }

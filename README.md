@@ -252,19 +252,22 @@ update.json   版本更新信息
 
 ## 构建 APK
 
+### 直接下载（推荐）
+
+最新签名安装包随仓库与 Release 同步发布，versionName `0.3.9.0`、versionCode `30900`：
+
+- Release：https://github.com/G-boy-wed/1/releases/download/v0.3.9.0/Zhangxinchuang-public-v0.3.9.0.apk
+- 仓库直链：https://raw.githubusercontent.com/G-boy-wed/1/main/android/Zhangxinchuang-public-v0.3.9.0.apk
+
+App 内更新读取仓库根目录的 `update.json`，其中 `apk_url` 与 `sha256` 均与本次产物一致，升级校验不会失败。
+
 ### GitHub Actions 构建
 
 1. 将源码包解压并覆盖到公开仓库根目录，确保 `.github`、`android`、`server`、`mcp` 位于根目录。
-2. 打开 GitHub 仓库 → **Actions** → **Build Android Public APK** → **Run workflow**。
-3. 构建成功后下载 `zhangxinchuang-public-v0.3.8.6-apk` artifact。
+2. 打开 GitHub 仓库 → **Actions** → **Build Android Debug APK** → **Run workflow**。
+3. 构建成功后下载 `zhangxinchuang-public-debug-apk` artifact。
 
-构建产物为：
-
-```text
-android/Zhangxinchuang-public-v0.3.8.6.apk
-```
-
-版本名 `0.3.8.6`，版本码 `30806`。
+也可本地构建：`ANDROID_HOME=<sdk路径> bash android/build.sh`，产物为 `android/Zhangxinchuang-public-v0.3.9.0.apk`，使用固定公钥签名。
 
 ### 固定签名
 

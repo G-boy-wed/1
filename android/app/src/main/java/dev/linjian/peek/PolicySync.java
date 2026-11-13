@@ -49,9 +49,9 @@ public final class PolicySync {
                     tour.put("enabled", PolicyStore.checkinEnabled(app));
                     tour.put("check_in_interval_minutes", PolicyStore.randomUpper(app));
                     tour.put("cooldown_minutes", PolicyStore.cooldownMinutes(app));
-                    JSONObject q = new JSONObject();
-                    q.put("start", PolicyStore.quietStart(app)); q.put("end", PolicyStore.quietEnd(app));
-                    tour.put("quiet_hours", q);
+                    // BE-05：废弃 quiet_hours（{start,end} 冗余对象），只认 quiet_start/quiet_end。
+                    tour.put("quiet_start", PolicyStore.quietStart(app));
+                    tour.put("quiet_end", PolicyStore.quietEnd(app));
                     JSONObject n = new JSONObject();
                     n.put("start", PolicyStore.nightStart(app)); n.put("end", PolicyStore.nightEnd(app));
                     tour.put("night_hours", n);

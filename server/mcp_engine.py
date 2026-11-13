@@ -767,11 +767,23 @@ class McpEngine:
         try:
             if kind == "device_state":
                 state = self.ctx.life_state(device_id)
+                # BE-10：battery/network/charging 与 usage_snapshot 同源取值。
+                # 旧代码读 state["battery"]/["network"]，而手机端上报的是
+                # battery_percent/network_type/charging，字段名不存在 → 恒为 null。
+                # 统一经 usage_snapshot（服务端 read_device_telemetry）取，保证两接口一致，
+                # 且无值返回 None（JSON null）而不是 0 / -1 / ""。
+                snap = self.ctx.usage_snapshot(device_id) or {}
+                battery = snap.get("battery_percent")
+                network = snap.get("network_type")
+                charging = snap.get("charging")
+                tele = {"battery": battery, "network": network, "charging": charging,
+                        "battery_percent": battery, "network_type": network}
                 return _text({"ok": True, "device_id": device_id,
                               "current_package": state.get("current_package", ""),
                               "screen_text": self._clip(state.get("screen_text", "")),
                               "accessibility_ready": state.get("accessibility_ready"),
-                              "state": {"battery": state.get("battery"), "network": state.get("network"), "charging": state.get("charging")}})
+                              "battery": battery, "network": network, "charging": charging,
+                              "state": tele})
             if kind == "life_state":
                 state = self.ctx.life_state(device_id)
                 if name == "get_focus_status":
@@ -847,6 +859,9 @@ class McpEngine:
         "run_preset": "_t_run_preset",
         "get_screen_break_state": "_t_generic_gate_read",
         "get_lock_state": "_t_generic_gate_read",
+        # BE-08：两处共用同一读取函数，主源为空时回退 app_gate，空态带 source 说明
+        "list_screen_break_apps": "_t_list_screen_break_apps",
+        "list_lockable_apps": "_t_list_lockable_apps",
     }
 
     def _t_current_time(self, args: dict) -> dict:
@@ -1142,13 +1157,46 @@ class McpEngine:
         return self._t_emotion_tag(args)
 
     def _t_media_interact(self, args: dict) -> dict:
-        op = str(args.get("op") or args.get("mode") or args.get("action") or "whisper").strip()
+        # 工具 schema 的必填参数是 interaction；同时兼容旧的 op / mode / action。
+        op = str(args.get("interaction") or args.get("op") or args.get("mode") or args.get("action") or "whisper").strip().lower()
         amap = {"whisper": "send_watch_whisper", "pause": "pause_media", "switch_screen": "media_switch_screen"}
         action = amap.get(op, "send_watch_whisper")
-        flat = {k: v for k, v in args.items() if k not in ("op", "mode", "action", "device_id", "wait_seconds")}
+        device_id = self._device(args)
+        hint = ("当前没有可用的同屏伴看会话（available=false）。请先在手机上打开视频 App 并开始播放，"
+                "确认已开启通知使用权 / 媒体监听已连接后重试；若仍不可用，可在权限页点「重新连接」。")
+        # BE-13 fix#1：无会话时给出明确回执，不再静默入队。
         try:
-            enq = self.ctx.enqueue({"action": action, "device_id": self._device(args), "payload": dict(flat)})
-            return _text({"ok": True, "queued": True, "op": op, "action": action, "command_id": (enq.get("command") or {}).get("id", "")})
+            mc = self.ctx.media_context(device_id) or {}
+            ms = mc.get("media_state") or {}
+            if not isinstance(ms, dict):
+                ms = {}
+            has_session = bool(mc.get("has_session") or mc.get("available") or ms.get("available") or ms.get("has_session"))
+        except Exception:
+            has_session = False
+            ms = {}
+        if not has_session:
+            return _text({"ok": False, "code": "NO_SESSION", "op": op, "action": action,
+                          "device_id": device_id, "hint": hint})
+        # BE-13 fix#2：pause 需校验当前会话可暂停，否则返回 PAUSE_UNSUPPORTED。
+        if action == "pause_media":
+            can_pause = ms.get("can_pause")
+            if can_pause is None:
+                state = str(ms.get("state") or "").lower()
+                can_pause = state in ("playing", "buffering") or bool(ms.get("is_playing"))
+            if not can_pause:
+                return _text({"ok": False, "code": "PAUSE_UNSUPPORTED", "op": op, "action": action,
+                              "device_id": device_id,
+                              "hint": "当前媒体会话未提供可暂停的播放控制（或已暂停/停止），无法执行 pause。"})
+        flat = {k: v for k, v in args.items() if k not in ("interaction", "op", "mode", "action", "device_id", "wait_seconds")}
+        try:
+            enq = self.ctx.enqueue({"action": action, "device_id": device_id, "payload": dict(flat)})
+            result = {"ok": True, "queued": True, "op": op, "action": action,
+                      "has_session": True, "command_id": (enq.get("command") or {}).get("id", "")}
+            # BE-13 fix#3：switch_screen 成功返回目标页面标识。
+            if action == "media_switch_screen":
+                result["target_page"] = "companion_chat"
+                result["target_screen"] = "掌心窗陪伴聊天页"
+            return _text(result)
         except Exception as e:
             return _error({"ok": False, "error": "media_interact_failed", "message": str(e)})
 
@@ -1181,6 +1229,78 @@ class McpEngine:
                       "app_gate": state.get("app_gate") or {},
                       "screen_break_state": state.get("screen_break_state") or {},
                       "lock_state": state.get("lock_state") or {}})
+
+    # ------------------------------------------------------------------
+    # BE-08：list_screen_break_apps / list_lockable_apps 共用同一读取函数
+    #   主源：app_gate.available_apps（手机端状态上报缓存的可门禁应用清单，等价于
+    #        需求单里的 screen_break_apps.json）
+    #   回退源：app_gate.gate_apps（已配置门禁应用）
+    #   空态：source 字段说明来源，并 best-effort 实时向手机端取数
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _parse_apps_result(obs) -> list:
+        if not obs:
+            return []
+        cmd = obs.get("command") if isinstance(obs, dict) else None
+        if not cmd:
+            cmd = obs
+        raw = cmd.get("result") if isinstance(cmd, dict) else None
+        if not raw:
+            return []
+        try:
+            arr = json.loads(raw) if isinstance(raw, str) else raw
+        except Exception:
+            return []
+        return arr if isinstance(arr, list) else []
+
+    def _read_gate_apps(self, args: dict, tool: str) -> dict:
+        device_id = self._device(args)
+        state = {}
+        try:
+            state = self.ctx.life_state(device_id) or {}
+        except Exception:
+            state = {}
+        gate = state.get("app_gate") or {}
+        if not isinstance(gate, dict):
+            gate = {}
+        primary = gate.get("available_apps") or []
+        primary = primary if isinstance(primary, list) else []
+        if primary:
+            return _text({"ok": True, "tool": tool, "device_id": device_id,
+                          "source": "app_gate.available_apps",
+                          "count": len(primary), "apps": primary,
+                          "message": "取自手机端最近一次状态上报的可门禁应用清单（screen_break_apps 主源）。"})
+        # 主源为空：回退到已配置门禁应用
+        fallback = gate.get("gate_apps") or []
+        fallback = fallback if isinstance(fallback, list) else []
+        if fallback:
+            return _text({"ok": True, "tool": tool, "device_id": device_id,
+                          "source": "app_gate.gate_apps",
+                          "count": len(fallback), "apps": fallback,
+                          "message": "主源 screen_break_apps 为空，回退到已配置门禁应用列表。"})
+        # 主源 + 回退源均空：best-effort 实时下发一次取数
+        try:
+            enq = self.ctx.enqueue({"action": "list_lockable_apps", "device_id": device_id,
+                                    "payload": {"max": int(args.get("max") or 200)}})
+            cmd_id = (enq.get("command") or {}).get("id")
+            if cmd_id:
+                obs = self.ctx.wait(cmd_id, float(args.get("wait_seconds") or 6))
+                arr = self._parse_apps_result(obs)
+                if arr:
+                    return _text({"ok": True, "tool": tool, "device_id": device_id,
+                                  "source": "phone_live", "count": len(arr), "apps": arr,
+                                  "message": "主源与回退源均空，已实时向手机端取数。"})
+        except Exception:
+            pass
+        return _text({"ok": True, "tool": tool, "device_id": device_id, "source": "empty",
+                      "count": 0, "apps": [],
+                      "message": "主源 screen_break_apps 与回退源 app_gate 均无可用列表，且手机端实时取数失败/超时。请确认手机端已联网并至少上报过一次状态。"})
+
+    def _t_list_screen_break_apps(self, args: dict) -> dict:
+        return self._read_gate_apps(args, "list_screen_break_apps")
+
+    def _t_list_lockable_apps(self, args: dict) -> dict:
+        return self._read_gate_apps(args, "list_lockable_apps")
 
 
 # ============================================================================

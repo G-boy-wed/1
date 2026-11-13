@@ -685,6 +685,9 @@ public class AppGate {
         try {
             JSONObject s = pruneState(ctx);
             out.put("enabled", enabled(ctx)); out.put("gate_apps", gateAppsJson(ctx)); out.put("state", s); out.put("protected_packages", protectedJson(ctx));
+            // BE-08：把可门禁应用清单一并随状态上报，作为 list_screen_break_apps / list_lockable_apps
+            // 的主源（等价于需求单里的 screen_break_apps.json），避免服务端缓存为空时返回空列表。
+            out.put("available_apps", lockableAppsJson(ctx, 200));
         } catch (Exception ignored) { }
         return out;
     }

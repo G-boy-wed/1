@@ -74,10 +74,15 @@ public class LifeState {
             state.put("timezone", TimeZone.getDefault().getID());
             state.put("updated_at_ms", now);
             state.put("updated_at_local", formatLocal(now, "yyyy-MM-dd HH:mm:ss"));
-            state.put("battery_percent", batteryPercent);
+            // BE-10：与 usage_snapshot 同源。拿不到电量广播时 batteryPercent=-1，
+            // 旧代码把 -1（甚至被上层误当 0）写进上报，服务端两接口对不上；无值一律写 null。
+            if (batteryPercent >= 0) state.put("battery_percent", batteryPercent);
+            else state.put("battery_percent", JSONObject.NULL);
             state.put("charging", charging);
             state.put("charging_type", chargingType);
-            state.put("network_type", networkType(ctx));
+            String network = networkType(ctx);
+            if (network == null || network.trim().isEmpty() || "unknown".equalsIgnoreCase(network)) state.put("network_type", JSONObject.NULL);
+            else state.put("network_type", network);
             state.put("screen_on", screenOn);
             state.put("current_package", currentPackage);
             state.put("current_app", currentApp);
@@ -227,15 +232,21 @@ public class LifeState {
             java.util.HashMap<String, Long> foregroundTotals = new java.util.HashMap<>();
             UsageEvents events = usm.queryEvents(start, now);
             UsageEvents.Event event = new UsageEvents.Event();
+            // BE-07：SCREEN_INTERACTIVE / KEYGUARD_HIDDEN 去重统计。
+            // 一次真实解锁 = keyguard 撤离(KEYGUARD_HIDDEN) 后屏幕变交互(SCREEN_INTERACTIVE)，
+            // 两者成对出现；单独把两者都 +1 会在部分 ROM 上双计、在另一些 ROM 上漏计。
+            boolean lastWasKeyguard = false;
             while (events != null && events.hasNextEvent()) {
                 events.getNextEvent(event);
                 int type = event.getEventType();
                 String pkg = event.getPackageName();
                 long ts = Math.max(start, Math.min(now, event.getTimeStamp()));
 
-                boolean isUnlock = false;
-                if (Build.VERSION.SDK_INT >= 28) isUnlock = type == UsageEvents.Event.KEYGUARD_HIDDEN || type == UsageEvents.Event.SCREEN_INTERACTIVE;
-                else isUnlock = type == UsageEvents.Event.USER_INTERACTION;
+                boolean keyguardHidden = Build.VERSION.SDK_INT >= 28 && type == UsageEvents.Event.KEYGUARD_HIDDEN;
+                boolean screenInteractive = Build.VERSION.SDK_INT >= 28 ? type == UsageEvents.Event.SCREEN_INTERACTIVE
+                        : type == UsageEvents.Event.USER_INTERACTION;
+                boolean isUnlock = screenInteractive && lastWasKeyguard; // 仅计「锁屏撤离→交互」这一跳
+                lastWasKeyguard = keyguardHidden;
                 if (isUnlock) { summary.unlockCount++; summary.lastUnlockAt = event.getTimeStamp(); }
 
                 if (pkg == null || pkg.trim().isEmpty()) continue;

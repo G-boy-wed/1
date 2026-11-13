@@ -87,13 +87,24 @@ public class MediaState {
         JSONObject out = new JSONObject();
         try {
             boolean granted = hasNotificationListenerAccess(ctx);
-            Snapshot live = null;
-            if (granted) {
-                live = queryActiveSessions(ctx);
-                if (live != null && live.hasMedia()) latest = live;
-            }
+            // BE-11：一次探测同时拿到「活跃会话列表是否非空」与「监听服务是否真的已连接」。
+            // 未连接时系统 getActiveSessions 会抛 SecurityException，probe.ok 保持 false。
+            SessionProbe probe = granted ? queryActiveSessions(ctx) : new SessionProbe();
+            Snapshot live = probe.best;
+            if (live != null && live.hasMedia()) latest = live;
             Snapshot s = (live != null && live.hasMedia()) ? live : (latest == null ? Snapshot.empty("等待媒体通知") : latest);
-            out.put("available", granted && s.hasMedia());
+
+            boolean listenerConnected = granted && (MediaNotificationService.isListenerConnected() || probe.ok);
+            boolean hasSession = listenerConnected && probe.count > 0;
+            // available = 通知监听服务已连接 && MediaSessionManager.getActiveSessions 非空；
+            // 兼容纯通知来源的媒体（音乐 App 等）：已连接且有媒体快照时也视为可用。
+            boolean available = hasSession || (listenerConnected && probe.ok && s.hasMedia());
+            out.put("available", available);
+            out.put("has_session", hasSession);
+            out.put("listener_connected", listenerConnected);
+            out.put("active_session_count", probe.count);
+            // BE-13：把「当前会话是否可暂停」显式带上，供服务端 companion_media_interact 校验。
+            out.put("can_pause", available && canPauseActiveMedia(ctx));
             out.put("permission_granted", granted);
             out.put("source", "media_session_or_notification_listener");
             out.put("package", s.pkg);
@@ -107,9 +118,21 @@ public class MediaState {
             out.put("content_type", contentTypeOf(s.pkg));
             out.put("is_watchable", isWatchablePackage(s.pkg));
             out.put("watchable_app", isWatchablePackage(s.pkg) ? s.app : "");
-            out.put("position_ms", s.positionMs);
-            out.put("duration_ms", s.durationMs);
-            out.put("position_percent", s.durationMs > 0 ? (int) (s.positionMs * 100L / s.durationMs) : 0);
+            // BE-11：position/duration 未取到时返回 null；progress_percent 用 null 而非 0。
+            // 同时保留旧字段 position_ms/duration_ms/position_percent 供前端兼容读取。
+            boolean hasDuration = s.durationMs > 0;
+            boolean hasPosition = hasDuration || "playing".equals(s.state) || "paused".equals(s.state) || "buffering".equals(s.state);
+            long pos = s.positionMs >= 0 ? s.positionMs : 0;
+            Integer progress = (hasDuration && hasPosition) ? (int) Math.min(100L, pos * 100L / s.durationMs) : null;
+            Object posOut = hasPosition ? (Object) Long.valueOf(pos) : JSONObject.NULL;
+            Object durOut = hasDuration ? (Object) Long.valueOf(s.durationMs) : JSONObject.NULL;
+            Object pctOut = progress == null ? JSONObject.NULL : (Object) progress;
+            out.put("current_position", posOut);
+            out.put("total_duration", durOut);
+            out.put("progress_percent", pctOut);
+            out.put("position_ms", posOut);
+            out.put("duration_ms", durOut);
+            out.put("position_percent", pctOut);
             out.put("updated_at_ms", s.updatedAtMs);
             out.put("updated_at_local", s.updatedAtMs <= 0 ? "" : formatLocal(s.updatedAtMs));
             if (SHORT_VIDEO.contains(s.pkg)) {
@@ -118,8 +141,11 @@ public class MediaState {
                     if (!empty(cap.optString("author"))) out.put("author", cap.optString("author"));
                     if (!empty(cap.optString("caption"))) out.put("caption", cap.optString("caption"));
                     if (!empty(cap.optString("bg_audio"))) out.put("bg_audio", cap.optString("bg_audio"));
+                    // 短视频 App 常不通过 MediaSession 暴露标题，用读屏文案兜底，保证「标题非空」。
+                    if (empty(s.title) && !empty(cap.optString("caption"))) out.put("title", cap.optString("caption"));
                 }
             }
+            if (empty(s.title) && !empty(s.app) && available) out.put("title", s.app);
             if (!granted) {
                 // Bug#4：未授权时除了原因，还把「一键授权」的动作信息带给前端，
                 // 让设置页/守护页能直接渲染出提示与入口，不再出现「不可用却没处开」。
@@ -127,6 +153,16 @@ public class MediaState {
                 out.put("needs_permission", true);
                 out.put("grant_action", "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS");
                 out.put("action_hint", "伴看与媒体状态未开启：请到「设置 → 通知使用权」开启掌心窗媒体状态，或在守护页一键授权。");
+            } else if (!available) {
+                if (!listenerConnected) {
+                    out.put("reason", "媒体监听服务未连接");
+                    out.put("needs_rebind", true);
+                    out.put("action_hint", "通知使用权已开启但监听服务未连接，请在权限页点「重新连接」重新绑定。");
+                } else if (probe.count <= 0) {
+                    out.put("reason", "暂无活跃媒体会话");
+                } else {
+                    out.put("reason", s.reason == null || s.reason.length() == 0 ? "暂无媒体播放" : s.reason);
+                }
             } else if (!s.hasMedia()) out.put("reason", s.reason == null || s.reason.length() == 0 ? "暂无媒体播放" : s.reason);
             out.put("summary", summary(ctx));
             out.put("privacy_note", "媒体状态仅在你开启通知使用权后读取，用于显示正在播放的歌曲/视频；不读取聊天内容。");
@@ -151,7 +187,7 @@ public class MediaState {
     }
 
     private static Snapshot currentSnapshot(Context ctx) {
-        Snapshot live = queryActiveSessions(ctx);
+        Snapshot live = queryActiveSessions(ctx).best;
         if (live != null && live.hasMedia()) latest = live;
         return (live != null && live.hasMedia()) ? live : (latest == null ? Snapshot.empty("等待媒体通知") : latest);
     }
@@ -161,6 +197,31 @@ public class MediaState {
      * 遍历系统活跃 MediaSession，对正在播放且属于可感知包的会话调用 transportControls.pause()。
      * 返回是否成功发起暂停。
      */
+    /** BE-13：当前是否存在「可暂停」的活跃媒体会话（有播放控制且非停止态）。 */
+    public static boolean canPauseActiveMedia(Context ctx) {
+        if (ctx == null || !hasNotificationListenerAccess(ctx)) return false;
+        try {
+            MediaSessionManager msm = (MediaSessionManager) ctx.getSystemService(Context.MEDIA_SESSION_SERVICE);
+            if (msm == null) return false;
+            ComponentName listener = new ComponentName(ctx, MediaNotificationService.class);
+            List<MediaController> controllers = msm.getActiveSessions(listener);
+            if (controllers == null || controllers.isEmpty()) return false;
+            for (MediaController c : controllers) {
+                if (c == null) continue;
+                PlaybackState ps = c.getPlaybackState();
+                if (ps == null) continue;
+                long actions = ps.getActions();
+                boolean hasPauseAction = (actions & PlaybackState.ACTION_PAUSE) != 0;
+                boolean playing = ps.getState() == PlaybackState.STATE_PLAYING
+                        || ps.getState() == PlaybackState.STATE_BUFFERING;
+                if (playing || hasPauseAction) return true;
+            }
+            return false;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     public static boolean pauseActiveMedia(Context ctx) {
         if (ctx == null) return false;
         try {
@@ -240,7 +301,7 @@ public class MediaState {
                     if (best == null || score(s) > score(best)) best = s;
                 }
             }
-            if (best == null) best = queryActiveSessions(ctx);
+            if (best == null) best = queryActiveSessions(ctx).best;
             latest = best == null ? Snapshot.empty("暂无媒体播放") : best;
         } catch (Exception e) {
             latest = Snapshot.empty("媒体读取失败：" + ScreenshotService.shortMsg(e));
@@ -314,13 +375,24 @@ public class MediaState {
      * 某些播放器通知不会稳定带 CATEGORY_TRANSPORT / android.mediaSession，或者授权时通知已经存在，
      * 只等 NotificationListener 回调会漏掉正在播放的内容。这里在每次 collect 时主动拉一次活跃会话。
      */
-    private static Snapshot queryActiveSessions(Context ctx) {
-        if (ctx == null) return null;
+    /** BE-11：一次探测返回「最佳快照 + 活跃会话数 + 是否已成功连到 MediaSessionManager」。 */
+    private static class SessionProbe {
+        Snapshot best = null;
+        int count = 0;
+        boolean ok = false;
+    }
+
+    private static SessionProbe queryActiveSessions(Context ctx) {
+        SessionProbe probe = new SessionProbe();
+        if (ctx == null) return probe;
         try {
             MediaSessionManager msm = (MediaSessionManager) ctx.getSystemService(Context.MEDIA_SESSION_SERVICE);
-            if (msm == null) return null;
+            if (msm == null) return probe;
             ComponentName listener = new ComponentName(ctx, MediaNotificationService.class);
             List<MediaController> controllers = msm.getActiveSessions(listener);
+            // 能走到这里说明通知监听服务确实已连接（未连接会抛 SecurityException）。
+            probe.ok = true;
+            if (controllers != null) probe.count = controllers.size();
             Snapshot best = null;
             if (controllers != null) {
                 for (MediaController controller : controllers) {
@@ -329,12 +401,12 @@ public class MediaState {
                     if (best == null || score(s) > score(best)) best = s;
                 }
             }
-            return best;
+            probe.best = best;
         } catch (SecurityException ignored) {
-            return null;
+            // 未连接 / 无权限：ok 保持 false，交给上层提示「重新连接」。
         } catch (Exception ignored) {
-            return null;
         }
+        return probe;
     }
 
     private static Snapshot fromController(Context ctx, MediaController controller) {
@@ -378,7 +450,16 @@ public class MediaState {
             } else s.state = "unknown";
             s.updatedAtMs = System.currentTimeMillis();
             s.reason = "";
-            if (empty(s.title) && empty(s.artist) && empty(s.album)) return null;
+            if (empty(s.title) && empty(s.artist) && empty(s.album)) {
+                // BE-11：短视频/视频 App 通常不通过 MediaSession 暴露标题，但会话与播放状态真实存在。
+                // 旧逻辑在这里 return null 把整个会话丢掉，导致 available/has_session 恒为 false、
+                // 读不到标题与进度。此处对「确实在播放」的会话用应用名兜底标题，保留会话。
+                boolean active = "playing".equals(s.state) || "buffering".equals(s.state)
+                        || "paused".equals(s.state) || "connecting".equals(s.state)
+                        || "fast_forwarding".equals(s.state) || "rewinding".equals(s.state);
+                if (!active || (empty(s.pkg) && empty(s.app))) return null;
+                s.title = empty(s.app) ? s.pkg : s.app;
+            }
             return s;
         } catch (Exception ignored) {
             return null;

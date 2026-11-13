@@ -247,6 +247,10 @@ public class PullBackCard {
         drawer.addView(input, inputLp);
 
         final TextView send = button(ctx, "记下来", true, theme.primary);
+        final boolean[] sendReady = { false };
+        // BE-03：软级别拒绝理由必须非空且长度 >= 2，否则禁用提交按钮，杜绝空理由进入日志。
+        send.setEnabled(false);
+        send.setAlpha(.45f);
         LinearLayout.LayoutParams sendLp = new LinearLayout.LayoutParams(-1, dp(ctx, 42));
         sendLp.topMargin = dp(ctx, 8);
         drawer.addView(send, sendLp);
@@ -277,11 +281,23 @@ public class PullBackCard {
             column++;
         }
 
+        input.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
+            @Override public void afterTextChanged(android.text.Editable s) { }
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
+                boolean ok = s != null && s.toString().trim().length() >= 2;
+                sendReady[0] = ok;
+                send.setEnabled(ok);
+                send.setAlpha(ok ? 1f : .45f);
+            }
+        });
+
         send.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
+                if (!sendReady[0]) return; // 理由不足 2 字时禁用，直接忽略点击
                 String reason = "";
                 try { reason = input.getText() == null ? "" : input.getText().toString().trim(); } catch (Exception ignored) { }
-                if (reason.isEmpty()) reason = "晚点找你";
+                if (reason.length() < 2) return;
                 if (listener != null) listener.onDecline(ctx, cfg, reason);
             }
         });

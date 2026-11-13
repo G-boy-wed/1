@@ -186,6 +186,179 @@ def validate_media_state(ms: dict) -> tuple[bool, str]:
     return True, ""
 
 
+# ---------------------------------------------------------------------------
+# BE-12 / BE-13：同屏伴看事件规范化与媒体上下文构建
+#   - 手机端历史上传 media_watch_start / media_watch_end / media_watch_limit_exceeded，
+#     统一规范化为需求单的 enter / leave / timeout 三类；
+#   - 三类事件同时写入 activity_events（source=media），供 get_activity_events 读取；
+#   - 会话超时阈值可配（默认 120s）：enter 后超时未收到 leave 自动补 timeout。
+# ---------------------------------------------------------------------------
+MEDIA_SESSION_TIMEOUT_SECONDS_DEFAULT = 120
+_MEDIA_EVENT_ALIASES = {
+    "media_watch_start": "enter", "watch_enter": "enter", "enter": "enter",
+    "media_watch_end": "leave", "watch_leave": "leave", "leave": "leave",
+    "media_watch_timeout": "timeout", "watch_timeout": "timeout", "timeout": "timeout",
+    # 注意：media_watch_limit_exceeded（90 分钟观看上限提醒）不是会话销毁事件，
+    # 不能归一成 timeout，否则会误关会话；它只作为普通状态事件保留。
+}
+
+
+def canonical_media_event(raw) -> str:
+    """把历史/同义事件名归一到 enter/leave/timeout；其它返回空串（非会话事件）。"""
+    return _MEDIA_EVENT_ALIASES.get(str(raw or "").strip().lower(), "")
+
+
+# ---------------------------------------------------------------------------
+# BE-14：训诫自定义文案 —— 两处写入(/api/discipline POST、McpBackend.discipline_update)
+# 共用同一函数；传 text 时写 custom_text 并置 text_is_fallback=false；
+# 读取(任何入口)都优先 custom_text，为空才按 mode 兜底。
+# ---------------------------------------------------------------------------
+DISCIPLINE_TEXT_KEYS = ("text", "custom_text", "discipline_text")
+_DISCIPLINE_FALLBACK = {
+    "strict": "顾钰，立刻把手机放下。不是在跟你商量，现在回我身边来。",
+    "gentle": "宝宝乖，先不看了好不好？眼睛该酸了，过来抱一下。",
+}
+
+
+def resolve_discipline_text(disc: dict) -> tuple[str, bool]:
+    """返回 (最终文案, 是否兜底)。优先 custom_text；为空按 mode 兜底。"""
+    custom = str((disc or {}).get("custom_text") or "").strip()
+    if custom:
+        return custom, False
+    mode = str((disc or {}).get("mode") or "gentle").strip().lower()
+    if mode in ("strict", "严厉"):
+        mode = "strict"
+    else:
+        mode = "gentle"
+    return _DISCIPLINE_FALLBACK[mode], True
+
+
+def apply_discipline_update(disc: dict, data: dict) -> dict:
+    """BE-14 共用写入函数：合并 enabled/mode/level/text，维护 custom_text 与 text_is_fallback。"""
+    if not isinstance(data, dict):
+        data = {}
+    if "enabled" in data:
+        disc["enabled"] = bool(data.get("enabled"))
+    if "mode" in data:
+        mode = str(data.get("mode") or "gentle").strip().lower()
+        disc["mode"] = "strict" if (mode == "strict" or mode == "严厉") else "gentle"
+    if "level" in data:
+        try:
+            disc["level"] = max(0, min(4, int(data.get("level"))))
+        except (TypeError, ValueError):
+            pass
+    # 自定义文案：传了任一别名字段就写入（空串表示清空 → 回退兜底）。
+    text_provided = False
+    text_value = ""
+    for k in DISCIPLINE_TEXT_KEYS:
+        if k in data:
+            text_provided = True
+            text_value = "" if data.get(k) is None else str(data.get(k))
+            break
+    if text_provided:
+        disc["custom_text"] = text_value.strip()
+    disc.setdefault("custom_text", "")
+    # #35：enabled 与 level 是同一开关的两种表达，状态源必须唯一。
+    if disc.get("level", 0) <= 0:
+        disc["enabled"] = False
+        disc["level"] = 0
+    if not disc.get("enabled", False):
+        disc["level"] = 0
+    disc["updated_at"] = now_iso()
+    return disc
+
+
+def discipline_view(disc: dict) -> dict:
+    """BE-14 共用读取函数：任何返回训诫状态的入口都带上 custom_text/text/text_is_fallback。"""
+    d = dict(disc or {})
+    custom = str(d.get("custom_text") or "").strip()
+    d["custom_text"] = custom
+    text, is_fallback = resolve_discipline_text(d)
+    d["text"] = text
+    d["text_is_fallback"] = is_fallback
+    return d
+
+
+def media_session_timeout_seconds(state: "State") -> int:
+    """超时阈值可配：优先手机端上报值(state.media_session_timeout_seconds)，
+    其次环境变量 LINJIAN_MEDIA_SESSION_TIMEOUT，默认 120s。"""
+    v = getattr(state, "media_session_timeout_seconds", None)
+    if v is None:
+        v = os.environ.get("LINJIAN_MEDIA_SESSION_TIMEOUT", MEDIA_SESSION_TIMEOUT_SECONDS_DEFAULT)
+    try:
+        return max(5, int(v))
+    except (TypeError, ValueError):
+        return MEDIA_SESSION_TIMEOUT_SECONDS_DEFAULT
+
+
+def record_media_session_event(state: "State", device_id: str, canon: str, media_state: dict) -> dict:
+    """BE-12：把 enter/leave/timeout 同时写入 media_events 与 activity_events（source=media）。"""
+    at = now_iso()
+    entry = {"event": canon, "at": at, "media_state": media_state or {}}
+    with state.commands_lock:
+        lst = state.media_events.get(device_id) or []
+        lst.append(entry)
+        if len(lst) > 50:
+            lst = lst[-50:]
+        state.media_events[device_id] = lst
+        live = state.media_live.get(device_id) or {}
+        now = time.time()
+        live["last_heartbeat"] = now  # 任何会话事件都刷新心跳
+        if canon == "enter":
+            live["session_started_at"] = now
+            live["session_open"] = True
+        elif canon in ("leave", "timeout"):
+            live["session_open"] = False
+        live["event"] = canon
+        live["media_state"] = media_state or {}
+        state.media_live[device_id] = live
+    # 写入 activity_events，source=media（去重窗口很短，仅防同一次上报被重试两次）
+    app = (media_state or {}).get("app") or (media_state or {}).get("app_name") or ""
+    title = (media_state or {}).get("title") or ""
+    state.add_activity_event({
+        "device_id": device_id, "source": "media", "type": "media_watch",
+        "action": "media_watch_" + canon, "title": "伴看" + {"enter": "开始", "leave": "离开", "timeout": "超时"}.get(canon, canon),
+        "subtitle": (app + (" · " + title if title else "")).strip() or canon,
+        "app_name": str(app), "package_name": str((media_state or {}).get("package") or ""),
+        "status": "completed",
+    }, dedupe_seconds=2)
+    return entry
+
+
+def build_media_context(state: "State", device_id: str) -> dict:
+    """BE-11/12/13：get_live_media_context 与 /api/media/context 共用的同一读取函数。"""
+    with state.commands_lock:
+        live = dict(state.media_live.get(device_id) or {})
+        events = list(state.media_events.get(device_id) or [])
+    # 超时兜底：会话仍打开、且「最后一次心跳（状态/事件上报）」超过阈值仍无 leave，
+    # 判定为进程被杀 / 断联 → 自动补一条 timeout（BE-12 可配超时，默认 120s）。
+    # 用 last_heartbeat 而非 session_started_at：正常观看时手机每 5s 上报状态会不断刷新心跳，
+    # 不会因「看得久」被误判超时。
+    timeout_s = media_session_timeout_seconds(state)
+    hb = live.get("last_heartbeat") or live.get("session_started_at")
+    if live.get("session_open") and hb and (time.time() - float(hb)) > timeout_s:
+        record_media_session_event(state, device_id, "timeout", live.get("media_state") or {})
+        with state.commands_lock:
+            live = dict(state.media_live.get(device_id) or {})
+            events = list(state.media_events.get(device_id) or [])
+    ms = live.get("media_state") or {}
+    if not isinstance(ms, dict):
+        ms = {}
+    last_events = [{"event": e.get("event", ""), "at": e.get("at", ""), "source": "media"}
+                   for e in events if e.get("event") in ("enter", "leave", "timeout")]
+    return {
+        "ok": True, "device_id": device_id,
+        "media_state": ms,
+        "available": bool(ms.get("available") or ms.get("has_session")),
+        "has_session": bool(ms.get("has_session") or ms.get("available")),
+        "last_event": live.get("event", ""),
+        "last_events": last_events[-20:],
+        "recent_events": events[-20:],
+        "session_timeout_seconds": timeout_s,
+        "session_open": bool(live.get("session_open")),
+    }
+
+
 def _is_newer_update(prev: dict, client_ts) -> bool:
     """v0.4.6：单调 last-writer-wins。
     新状态仅在比旧状态更新时允许覆盖；无 ts 时（旧客户端）默认允许，保证兼容。
@@ -226,10 +399,18 @@ class State:
         self.shots_dir.mkdir(parents=True, exist_ok=True)
         self.commands: list[dict] = []
         self.command_history: dict[str, dict] = {}
+        self.care_history: list[dict] = []
+        self.care_lock = Lock()
         self.commands_lock = Lock()
         self.device_states: dict[str, dict] = {}
         self.media_live: dict[str, dict] = {}
         self.media_events: dict[str, list] = {}
+        # BE-12：同屏伴看会话超时阈值（秒），可被手机端 /api/media/sync 覆盖。
+        try:
+            self.media_session_timeout_seconds = max(5, int(os.environ.get(
+                "LINJIAN_MEDIA_SESSION_TIMEOUT", MEDIA_SESSION_TIMEOUT_SECONDS_DEFAULT)))
+        except (TypeError, ValueError):
+            self.media_session_timeout_seconds = MEDIA_SESSION_TIMEOUT_SECONDS_DEFAULT
         self.unlock_requests: list[dict] = []
         # Bug#5：保护 unlock_requests 的并发读写与后台定时清理。
         self.unlock_requests_lock = Lock()
@@ -434,7 +615,8 @@ class State:
         return item
 
     def _load_discipline(self) -> dict:
-        default = {"enabled": False, "mode": "gentle", "level": 0, "updated_at": ""}
+        # BE-14：默认就带 custom_text，保证读取函数永远有该字段。
+        default = {"enabled": False, "mode": "gentle", "level": 0, "updated_at": "", "custom_text": ""}
         try:
             if self.discipline_path.exists():
                 loaded = json.loads(self.discipline_path.read_text(encoding="utf-8"))
@@ -601,6 +783,8 @@ def make_command(device_id: str, action: str, app: str = "", package: str = "", 
         "dispatched_at": None,
         "completed_at": None,
         "result": "",
+        "retry_count": 0,
+        "failed_reason": "",
     }
     # payload 字段平铺到顶层，方便 App 端直接读取 tone/title/message 等；
     # 已有键（id/device_id/action/status 等）不允许被 payload 覆盖，避免污染命令本身。
@@ -608,6 +792,28 @@ def make_command(device_id: str, action: str, app: str = "", package: str = "", 
         if k not in cmd:
             cmd[k] = v
     return cmd
+
+
+def record_command_failure(state: "State", cmd: dict) -> None:
+    """BE-01：命令重投 3 次仍无回执时记录到 care_history，便于排查（如『系统闹钟未成功设置』）。"""
+    try:
+        note = "系统%s未成功设置" % cmd.get("action", "命令") if cmd.get("action") == "set_alarm" else \
+            "命令 %s 执行失败：%s" % (cmd.get("action", "?"), cmd.get("failed_reason", ""))
+        entry = {
+            "at": now_iso(),
+            "action": cmd.get("action"),
+            "command_id": cmd.get("id"),
+            "retry_count": cmd.get("retry_count", 0),
+            "reason": cmd.get("failed_reason", ""),
+            "note": note,
+        }
+        with state.care_lock:
+            state.care_history.append(entry)
+            if len(state.care_history) > 200:
+                state.care_history = state.care_history[-200:]
+        sys.stderr.write("[care] %s\n" % note)
+    except Exception:
+        pass
 
 
 def enqueue_command(state: "State", data: dict) -> dict:
@@ -835,10 +1041,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/media/context":
             if not self._require_token(): return
-            device_id = qs.get("device_id", [DEFAULT_DEVICE])[0]
-            live = self.state.media_live.get(device_id) or {}
-            events = self.state.media_events.get(device_id) or []
-            self._json(200, {"ok": True, "device_id": device_id, "media_state": live.get("media_state", {}), "last_event": live.get("event", ""), "recent_events": events[-20:]}); return
+            device_id = qs.get("device_id", [DEFAULT_DEVICE])[0] or DEFAULT_DEVICE
+            # BE-11/12/13：与 get_live_media_context 共用同一读取函数（含 last_events / 超时兜底）。
+            self._json(200, build_media_context(self.state, device_id)); return
         if path == "/api/companion/state":
             if not self._require_token(): return
             limit = max(1, min(50, int(qs.get("limit", ["20"])[0] or 20)))
@@ -872,9 +1077,17 @@ class Handler(BaseHTTPRequestHandler):
                     if c.get("device_id") == device_id and c.get("status") == "dispatched":
                         disp = parse_iso_seconds(c.get("dispatched_at") or "")
                         if disp and now_ts - disp > COMMAND_STUCK_SECONDS:
-                            c["status"] = "pending"
-                            c.pop("dispatched_at", None)
-                            self.state.commands.append(c)
+                            # BE-01：30s 内未收到回执则重投；累计 3 次失败写 failed + reason。
+                            c["retry_count"] = int(c.get("retry_count") or 0) + 1
+                            if c["retry_count"] >= 3:
+                                c["status"] = "failed"
+                                c["failed_reason"] = "手机端取走命令后 %d 次均未回执（疑似未实现该 action 或未运行）" % c["retry_count"]
+                                record_command_failure(self.state, c)
+                            else:
+                                c["status"] = "pending"
+                                c.pop("dispatched_at", None)
+                                if c not in self.state.commands:
+                                    self.state.commands.append(c)
                 # 取命令时按优先级挑选：交互类（居中弹窗/强制拉回）优先于查岗类，
                 # 同优先级内保持先进先出。
                 idx = None
@@ -975,7 +1188,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/discipline":
             if not self._require_token(): return
             with self.state.discipline_lock:
-                disc = dict(self.state.discipline)
+                disc = discipline_view(self.state.discipline)  # BE-14 共用读取函数
             self._json(200, {"ok": True, "discipline": disc}); return
         self._json(404, {"ok": False, "error": ERR_BAD_METHOD})
 
@@ -1044,6 +1257,16 @@ class Handler(BaseHTTPRequestHandler):
                                  "kept_previous": bool(self.state.media_live.get(device_id))})
                 return
             client_ts = data.get("ts")
+            # BE-12：超时阈值可配——本次上报可带 session_timeout_seconds 覆盖（下限 5s），
+            # 存在 State 实例上，避免每 5s 一次的状态上报反复写进程级环境变量。
+            if data.get("session_timeout_seconds") is not None:
+                try:
+                    v = int(data.get("session_timeout_seconds"))
+                    if v >= 5:
+                        self.state.media_session_timeout_seconds = v
+                except (TypeError, ValueError):
+                    pass
+            canon = canonical_media_event(event)
             with self.state.commands_lock:
                 prev = self.state.media_live.get(device_id)
                 # 单调时间戳（last-writer-wins）：仅当新状态更新时写入，
@@ -1052,17 +1275,25 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(200, {"ok": True, "device_id": device_id,
                                      "applied": False, "reason": "stale_update_skipped"})
                     return
-                self.state.media_live[device_id] = {
-                    "media_state": media_state,
-                    "event": event,
-                    "updated_at": now_iso(),
-                    "ts": client_ts if isinstance(client_ts, (int, float)) else time.time(),
-                }
-                if event:
-                    lst = self.state.media_events.get(device_id) or []
-                    lst.append({"event": event, "at": now_iso(), "media_state": media_state})
-                    if len(lst) > 50: lst = lst[-50:]
-                    self.state.media_events[device_id] = lst
+            if canon:
+                # BE-12：会话事件（enter/leave/timeout）经共享函数写入 media_events + activity_events。
+                record_media_session_event(self.state, device_id, canon, media_state)
+                with self.state.commands_lock:
+                    live = self.state.media_live.setdefault(device_id, {})
+                    live["updated_at"] = now_iso()
+                    live["ts"] = client_ts if isinstance(client_ts, (int, float)) else time.time()
+            else:
+                # 纯状态上报（无会话事件）：沿用 last-writer-wins 更新 media_state。
+                with self.state.commands_lock:
+                    live = self.state.media_live.get(device_id) or {}
+                    live["media_state"] = media_state
+                    live["event"] = event
+                    live["updated_at"] = now_iso()
+                    live["ts"] = client_ts if isinstance(client_ts, (int, float)) else time.time()
+                    # BE-12：纯状态上报也是一次心跳；会话仍开着时刷新它，避免被误判超时。
+                    if live.get("session_open"):
+                        live["last_heartbeat"] = time.time()
+                    self.state.media_live[device_id] = live
             self._json(200, {"ok": True, "device_id": device_id, "applied": True}); return
         if path == "/api/peek":
             if not self._require_token(): return
@@ -1148,12 +1379,17 @@ class Handler(BaseHTTPRequestHandler):
                 sched["force_back_miss_threshold"] = max(1, min(100, int(sched.get("force_back_miss_threshold", 70) or 70)))
             except Exception:
                 sched["force_back_miss_threshold"] = 70
+            # BE-05：废弃 quiet_hours（{start,end} 冗余对象）。只读 quiet_start/quiet_end；
+            # 兼容旧客户端仍上送 quiet_hours 的情况，做一次迁移拆入 quiet_start/quiet_end。
             qh = data.get("quiet_hours")
-            if qh is None:
-                sched["quiet_hours"] = None
-            elif isinstance(qh, dict):
-                sched["quiet_hours"] = {"start": str(qh.get("start", "23:00")),
-                                        "end": str(qh.get("end", "08:00"))}
+            if isinstance(qh, dict):
+                data.setdefault("quiet_start", qh.get("start"))
+                data.setdefault("quiet_end", qh.get("end"))
+            qs = data.get("quiet_start")
+            qe = data.get("quiet_end")
+            if qs: sched["quiet_start"] = str(qs)
+            if qe: sched["quiet_end"] = str(qe)
+            sched.pop("quiet_hours", None)
             nh = data.get("night_hours")
             if isinstance(nh, dict):
                 sched["night_hours"] = {"start": str(nh.get("start", "23:00")),
@@ -1264,26 +1500,12 @@ class Handler(BaseHTTPRequestHandler):
             if not self._require_token(): return
             data = self._read_json() or {}
             with self.state.discipline_lock:
-                if "enabled" in data:
-                    self.state.discipline["enabled"] = bool(data.get("enabled"))
-                if "mode" in data:
-                    mode = str(data.get("mode") or "gentle").strip().lower()
-                    self.state.discipline["mode"] = "strict" if (mode == "strict" or mode == "严厉") else "gentle"
-                if "level" in data:
-                    try: self.state.discipline["level"] = max(0, min(4, int(data.get("level"))))
-                    except Exception: pass
-                # #35：enabled 与 level 是同一开关的两种表达，状态源必须唯一。
-                # level=0 等价于关闭；关闭时强制 level=0，开启但 0 档则归一为关闭。
-                if self.state.discipline.get("level", 0) <= 0:
-                    self.state.discipline["enabled"] = False
-                    self.state.discipline["level"] = 0
-                if not self.state.discipline.get("enabled", False):
-                    self.state.discipline["level"] = 0
-                self.state.discipline["updated_at"] = now_iso()
+                # BE-14：与 McpBackend.discipline_update 共用同一写入函数。
+                apply_discipline_update(self.state.discipline, data)
                 self.state.save_discipline()
-                disc = dict(self.state.discipline)
+                disc = discipline_view(self.state.discipline)
             self._json(200, {"ok": True, "discipline": disc,
-                             "note": "开启后陪伴对象语气增加管束意味；strict=严厉，gentle=温柔。"}); return
+                             "note": "开启后陪伴对象语气增加管束意味；strict=严厉，gentle=温柔；text/custom_text 为自定义训诫文案。"}); return
         if path == "/api/ocr":
             # 识图感知：图片由服务端保存后，设备侧（手机端 OCR 插件）完成文字识别最可靠；
             # 服务端这里做 best-effort：若图片存在则记录路径，真实 OCR 由手机端在设备侧完成。
@@ -1355,8 +1577,10 @@ DEFAULT_TOUR_SCHEDULE = {
     "force_back_interval_minutes": 30,
     # 冷却：同类动作两次之间的最短间隔，避免短时间内重复打扰。
     "cooldown_minutes": 5,
-    # 安静时段：该时段内不打扰（不弹窗、不强制拉回；查岗仍可静默进行）。默认 None = 不限制，由用户设置。
-    "quiet_hours": None,
+    # 安静时段：该时段内不打扰（不弹窗、不强制拉回；查岗仍可静默进行）。
+    # BE-05：废弃 quiet_hours（{start,end} 冗余对象），统一用 quiet_start/quiet_end 两个标量字段。
+    "quiet_start": "23:30",
+    "quiet_end": "08:00",
     # 深夜时段：用于情绪感知判断（默认 23:00–06:00），可由用户在策略中调整。
     "night_hours": {"start": "23:00", "end": "06:00"},
     # 约束：单个 App 连续使用超过该分钟数 → 锁定该 App 若干分钟。0 = 不自动锁定，由用户自行开启。
@@ -1377,6 +1601,12 @@ def _hm_to_minutes(hm: str) -> int:
         return int(h) * 60 + int(m)
     except Exception:
         return -1
+
+
+def quiet_window(sched: dict) -> dict:
+    """BE-05：从 quiet_start/quiet_end 派生 in_quiet_hours 所需的 {start,end} 窗口。"""
+    return {"start": str(sched.get("quiet_start") or "23:30"),
+            "end": str(sched.get("quiet_end") or "08:00")}
 
 
 def in_quiet_hours(qh: dict, hm: str) -> bool:
@@ -1473,16 +1703,37 @@ def current_app_dwell_minutes(state: "State", device_id: str) -> float:
     return max(0.0, (time.time() - float(sess.get("since", time.time()))) / 60.0)
 
 
+def read_device_telemetry(ds: dict) -> dict:
+    """BE-10：设备电遥测（battery/network/charging）的单一读取函数。
+
+    get_phone_state 与 usage_snapshot 都经由它取值，保证两接口同源且一致；
+    无值一律返回 None（JSON null），绝不返回 0 / -1 / ""。旧实现用 -1/"" 兜底，
+    且 get_phone_state 误读 state["battery"]/["network"]（字段名根本不存在），
+    于是恒为 null，与 usage_snapshot 的 88% 电量对不上。
+    """
+    battery = ds.get("battery_percent")
+    if isinstance(battery, bool) or not isinstance(battery, (int, float)) or battery < 0:
+        battery = None
+    network = ds.get("network_type")
+    if network is None or (isinstance(network, str) and not network.strip()):
+        network = None
+    charging = ds.get("charging")
+    if not isinstance(charging, bool):
+        charging = None
+    return {"battery_percent": battery, "network_type": network, "charging": charging}
+
+
 def build_usage_snapshot(state: "State", device_id: str) -> dict:
     ds = state.device_states.get(device_id) or {}
+    tele = read_device_telemetry(ds)
     dwell = current_app_dwell_minutes(state, device_id)
     return {
         "ok": True,
         "device_id": device_id,
         "local_time": ds.get("local_time", ""),
-        "battery_percent": ds.get("battery_percent", -1),
-        "charging": ds.get("charging", False),
-        "network_type": ds.get("network_type", ""),
+        "battery_percent": tele["battery_percent"],
+        "charging": tele["charging"],
+        "network_type": tele["network_type"],
         "screen_on": ds.get("screen_on", False),
         "current_app": ds.get("current_app", ""),
         "current_package": ds.get("current_package", ""),
@@ -1514,7 +1765,7 @@ def build_emotion_snapshot(state: "State", device_id: str) -> dict:
     hm = _device_local_hm(state, device_id)
     night = sched.get("night_hours") or {"start": "23:00", "end": "06:00"}
     late_night = in_quiet_hours(night, hm)
-    quiet = in_quiet_hours(sched.get("quiet_hours") or {}, hm)
+    quiet = in_quiet_hours(quiet_window(sched), hm)
     emo = state.emotion_state or {}
     last_chat_at = parse_iso_seconds(emo.get("last_chat_at") or "")
     since_chat_min = round((time.time() - last_chat_at) / 60.0) if last_chat_at else -1
@@ -1938,7 +2189,7 @@ def tour_scheduler_loop(state: "State") -> None:
             # 默认配置下 quiet_hours 为 None，服务端定时任务此前永远判定「非安静」，
             # 与 Android 端夜间 23:30–08:00 静默窗口对不齐；此处合并两者，使服务端
             # 调度与 Android 前台通知的安静窗口一致。
-            quiet = in_quiet_hours(sched.get("quiet_hours") or {}, hm) or in_quiet_hours(sched.get("night_hours") or {}, hm)
+            quiet = in_quiet_hours(quiet_window(sched), hm) or in_quiet_hours(sched.get("night_hours") or {}, hm)
             if now - last_check_in >= ci:
                 last_check_in = now
                 try:
@@ -2028,28 +2279,14 @@ class McpBackend:
 
     def discipline_state(self) -> dict:
         with self.state.discipline_lock:
-            return dict(self.state.discipline)
+            return discipline_view(self.state.discipline)  # BE-14 共用读取函数
 
     def discipline_update(self, data: dict) -> dict:
         with self.state.discipline_lock:
-            if "enabled" in data:
-                self.state.discipline["enabled"] = bool(data.get("enabled"))
-            if "mode" in data:
-                m = str(data.get("mode") or "gentle").strip().lower()
-                self.state.discipline["mode"] = "strict" if m in ("strict", "严厉") else "gentle"
-            if "level" in data:
-                try:
-                    self.state.discipline["level"] = max(0, min(4, int(data.get("level"))))
-                except Exception:
-                    pass
-            if self.state.discipline.get("level", 0) <= 0:
-                self.state.discipline["enabled"] = False
-                self.state.discipline["level"] = 0
-            if not self.state.discipline.get("enabled", False):
-                self.state.discipline["level"] = 0
-            self.state.discipline["updated_at"] = now_iso()
+            # BE-14：与 /api/discipline POST 共用同一写入函数，传 text 即写 custom_text。
+            apply_discipline_update(self.state.discipline, data)
             self.state.save_discipline()
-            return dict(self.state.discipline)
+            return discipline_view(self.state.discipline)
 
     def shared_list(self) -> list:
         return self.state.db_shared_memory_list()
@@ -2086,9 +2323,8 @@ class McpBackend:
             return list(self.state.companion_state.get("actions") or [])[:limit]
 
     def media_context(self, device_id: str = DEFAULT_DEVICE) -> dict:
-        live = self.state.media_live.get(device_id) or {}
-        return {"ok": True, "device_id": device_id, "media_state": live.get("media_state", {}),
-                "last_event": live.get("event", ""), "recent_events": (self.state.media_events.get(device_id) or [])[-20:]}
+        # BE-11/12/13：与 /api/media/context 共用同一读取函数，统一 last_events / available / has_session。
+        return build_media_context(self.state, device_id)
 
     def unlock_requests(self) -> list:
         cleanup_expired_requests(self.state)

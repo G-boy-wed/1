@@ -83,7 +83,7 @@ public class MainActivity extends Activity {
     private Button toggleButton, accessibilityButton, usageAccessButton, testButton, openXhsButton, openTargetAppButton, homeButton, backButton, recentsButton, alarmTestButton, notifyTestButton, refreshLifeButton;
     private Button addPackageButton, testPackageButton, sequenceTestButton, refreshGateButton, addGateAppButton, addWeatherLocationButton, setCurrentWeatherButton, useCurrentLocationButton;
     private Button testGuidianButton, saveGuidianSettingsButton, chooseGuidianAvatarButton, guidianThemeDuskButton, guidianThemeCloudButton, guidianThemeBerryButton;
-    private Button themeCreamButton, themeBlueButton, themePeachButton, themeNightButton, themeMintButton, themePurpleButton, drawerThemeButton, drawerNowStateButton, locationPermissionButton, overlayPermissionButton, notificationListenerButton;
+    private Button themeCreamButton, themeBlueButton, themePeachButton, themeNightButton, themeMintButton, themePurpleButton, drawerThemeButton, drawerNowStateButton, locationPermissionButton, overlayPermissionButton, notificationListenerButton, mediaRebindButton;
     private Button drawerConnectionButton, drawerPermissionButton, drawerControlTestButton, drawerKnownAppsButton, drawerHomeModeButton, drawerGateAddButton, drawerReminderButton, drawerCycleButton, drawerDebugButton, drawerLifeDetailsButton, drawerAppGateButton, drawerWeatherButton, drawerVersionButton, checkUpdateButton, downloadUpdateButton;
     // P0 设置页边界：以下抽屉原先无显式「保存」按钮（部分甚至没有任何落盘时机），补齐。
     private Button saveReminderButton, saveCycleButton, saveHomeModeButton, saveConnectionButton, savePermissionButton, saveDebugFieldsButton;
@@ -142,6 +142,7 @@ public class MainActivity extends Activity {
         buildMagazinePages();
         loadSettings();
         NowState.start(this);
+        FocusMode.reconcile(this); // BE-06：启动收敛专注状态（过期则清 until 并置 enabled=false）
 
         DebugState.append(this, "掌心窗公开版 v0.3.9.0 已打开");
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 13);
@@ -153,6 +154,12 @@ public class MainActivity extends Activity {
         if (locationPermissionButton != null) locationPermissionButton.setOnClickListener(v -> requestLocationPermission());
         if (overlayPermissionButton != null) overlayPermissionButton.setOnClickListener(v -> openOverlayPermissionSettings());
         if (notificationListenerButton != null) notificationListenerButton.setOnClickListener(v -> openNotificationListenerSettings());
+        // BE-11：「重新连接」诊断按钮——通知使用权已开但监听服务半死时，请求系统重新绑定。
+        if (mediaRebindButton != null) mediaRebindButton.setOnClickListener(v -> {
+            MediaNotificationService.requestRebind(this);
+            Toast.makeText(this, "已请求重新连接媒体监听；若仍不可用，请关闭再重开通知使用权", Toast.LENGTH_LONG).show();
+            updateUI();
+        });
         if (toggleButton != null) toggleButton.setOnClickListener(v -> { if (serviceRunning) stopCompanionService(); else startCompanionService(); });
         if (refreshLifeButton != null) refreshLifeButton.setOnClickListener(v -> { saveSettings(); updateUI(); Toast.makeText(this, "已刷新生活总览", Toast.LENGTH_SHORT).show(); });
         if (testButton != null) testButton.setOnClickListener(v -> testScreenshot());
@@ -230,7 +237,7 @@ public class MainActivity extends Activity {
         toggleButton = findViewById(R.id.toggleButton); accessibilityButton = findViewById(R.id.accessibilityButton); usageAccessButton = findViewById(R.id.usageAccessButton); testButton = findViewById(R.id.testButton); openXhsButton = findViewById(R.id.openXhsButton); openTargetAppButton = findViewById(R.id.openTargetAppButton); homeButton = findViewById(R.id.homeButton); backButton = findViewById(R.id.backButton); recentsButton = findViewById(R.id.recentsButton); alarmTestButton = findViewById(R.id.alarmTestButton); notifyTestButton = findViewById(R.id.notifyTestButton); refreshLifeButton = findViewById(R.id.refreshLifeButton);
         addPackageButton = findViewById(R.id.addPackageButton); testPackageButton = findViewById(R.id.testPackageButton); sequenceTestButton = findViewById(R.id.sequenceTestButton); refreshGateButton = findViewById(R.id.refreshGateButton); addGateAppButton = findViewById(R.id.addGateAppButton); addWeatherLocationButton = findViewById(R.id.addWeatherLocationButton); setCurrentWeatherButton = findViewById(R.id.setCurrentWeatherButton); useCurrentLocationButton = findViewById(R.id.useCurrentLocationButton);
         testGuidianButton = findViewById(R.id.testGuidianButton); saveGuidianSettingsButton = findViewById(R.id.saveGuidianSettingsButton); chooseGuidianAvatarButton = findViewById(R.id.chooseGuidianAvatarButton); guidianThemeDuskButton = findViewById(R.id.guidianThemeDuskButton); guidianThemeCloudButton = findViewById(R.id.guidianThemeCloudButton); guidianThemeBerryButton = findViewById(R.id.guidianThemeBerryButton);
-        themeCreamButton = findViewById(R.id.themeCreamButton); themeBlueButton = findViewById(R.id.themeBlueButton); themePeachButton = findViewById(R.id.themePeachButton); themeNightButton = findViewById(R.id.themeNightButton); themeMintButton = findViewById(R.id.themeMintButton); themePurpleButton = findViewById(R.id.themePurpleButton); drawerThemeButton = findViewById(R.id.drawerThemeButton); drawerNowStateButton = findViewById(R.id.drawerNowStateButton); locationPermissionButton = findViewById(R.id.locationPermissionButton); overlayPermissionButton = findViewById(R.id.overlayPermissionButton); notificationListenerButton = findViewById(R.id.notificationListenerButton);
+        themeCreamButton = findViewById(R.id.themeCreamButton); themeBlueButton = findViewById(R.id.themeBlueButton); themePeachButton = findViewById(R.id.themePeachButton); themeNightButton = findViewById(R.id.themeNightButton); themeMintButton = findViewById(R.id.themeMintButton); themePurpleButton = findViewById(R.id.themePurpleButton); drawerThemeButton = findViewById(R.id.drawerThemeButton); drawerNowStateButton = findViewById(R.id.drawerNowStateButton); locationPermissionButton = findViewById(R.id.locationPermissionButton); overlayPermissionButton = findViewById(R.id.overlayPermissionButton); notificationListenerButton = findViewById(R.id.notificationListenerButton); mediaRebindButton = findViewById(R.id.mediaRebindButton);
         drawerConnectionButton = findViewById(R.id.drawerConnectionButton); drawerPermissionButton = findViewById(R.id.drawerPermissionButton); drawerControlTestButton = findViewById(R.id.drawerControlTestButton); drawerKnownAppsButton = findViewById(R.id.drawerKnownAppsButton); drawerHomeModeButton = findViewById(R.id.drawerHomeModeButton); drawerGateAddButton = findViewById(R.id.drawerGateAddButton); drawerReminderButton = findViewById(R.id.drawerReminderButton); drawerCycleButton = findViewById(R.id.drawerCycleButton); drawerDebugButton = findViewById(R.id.drawerDebugButton); drawerLifeDetailsButton = findViewById(R.id.drawerLifeDetailsButton); drawerAppGateButton = findViewById(R.id.drawerAppGateButton); drawerWeatherButton = findViewById(R.id.drawerWeatherButton); drawerVersionButton = findViewById(R.id.drawerVersionButton); checkUpdateButton = findViewById(R.id.checkUpdateButton); downloadUpdateButton = findViewById(R.id.downloadUpdateButton);
         saveReminderButton = findViewById(R.id.saveReminderButton); saveCycleButton = findViewById(R.id.saveCycleButton); saveHomeModeButton = findViewById(R.id.saveHomeModeButton); saveConnectionButton = findViewById(R.id.saveConnectionButton); savePermissionButton = findViewById(R.id.savePermissionButton); saveDebugFieldsButton = findViewById(R.id.saveDebugFieldsButton);
         drawerGuidianButton = findViewById(R.id.drawerGuidianButton); drawerGuidianSettingsButton = findViewById(R.id.drawerGuidianSettingsButton); drawerCalendarButton = findViewById(R.id.drawerCalendarButton); saveCalendarEventButton = findViewById(R.id.saveCalendarEventButton);
@@ -3166,6 +3173,11 @@ public class MainActivity extends Activity {
         if (overlayPermissionButton != null) overlayPermissionButton.setText((Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this)) ? "悬浮窗权限：已开启" : "打开悬浮窗权限");
         boolean mediaGranted = MediaState.hasNotificationListenerAccess(this);
         if (notificationListenerButton != null) notificationListenerButton.setText(mediaGranted ? "媒体状态权限：已开启" : "⚠ 媒体监听未开启 · 点此一键授权");
+        // BE-11：诊断按钮实时显示「已连接 / 未连接」，已授权但未连接时给出可操作的重新绑定入口。
+        boolean mediaConnected = MediaNotificationService.isListenerConnected();
+        if (mediaRebindButton != null) mediaRebindButton.setText(mediaGranted
+                ? (mediaConnected ? "⟳ 媒体监听已连接 · 点此重新绑定" : "⚠ 已授权但监听未连接 · 点此重新连接")
+                : "⟳ 重新连接媒体监听（需先授权）");
         if (mediaPermissionHint != null) mediaPermissionHint.setVisibility(mediaGranted ? View.GONE : View.VISIBLE);
         if (nowStatePermissionText != null) nowStatePermissionText.setText("此刻状态：" + (NowState.hasLocationPermission(this) ? "定位已授权" : "定位未授权") + " · " + ((Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this)) ? "悬浮窗已授权" : "悬浮窗未授权") + " · " + (MediaState.hasNotificationListenerAccess(this) ? "媒体已授权" : "媒体未授权") + "\n用于状态卡片、应用门禁悬浮页和正在播放媒体显示。权限均由用户在本机开启。");
         try {

@@ -46,6 +46,9 @@ public class AppPrefs {
     public static final String KEY_COMPANION_NAME = "companion_name";
     public static final String KEY_TARGET_APPS = "target_apps_lines";
     public static final String KEY_JOURNEY_ENABLED = "today_journey_enabled";
+    // BE-12：同屏伴看会话超时阈值（秒），默认 120s，可在设置/下发中调整。
+    public static final String KEY_MEDIA_SESSION_TIMEOUT_SEC = "media_session_timeout_seconds";
+    public static final int DEFAULT_MEDIA_SESSION_TIMEOUT_SEC = 120;
     public static final String KEY_SHOW_COMPANION_ACTIONS = "show_companion_actions";
     public static final String KEY_COMPANION_FIRST_DAY = "companion_first_day_ms";
     public static final String DEFAULT_USER_NAME = "宝宝";
@@ -114,6 +117,16 @@ public class AppPrefs {
         if (saved < MIN_POLL_INTERVAL_MS) return DEFAULT_POLL_INTERVAL_MS;
         if (saved > MAX_POLL_INTERVAL_MS) return MAX_POLL_INTERVAL_MS;
         return saved;
+    }
+
+    /** BE-12：同屏伴看会话超时阈值（秒），下限 5s，默认 120s。 */
+    public static int mediaSessionTimeoutSec(Context ctx) {
+        int v = get(ctx).getInt(KEY_MEDIA_SESSION_TIMEOUT_SEC, DEFAULT_MEDIA_SESSION_TIMEOUT_SEC);
+        return v < 5 ? DEFAULT_MEDIA_SESSION_TIMEOUT_SEC : v;
+    }
+    public static void setMediaSessionTimeoutSec(Context ctx, int seconds) {
+        int v = seconds < 5 ? DEFAULT_MEDIA_SESSION_TIMEOUT_SEC : Math.min(seconds, 24 * 3600);
+        get(ctx).edit().putInt(KEY_MEDIA_SESSION_TIMEOUT_SEC, v).apply();
     }
 
     /** 把旧公开版称呼和回家模式观察列表迁移到通用模板配置。 */

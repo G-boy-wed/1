@@ -718,9 +718,9 @@ public class PolicySettingsActivity extends Activity {
             body.put("enabled", PolicyStore.checkinEnabled(this));
             body.put("check_in_interval_minutes", PolicyStore.randomUpper(this));
             body.put("cooldown_minutes", PolicyStore.cooldownMinutes(this));
-            JSONObject q = new JSONObject();
-            q.put("start", PolicyStore.quietStart(this)); q.put("end", PolicyStore.quietEnd(this));
-            body.put("quiet_hours", q);
+            // BE-05：废弃 quiet_hours（{start,end} 冗余对象），只认 quiet_start/quiet_end。
+            body.put("quiet_start", PolicyStore.quietStart(this));
+            body.put("quiet_end", PolicyStore.quietEnd(this));
             JSONObject n = new JSONObject();
             n.put("start", PolicyStore.nightStart(this)); n.put("end", PolicyStore.nightEnd(this));
             body.put("night_hours", n);

@@ -59,10 +59,14 @@ public final class PolicyScheduler {
             "com.google.android.inputmethod.latin", "com.baidu.input",
             "com.sohu.inputmethod", "com.iflytek.inputmethod",
             "com.cootek.smartinputv5", "com.tencent.qqpinyin",
-            "com.simeji.android", "com.komoe.inputmethod", "com.zui.input"
+            "com.simeji.android", "com.komoe.inputmethod", "com.zui.input",
+            // BE-09：vivo 上滑「交互池」、Kelivo 等瞬时层，1 分钟内可与抖音来回抖十余次，
+            // 绝不能计分心，否则会误触二档训诫。
+            "com.vivo.upslide", "com.vivo.interactionpool", "com.kelivo"
     ));
 
-    private static boolean isSystemExemptPackage(String pkg) {
+    /** BE-09：公开为两处共用（PolicyScheduler 分心统计 + ActivityEventStore 事件记录），名单单一来源。 */
+    public static boolean isSystemExemptPackage(String pkg) {
         if (pkg == null || pkg.isEmpty()) return false;
         if (SYSTEM_EXEMPT_PACKAGES.contains(pkg)) return true;
         String p = pkg.toLowerCase();
@@ -70,7 +74,9 @@ public final class PolicyScheduler {
                 || p.contains(".ime") || p.contains("systemui") || p.contains("launcher")
                 || p.contains("documentsui") || p.contains("providers.media")
                 || p.contains("externalstorage") || p.contains("screenshot")
-                || p.contains("com.android.settings") || p.contains("quickstep") || p.contains("recents");
+                || p.contains("com.android.settings") || p.contains("quickstep") || p.contains("recents")
+                || p.contains("upslide") || p.contains("interactionpool") || p.contains("kelivo")
+                || p.contains("weshine");
     }
 
     private static PolicyScheduler instance;
@@ -82,6 +88,8 @@ public final class PolicyScheduler {
 
     // —— 状态（调度器存活期间保存在内存，足够覆盖「改完立即生效」）——
     private long nextCheckInAt = 0;
+    // BE-04：用单调时钟(开机至今)锚定「上次实际拉回」时刻，避免系统时间跳变 / 深睡恢复导致的间隔漂移。
+    private long lastCheckInElapsed = 0;
     private long lastUserActivityAt = 0;
     private long lastInitiativeAt = 0;
     private int initiativeTodayCount = 0;
@@ -263,26 +271,28 @@ public final class PolicyScheduler {
 
     private void evaluateCheckIn(long now, String current) {
         if (!PolicyStore.checkinEnabled(appCtx)) {
-            nextCheckInAt = now + PolicyStore.nextCheckInDelayMs(appCtx);
+            lastCheckInElapsed = 0;
             return;
         }
         if (ClassScheduleState.isInClassNow(appCtx)) {
-            // 上课期间静默守护（免打扰）：不主动查岗，把下一次查岗推到 1 分钟后重新判断。
-            nextCheckInAt = now + 60_000L;
+            // 上课期间静默守护（免打扰）：不主动查岗，仅跳过本次；不把下一次查岗提前，
+            // 避免「下课瞬间立即拉回」破坏设定的间隔节奏（BE-04）。
             return;
         }
-        if (nextCheckInAt == 0) nextCheckInAt = now + delayWithScale();
+        long elapsed = android.os.SystemClock.elapsedRealtime();
+        long interval = delayWithScale();
+        if (lastCheckInElapsed == 0) lastCheckInElapsed = elapsed;
+        // BE-04：以「上次实际拉回」为锚点计算下一次，而不是以「跳过时的 now」为锚点。
+        nextCheckInAt = lastCheckInElapsed + interval;
         if (now < nextCheckInAt) return;
 
         if (PolicyStore.isQuietNow(appCtx)) {
-            // 安静时段不打扰：把下一次查岗推到 5 分钟后重新判断（离开安静时段会自动恢复）。
-            nextCheckInAt = now + 5 * 60_000L;
+            // 安静时段不打扰：本次跳过，不提前下次；离开安静时段后按原间隔节奏恢复。
             return;
         }
-        if (PolicyStore.isInCooldown(appCtx)) {
-            nextCheckInAt = now + Math.max(60_000L, PolicyStore.cooldownMinutes(appCtx) * 60_000L);
-            return;
-        }
+        // BE-04 二次校验：距上次实际拉回应 >= 间隔，且不在冷却内，才真正触发。
+        if (elapsed - lastCheckInElapsed < interval) return;
+        if (PolicyStore.isInCooldown(appCtx)) return;
 
         // 组装分级拉回配置（与远程 force_back_to_chat 同一套逻辑，但用本机情绪与阈值）。
         JSONObject cfg = new JSONObject();
@@ -316,7 +326,9 @@ public final class PolicyScheduler {
                 "想你 " + CompanionEmotionState.effectiveMissPercent(appCtx) + "%");
         DebugState.append(appCtx, "本地查岗触发分级拉回：想你 " + CompanionEmotionState.effectiveMissPercent(appCtx) + "%");
 
-        nextCheckInAt = now + delayWithScale();
+        // BE-04：以「实际触发时刻」为锚点重置，下一次 = 上次实际拉回 + 间隔。
+        lastCheckInElapsed = android.os.SystemClock.elapsedRealtime();
+        nextCheckInAt = lastCheckInElapsed + delayWithScale();
     }
 
     /** 查岗间隔：基础随机延迟再乘「想你越深拉回越频繁」的倍率。 */
@@ -458,10 +470,12 @@ public final class PolicyScheduler {
             return;
         }
         if (current == null || current.isEmpty()) return;
+        // BE-09：系统面板 / 输入法 / 交互池等瞬时层视为「透明」——既不计分心，也不打断
+        // 「聊天→切出→切回」状态机。原代码只算出 excluded 却从未使用，导致抖音↔交互池↔Kelivo
+        // 之类抖动把分心计数虚增并误触二档训诫。
+        if (isSystemExemptPackage(current)) return;
 
         boolean inChat = current.equals(SELF_PKG) || current.equals(PolicyStore.targetPackage(appCtx));
-        boolean systemLayer = isSystemExemptPackage(current);
-        boolean excluded = inChat || systemLayer;
 
         if (inChat) {
             if (!inChatNow) {

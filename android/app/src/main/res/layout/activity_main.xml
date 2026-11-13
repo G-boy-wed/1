@@ -532,6 +532,7 @@
                     <Button android:id="@+id/locationPermissionButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="打开定位权限" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginTop="6dp" />
                     <Button android:id="@+id/overlayPermissionButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="打开悬浮窗权限" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginTop="6dp" />
                     <Button android:id="@+id/notificationListenerButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="打开媒体状态权限" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginTop="6dp" />
+                    <Button android:id="@+id/mediaRebindButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="⟳ 重新连接媒体监听（诊断）" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginTop="6dp" />
                 </LinearLayout>
 
                 <Button android:id="@+id/drawerKnownAppsButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="应用包名管理  ›" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginBottom="8dp" />

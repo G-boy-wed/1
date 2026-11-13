@@ -42,6 +42,11 @@ public class MediaSyncService extends Service {
     private static final long STATE_UPLOAD_INTERVAL_MS = 5000L;
     private static final long DEFAULT_WATCH_LIMIT_MS = 90L * 60L * 1000L; // 单 App 连续观看上限
 
+    // BE-12：会话事件统一用需求单的 enter / leave / timeout 三类，并写入 activity_events（source=media）。
+    private static final String EVENT_ENTER = "enter";
+    private static final String EVENT_LEAVE = "leave";
+    private static final String EVENT_TIMEOUT = "timeout";
+
     private Handler pollHandler;
     private HandlerThread pollThread;
     private final AtomicLong lastStateUploadMs = new AtomicLong(0L);
@@ -49,6 +54,9 @@ public class MediaSyncService extends Service {
     private volatile boolean wasWatching = false;
     private volatile JSONObject lastSnapshot = new JSONObject();
     private volatile long watchLimitMs = DEFAULT_WATCH_LIMIT_MS;
+    // BE-12：会话心跳与超时；阈值取自 AppPrefs（可配，默认 120s）。
+    private volatile long lastHeartbeatMs = 0L;
+    private volatile long sessionTimeoutMs = AppPrefs.DEFAULT_MEDIA_SESSION_TIMEOUT_SEC * 1000L;
 
     public static boolean isRunning() { return running; }
 
@@ -76,17 +84,21 @@ public class MediaSyncService extends Service {
         if (!running) return;
         try {
             Context ctx = getApplicationContext();
+            sessionTimeoutMs = AppPrefs.mediaSessionTimeoutSec(ctx) * 1000L;
             JSONObject m = MediaState.collect(ctx);
             boolean watchable = m.optBoolean("is_watchable", false);
             boolean playing = "playing".equals(m.optString("state", ""));
             boolean available = m.optBoolean("available", false) && m.optBoolean("is_watchable", false);
 
             if (watchable && (playing || available)) {
+                long now = System.currentTimeMillis();
+                lastHeartbeatMs = now; // 有活跃媒体 → 刷新心跳
                 if (!wasWatching) {
                     wasWatching = true;
                     sessionWatchMs.set(0L);
                     CompanionFloatingWidget.show(ctx, m);
-                    uploadEvent(ctx, "media_watch_start", m);
+                    // BE-12：会话建立写 enter（同时落 activity_events，source=media）。
+                    emitSessionEvent(ctx, EVENT_ENTER, m);
                     DebugState.append(ctx, "伴看：进入 " + m.optString("app", "媒体App"));
                 } else {
                     CompanionFloatingWidget.update(ctx, m);
@@ -102,18 +114,21 @@ public class MediaSyncService extends Service {
                                 "gentle", "知道啦", "伴看休息提醒");
                     }
                 }
-                long now = System.currentTimeMillis();
                 if (now - lastStateUploadMs.get() >= STATE_UPLOAD_INTERVAL_MS) {
                     lastStateUploadMs.set(now);
                     uploadState(ctx, m);
                 }
             } else {
                 boolean was = wasWatching;
-                wasWatching = false;
                 if (was) {
-                    uploadEvent(ctx, "media_watch_end", lastSnapshot);
+                    long now = System.currentTimeMillis();
+                    // BE-12：会话销毁/超时——正常离开写 leave；长时间收不到活跃媒体（心跳超时）写 timeout。
+                    boolean timedOut = lastHeartbeatMs > 0 && (now - lastHeartbeatMs) >= sessionTimeoutMs;
+                    emitSessionEvent(ctx, timedOut ? EVENT_TIMEOUT : EVENT_LEAVE, lastSnapshot);
+                    wasWatching = false;
+                    lastHeartbeatMs = 0L;
                     CompanionFloatingWidget.hide(ctx);
-                    DebugState.append(ctx, "伴看：离开媒体App，本次伴看结束");
+                    DebugState.append(ctx, timedOut ? "伴看：会话超时，写 timeout" : "伴看：离开媒体App，本次伴看结束");
                 } else if (!playing) {
                     CompanionFloatingWidget.hide(ctx);
                 }
@@ -125,25 +140,42 @@ public class MediaSyncService extends Service {
         if (running) pollHandler.postDelayed(this::pollTick, POLL_MS);
     }
 
+    /** BE-12：会话事件同时写本地 activity_events（source=media）并上报服务端，供 last_events 读取。 */
+    private void emitSessionEvent(Context ctx, String canon, JSONObject media) {
+        try {
+            ActivityEventStore.add(ctx, new JSONObject()
+                    .put("source", "media").put("type", "media_watch")
+                    .put("action", "media_watch_" + canon)
+                    .put("title", "伴看" + (EVENT_ENTER.equals(canon) ? "开始" : EVENT_LEAVE.equals(canon) ? "离开" : "超时"))
+                    .put("subtitle", media.optString("app", "") + " · " + media.optString("title", ""))
+                    .put("app_name", media.optString("app", ""))
+                    .put("package_name", media.optString("package", ""))
+                    .put("status", "completed"), false);
+        } catch (Exception ignored) { }
+        uploadEvent(ctx, canon, media);
+    }
+
     /** 节流上报当前媒体上下文（media_state）。 */
     private void uploadState(Context ctx, JSONObject media) {
         try {
             JSONObject body = new JSONObject();
             body.put("device_id", AppPrefs.device(ctx));
             body.put("media_state", media);
+            body.put("session_timeout_seconds", AppPrefs.mediaSessionTimeoutSec(ctx)); // BE-12 可配超时
             postJson(ctx, "/api/media/sync", body);
         } catch (Exception e) {
             DebugState.append(ctx, "伴看状态上报失败：" + ScreenshotService.shortMsg(e));
         }
     }
 
-    /** 上报伴看事件（media_watch_start / media_watch_end / media_watch_limit_exceeded）。 */
+    /** 上报伴看事件（enter / leave / timeout / media_watch_limit_exceeded）。 */
     private void uploadEvent(Context ctx, String event, JSONObject media) {
         try {
             JSONObject body = new JSONObject();
             body.put("device_id", AppPrefs.device(ctx));
             body.put("event", event);
             body.put("media_state", media);
+            body.put("session_timeout_seconds", AppPrefs.mediaSessionTimeoutSec(ctx)); // BE-12 可配超时
             postJson(ctx, "/api/media/sync", body);
         } catch (Exception e) {
             DebugState.append(ctx, "伴看事件上报失败：" + ScreenshotService.shortMsg(e));

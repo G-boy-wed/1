@@ -349,21 +349,27 @@ public class CompanionEmotionState {
         } catch (Exception ignored) { }
     }
 
-    /** 完整快照：给手机界面显示、也给服务端做镜像。 */
+    /** 完整快照：给手机界面显示、也给服务端做镜像。
+     *  BE-02：intensity/miss_percent 与 raw_* 同源（都来自落盘生效值），不再因感知基线衰减到 0
+     *  而与 raw 出现「生效=0 / raw=55」的背离；updated_at 超过 10 分钟标 stale=true。 */
     public static JSONObject snapshot(Context ctx) {
         JSONObject o = new JSONObject();
         try {
-            int miss = effectiveMissPercent(ctx);
-            int intensity = effectiveIntensity(ctx);
+            int storedIntensity = prefs(ctx).getInt(KEY_INTENSITY, 0);
+            int storedMiss = prefs(ctx).getInt(KEY_MISS, 0);
+            long updatedMs = updatedAt(ctx);
+            long staleMs = System.currentTimeMillis() - updatedMs;
             o.put("ok", true);
             o.put("emotion_tag", emotionTag(ctx));
-            o.put("intensity", intensity);
-            o.put("miss_percent", miss);
+            o.put("intensity", storedIntensity);
+            o.put("miss_percent", storedMiss);
             o.put("note", note(ctx));
-            o.put("updated_at", iso(updatedAt(ctx)));
-            o.put("updated_at_ms", updatedAt(ctx));
-            o.put("raw_intensity", prefs(ctx).getInt(KEY_INTENSITY, 0));
-            o.put("raw_miss_percent", prefs(ctx).getInt(KEY_MISS, 0));
+            o.put("updated_at", iso(updatedMs));
+            o.put("updated_at_ms", updatedMs);
+            o.put("raw_intensity", storedIntensity);
+            o.put("raw_miss_percent", storedMiss);
+            o.put("stale", staleMs > 10 * 60 * 1000L);
+            o.put("stale_ms", staleMs);
             o.put("strong", isStrong(ctx));
             o.put("tone", tone(ctx));
             o.put("pull_back_interval_scale", Math.round(pullBackIntervalScale(ctx) * 100) / 100.0);
