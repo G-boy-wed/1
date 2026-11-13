@@ -487,6 +487,10 @@ class McpEngine:
         self.sse_sessions: dict[str, Queue] = {}
         self.sse_lock = Lock()
         self.initialized = False
+        # v0.4.6：create_diary_book 入队去重护栏（防止手机端兜底失效生成重复日记本）。
+        # key -> (过期时间戳, 原始 command_id)
+        self._diary_dedup: dict[str, tuple[float, str]] = {}
+        self._diary_dedup_ttl = 60.0  # 同一 device+name 60s 内仅允许入队一次
 
     # ---------------- MCP 协议层 ----------------
     def handle(self, msg: dict) -> dict | None:
@@ -679,6 +683,9 @@ class McpEngine:
         return str(args.get("device_id") or self.ctx.default_device)
 
     def _command_tool(self, name: str, args: dict) -> dict:
+        # v0.4.6：create_diary_book 走服务端的入队去重护栏，防止重复日记本。
+        if name == "create_diary_book":
+            return self._create_diary_book_guarded(args)
         action = ACTION_OVERRIDE.get(name, name)
         device_id = self._device(args)
         flat = {k: v for k, v in args.items() if k not in ("action", "device_id", "wait_seconds")}
@@ -718,6 +725,42 @@ class McpEngine:
                 result["phone_result"] = phone_result
                 result["executed"] = oc.get("status") == "completed"
         return _text(result)
+
+    def _create_diary_book_guarded(self, args: dict) -> dict:
+        """v0.4.6：日记本创建服务端幂等护栏。
+
+        同一个 device_id + 书名在 TTL 窗口内重复调用（例如客户端兜底逻辑抖动、
+        AI 重试、网络重发）只入队一次，并附带确定性 book_id 提示，让手机端
+        用它做真正的唯一性查找/创建，从服务端杜绝「生成重复日记本」。
+        """
+        device_id = self._device(args)
+        book_name = str(args.get("name") or "").strip()
+        key = "%s\x00%s" % (device_id, book_name)
+        now = time.time()
+        # 清理过期条目
+        self._diary_dedup = {k: (exp, cid) for k, (exp, cid) in self._diary_dedup.items() if exp > now}
+        if key in self._diary_dedup:
+            _exp, first_cid = self._diary_dedup[key]
+            return _text({"ok": True, "queued": False, "deduplicated": True,
+                          "action": "create_diary_book", "device_id": device_id,
+                          "command_id": first_cid,
+                          "message": "同一日记本在 %d 秒内已入队，已去重，不会重复创建。" % int(self._diary_dedup_ttl)})
+        # 确定性 book_id 提示：服务端生成的稳定 id，手机端优先用它查找/创建。
+        book_id = "book_%s_%s" % (device_id, abs(hash(book_name)) & 0xFFFFFFFF)
+        args = dict(args)
+        args.setdefault("book_id", book_id)
+        args["_server_dedup_key"] = key
+        try:
+            queued = self.ctx.enqueue({"action": "create_diary_book", "device_id": device_id,
+                                       "payload": args, "book_id": book_id})
+        except Exception as e:
+            return _error({"ok": False, "error": "enqueue_failed", "message": str(e)})
+        cmd = (queued or {}).get("command") or {}
+        cid = cmd.get("id", "")
+        self._diary_dedup[key] = (now + self._diary_dedup_ttl, cid)
+        return _text({"ok": True, "queued": True, "action": "create_diary_book",
+                      "device_id": device_id, "command_id": cid, "book_id": book_id,
+                      "message": "日记本创建已入队（含服务端去重护栏）。"})
 
     def _read_state(self, kind: str, name: str, args: dict) -> dict:
         device_id = self._device(args)

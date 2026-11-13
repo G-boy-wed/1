@@ -1,0 +1,249 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""v0.4.6 服务端加固自动校验脚本。
+
+覆盖四大修复点：
+  A) LINJIAN_TOKEN 鉴权：复现「.env 重复 token 行导致 source/dotenv 取值错位」的 403 元凶，
+     验证服务端自举后 token 单一稳定、/api/poll 用正确 token 返回 200、错误 token 返回 403。
+  B) 媒体同步 /api/media/sync：合法更新生效；陈旧(ts 更旧)更新被拒(不覆盖)；非法字段返回 400
+     且保留上一状态(错误回滚)；更新(ts 更新)可覆盖。
+  C) 日记本创建 create_diary_book 服务端入队去重：同一 device+书名在窗口内二次调用仅入队一次。
+  D) ensure_token_persisted 单元：重复 token 行被规范化为单条，返回稳定 token。
+
+全绿输出：PERFECT: SERVER_HARDENING_PASSED；否则 FAILED 并以退出码 1 失败。
+"""
+import importlib.util
+import json
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+SERVER_PY = HERE / "linjian_server.py"
+
+PASS = 0
+FAIL = 0
+
+
+def check(label, cond, extra=""):
+    global PASS, FAIL
+    if cond:
+        PASS += 1
+        print("  [OK]   %s%s" % (label, ("  " + extra) if extra else ""))
+    else:
+        FAIL += 1
+        print("  [FAIL] %s%s" % (label, ("  " + extra) if extra else ""))
+
+
+def http(method, url, token=None, payload=None, timeout=15):
+    data = None
+    headers = {"Content-Type": "application/json"}
+    if token is not None:
+        headers["X-Auth-Token"] = token
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        r = urllib.request.urlopen(req, timeout=timeout)
+        return r.status, json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")
+        try:
+            body = json.loads(body)
+        except Exception:
+            pass
+        return e.code, body
+
+
+def load_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# --------------------------------------------------------------------------- #
+# D) ensure_token_persisted 单元（重复 token 行规范化）
+# --------------------------------------------------------------------------- #
+def test_token_normalize_unit():
+    print("\n== D) ensure_token_persisted 单元（重复 token 行规范化） ==")
+    tmp = HERE / ".verify_tmp"
+    tmp.mkdir(exist_ok=True)
+    env_path = tmp / ".env"
+    # 复现 bug：.env 同时出现两条不同 token 行
+    env_path.write_text(
+        "LINJIAN_TOKEN=zzz_OLDVALUE_from_first_line\n"
+        "LINJIAN_TOKEN=aaa_NEWVALUE_from_second_line\n",
+        encoding="utf-8",
+    )
+    srv = load_module("lsrv_d", str(SERVER_PY))
+    tok = srv.ensure_token_persisted(tmp)
+    lines = [l for l in env_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    token_lines = [l for l in lines if l.strip().startswith("LINJIAN_TOKEN=")]
+    check("规范化后 .env 仅保留单条 LINJIAN_TOKEN", len(token_lines) == 1, "lines=%d" % len(token_lines))
+    # 模拟旧 load_dotenv（setdefault，前写生效）取到的值，应与返回 token 一致
+    import os as _os
+    saved = dict(_os.environ)
+    _os.environ.pop("LINJIAN_TOKEN", None)
+    srv.load_dotenv(env_path)
+    check("source/dotenv 取到同一 token（错位消除）", _os.environ.get("LINJIAN_TOKEN") == tok)
+    _os.environ.clear(); _os.environ.update(saved)
+    check("返回的 token 与单条规范行一致", tok == token_lines[0].split("=", 1)[1])
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+# --------------------------------------------------------------------------- #
+# A+B) 端到端：起真实服务，复现 .env 重复 token 行场景
+# --------------------------------------------------------------------------- #
+def test_e2e_token_and_media():
+    print("\n== A+B) 端到端：token 鉴权 + 媒体同步 ==")
+    import random
+    port = int(os.environ.get("VERIFY_PORT") or 0) or random.randint(18700, 18999)
+    env_file = HERE / ".env"
+    bak = None
+    if env_file.exists():
+        bak = env_file.read_text(encoding="utf-8")
+    # 复现 403 元凶：.env 两条冲突 token 行
+    env_file.write_text(
+        "LINJIAN_TOKEN=zzz_OLDVALUE_from_first_line\n"
+        "LINJIAN_TOKEN=aaa_NEWVALUE_from_second_line\n",
+        encoding="utf-8",
+    )
+    env = dict(os.environ)
+    env.pop("LINJIAN_TOKEN", None)  # 不注入环境变量，强制服务端从 .env 自举
+    env["LINJIAN_PORT"] = str(port)
+    logf = HERE / ".verify_srv.log"
+    proc = subprocess.Popen([sys.executable, str(SERVER_PY), "--port", str(port)],
+                            cwd=str(HERE), env=env,
+                            stdout=logf.open("w"), stderr=subprocess.STDOUT)
+    base = "http://127.0.0.1:%d" % port
+    try:
+        # 等 /health（无需 token）
+        t0 = time.time()
+        resolved = None
+        while time.time() - t0 < 30:
+            if proc.poll() is not None:
+                print("  [server log] " + ("".join(logf.read_text(encoding="utf-8", errors="replace").splitlines()[-12:])))
+                raise RuntimeError("服务提前退出")
+            try:
+                st, _ = http("GET", base + "/health")
+                if st == 200:
+                    # 读回服务端规范化后的 token（从运行中的 .env）
+                    resolved = env_file.read_text(encoding="utf-8")
+                    break
+            except Exception:
+                time.sleep(0.4)
+        check("服务启动且 /health 可用", resolved is not None)
+        # 服务端自举后 .env 应已规范化为单条；取该 token
+        tok_lines = [l.split("=", 1)[1] for l in resolved.splitlines()
+                     if l.strip().startswith("LINJIAN_TOKEN=")]
+        check("服务端已把 .env 规范化为单条 token", len(tok_lines) == 1, "count=%d" % len(tok_lines))
+        tok = tok_lines[0]
+
+        # A) /api/poll 用正确 token
+        st, b = http("GET", base + "/api/poll?device_id=android-phone", token=tok)
+        check("/api/poll 正确 token -> 200", st == 200, "status=%s" % st)
+        # A) /api/poll 用错误 token -> 403
+        st, b = http("GET", base + "/api/poll?device_id=android-phone", token="wrong-token")
+        check("/api/poll 错误 token -> 403", st == 403, "status=%s" % st)
+
+        # B) 媒体同步：合法更新生效
+        st, b = http("POST", base + "/api/media/sync", token=tok, payload={
+            "device_id": "android-phone", "ts": 1000.0,
+            "media_state": {"state": "playing", "progress": 0.5, "title": "t", "package": "com.x"},
+            "event": "play"})
+        check("媒体同步 合法更新 -> 200 applied", st == 200 and b.get("applied") is True, str(b))
+        # 陈旧更新（ts 更旧）应被拒且不覆盖
+        st, b = http("POST", base + "/api/media/sync", token=tok, payload={
+            "device_id": "android-phone", "ts": 900.0,
+            "media_state": {"state": "paused", "progress": 0.1}})
+        check("媒体同步 陈旧更新 -> 跳过覆盖(applied:False)", st == 200 and b.get("applied") is False, str(b))
+        # 非法字段（progress 超范围）-> 400 且保留上一状态（错误回滚）
+        st, b = http("POST", base + "/api/media/sync", token=tok, payload={
+            "device_id": "android-phone", "ts": 1100.0,
+            "media_state": {"state": "playing", "progress": 999.0}})
+        check("媒体同步 非法 progress -> 400(回滚)", st == 400, "status=%s" % st)
+        # 此时 /api/media/context 仍应为第一次的合法状态（未被陈旧/非法污染）
+        st, b = http("GET", base + "/api/media/context?device_id=android-phone", token=tok)
+        ms = (b.get("media_state") or {})
+        check("媒体上下文未被非法/陈旧更新污染", ms.get("progress") == 0.5 and ms.get("state") == "playing",
+              str(ms))
+        # 更新（ts 更新）可覆盖
+        st, b = http("POST", base + "/api/media/sync", token=tok, payload={
+            "device_id": "android-phone", "ts": 1200.0,
+            "media_state": {"state": "paused", "progress": 0.8}})
+        check("媒体同步 更新(更新 ts) -> 覆盖生效", st == 200 and b.get("applied") is True, str(b))
+        st, b = http("GET", base + "/api/media/context?device_id=android-phone", token=tok)
+        check("覆盖后状态正确", (b.get("media_state") or {}).get("progress") == 0.8, str(b.get("media_state")))
+    finally:
+        if proc.poll() is None:
+            proc.send_signal(signal.SIGTERM)
+            try: proc.wait(timeout=5)
+            except Exception: proc.kill()
+        if bak is not None:
+            env_file.write_text(bak, encoding="utf-8")
+        else:
+            env_file.unlink(missing_ok=True)
+        logf.unlink(missing_ok=True)
+
+
+# --------------------------------------------------------------------------- #
+# C) 日记本创建入队去重（engine 单元，mock ctx）
+# --------------------------------------------------------------------------- #
+def _unwrap(tool_result):
+    """_text()/_error() 返回 MCP content 包裹：{'content':[{'type':'text','text': json_str}]}。"""
+    try:
+        txt = tool_result["content"][0]["text"]
+        return json.loads(txt)
+    except Exception:
+        return tool_result
+
+
+def test_diary_dedup():
+    print("\n== C) create_diary_book 入队去重护栏 ==")
+    srv = load_module("lsrv_c", str(SERVER_PY))
+    import mcp_engine  # 同目录模块
+    calls = []
+    class Ctx:
+        data_dir = str(HERE / ".verify_tmp")
+        default_device = "android-phone"
+        def enqueue(self, data):
+            calls.append(data)
+            return {"command": {"id": "cmd_%d" % len(calls)}}
+    os.makedirs(Ctx.data_dir, exist_ok=True)
+    try:
+        eng = mcp_engine.McpEngine(ctx=Ctx(), tools=[])
+        r1 = _unwrap(eng._create_diary_book_guarded({"name": "TA 的日记", "device_id": "android-phone"}))
+        r2 = _unwrap(eng._create_diary_book_guarded({"name": "TA 的日记", "device_id": "android-phone"}))
+        check("首次创建入队(queued=True)", r1.get("queued") is True, str(r1))
+        check("二次同名牌被去重(queued=False)", r2.get("queued") is False and r2.get("deduplicated") is True, str(r2))
+        check("去重后仅入队 1 次", len(calls) == 1, "calls=%d" % len(calls))
+        check("附带确定性 book_id 提示", bool((calls[0].get("payload") or {}).get("book_id")), str(calls[0].get("payload")))
+        # 不同书名应各自入队
+        eng._create_diary_book_guarded({"name": "另一本", "device_id": "android-phone"})
+        check("不同书名可独立入队", len(calls) == 2, "calls=%d" % len(calls))
+    finally:
+        shutil.rmtree(Ctx.data_dir, ignore_errors=True)
+
+
+def main():
+    test_token_normalize_unit()
+    test_e2e_token_and_media()
+    test_diary_dedup()
+    print("\n" + "=" * 60)
+    print("PASS=%d  FAIL=%d" % (PASS, FAIL))
+    if FAIL == 0:
+        print("PERFECT: SERVER_HARDENING_PASSED")
+    else:
+        print("FAILED: SERVER_HARDENING_HAS_ERRORS")
+    print("=" * 60)
+    sys.exit(0 if FAIL == 0 else 1)
+
+
+if __name__ == "__main__":
+    main()

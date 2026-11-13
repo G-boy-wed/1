@@ -13,6 +13,7 @@ import base64
 import calendar
 import json
 import os
+import secrets
 import sqlite3
 import subprocess
 import sys
@@ -98,6 +99,51 @@ def load_dotenv(path: Path) -> None:
         os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
 
 
+DEFAULT_TOKEN_PLACEHOLDER = "please-change-me-to-a-long-random-token"
+
+
+def ensure_token_persisted(here: Path) -> str:
+    """v0.4.6：保证 LINJIAN_TOKEN 始终唯一且稳定（修复手机端 /api/poll 偶发 403）。
+
+    取值优先级：
+      1) 已注入的环境变量（如 Render 的 envVars.generateValue）；
+      2) 否则读 .env 中已有的 LINJIAN_TOKEN；
+      3) 仍缺失/为占位符 -> 生成并写回 .env。
+    写回时会移除所有旧的 LINJIAN_TOKEN= 行，仅保留单条规范行，避免：
+      - start.sh 用 bash source（后写生效）读取，
+      - 服务端用 load_dotenv 的 setdefault（前写生效）读取，
+      两者取值错位 -> 手机端 token 与服务端不一致 -> 轮询 403。
+    返回最终生效的 token。
+    """
+    tok = os.environ.get("LINJIAN_TOKEN", "").strip()
+    env_path = here / ".env"
+    if not tok or tok == DEFAULT_TOKEN_PLACEHOLDER:
+        if env_path.exists():
+            for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                s = line.strip()
+                if s.startswith("LINJIAN_TOKEN=") and len(s) > len("LINJIAN_TOKEN="):
+                    cand = s.split("=", 1)[1].strip().strip('"').strip("'")
+                    if cand and cand != DEFAULT_TOKEN_PLACEHOLDER:
+                        tok = cand
+                        break
+    if not tok or tok == DEFAULT_TOKEN_PLACEHOLDER:
+        tok = "lj_" + secrets.token_hex(16)
+    # 规范化 .env：仅保留一条 LINJIAN_TOKEN，杜绝重复行导致的取值错位。
+    try:
+        if env_path.exists():
+            kept = [ln for ln in env_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+                    if not ln.strip().startswith("LINJIAN_TOKEN=")]
+            kept.append("LINJIAN_TOKEN=%s" % tok)
+            env_path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+        else:
+            env_path.write_text("LINJIAN_TOKEN=%s\n" % tok, encoding="utf-8")
+    except Exception:
+        pass  # 写盘失败不影响运行：token 已在环境变量中生效
+    os.environ["LINJIAN_TOKEN"] = tok
+    return tok
+
+
+
 def now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -105,6 +151,54 @@ def now_iso() -> str:
 def parse_iso_seconds(value: str) -> float:
     try: return calendar.timegm(time.strptime(str(value or ""), "%Y-%m-%dT%H:%M:%SZ"))
     except Exception: return 0.0
+
+
+# v0.4.6：媒体状态机的合法取值集合与范围（防止脏数据污染同屏伴看同步）。
+_MEDIA_STATES = {"playing", "paused", "buffering", "stopped", "idle", "unknown"}
+_MAX_PROGRESS = 1.0  # 归一化为 0..1；也兼容 0..100 的客户端。
+
+
+def validate_media_state(ms: dict) -> tuple[bool, str]:
+    """校验 /api/media/sync 的 media_state 字段；返回 (ok, error_msg)。"""
+    if not isinstance(ms, dict):
+        return False, "media_state 必须是 object"
+    # state：可选，但若存在必须为已知播放状态字符串。
+    st = ms.get("state")
+    if st is not None and (not isinstance(st, str) or st not in _MEDIA_STATES):
+        return False, "state 非法：%r" % (st,)
+    # progress：可选，必须是 0..1（或 0..100）的数值。
+    prog = ms.get("progress")
+    if prog is not None:
+        if not isinstance(prog, (int, float)) or isinstance(prog, bool):
+            return False, "progress 必须是数值"
+        if isinstance(prog, (int, float)) and not (0 <= float(prog) <= 100):
+            return False, "progress 超出范围(0..100)"
+    # position_ms / duration_ms：非负数值。
+    for f in ("position_ms", "duration_ms"):
+        v = ms.get(f)
+        if v is not None and (not isinstance(v, (int, float)) or isinstance(v, bool) or float(v) < 0):
+            return False, "%s 必须是非负数值" % f
+    # title / package：可选字符串，拒绝非字符串。
+    for f in ("title", "package", "app_name"):
+        v = ms.get(f)
+        if v is not None and not isinstance(v, str):
+            return False, "%s 必须是字符串" % f
+    return True, ""
+
+
+def _is_newer_update(prev: dict, client_ts) -> bool:
+    """v0.4.6：单调 last-writer-wins。
+    新状态仅在比旧状态更新时允许覆盖；无 ts 时（旧客户端）默认允许，保证兼容。
+    """
+    if client_ts is None:
+        return True
+    if not isinstance(client_ts, (int, float)) or isinstance(client_ts, bool):
+        return True
+    prev_ts = prev.get("ts")
+    if not isinstance(prev_ts, (int, float)):
+        return True
+    # 允许 ~2s 时钟抖动；相同/更新则覆盖，陈旧则跳过。
+    return float(client_ts) >= float(prev_ts) - 2.0
 
 
 def activity_type_for_action(action: str) -> str:
@@ -936,20 +1030,40 @@ class Handler(BaseHTTPRequestHandler):
             if not self._require_token(): return
             data = self._read_json()
             device_id = data.get("device_id") or DEFAULT_DEVICE
-            media_state = data.get("media_state") if isinstance(data.get("media_state"), dict) else {}
+            media_state = data.get("media_state")
             event = (data.get("event") or "").strip()
+            # v0.4.6：严格字段校验；非法输入【不覆盖】旧状态，直接返回 400（错误回滚）。
+            if not isinstance(media_state, dict):
+                self._json(400, {"ok": False, "error": "invalid_media_state",
+                                 "message": "media_state 必须是 object"})
+                return
+            ok, err = validate_media_state(media_state)
+            if not ok:
+                # 校验失败：保留上一可用状态，不写入，避免脏数据互相覆盖。
+                self._json(400, {"ok": False, "error": "invalid_media_state", "message": err,
+                                 "kept_previous": bool(self.state.media_live.get(device_id))})
+                return
+            client_ts = data.get("ts")
             with self.state.commands_lock:
+                prev = self.state.media_live.get(device_id)
+                # 单调时间戳（last-writer-wins）：仅当新状态更新时写入，
+                # 防止双端推送顺序乱序导致的「状态互相覆盖 / 断联回退」。
+                if prev and not _is_newer_update(prev, client_ts):
+                    self._json(200, {"ok": True, "device_id": device_id,
+                                     "applied": False, "reason": "stale_update_skipped"})
+                    return
                 self.state.media_live[device_id] = {
                     "media_state": media_state,
                     "event": event,
                     "updated_at": now_iso(),
+                    "ts": client_ts if isinstance(client_ts, (int, float)) else time.time(),
                 }
                 if event:
                     lst = self.state.media_events.get(device_id) or []
                     lst.append({"event": event, "at": now_iso(), "media_state": media_state})
                     if len(lst) > 50: lst = lst[-50:]
                     self.state.media_events[device_id] = lst
-            self._json(200, {"ok": True, "device_id": device_id}); return
+            self._json(200, {"ok": True, "device_id": device_id, "applied": True}); return
         if path == "/api/peek":
             if not self._require_token(): return
             self._queue(make_command(DEFAULT_DEVICE, "peek")); self._json(200, {"ok": True, "queued": True}); return
@@ -2062,13 +2176,18 @@ def main() -> None:
             os.environ["LINJIAN_PORT"] = str(int(sys.argv[sys.argv.index("--port") + 1]))
         except (IndexError, ValueError):
             pass
+    # v0.4.6：先保证 token 稳定且持久化（自举生成/规范化 .env），避免 /api/poll 偶发 403。
+    here = Path(__file__).resolve().parent
+    resolved = ensure_token_persisted(here)
+    if resolved != os.environ.get("LINJIAN_TOKEN", ""):
+        os.environ["LINJIAN_TOKEN"] = resolved
     # v0.4.0：--mcp-stdio 让本进程直接作为 stdio MCP 服务器（同一份 Python 代码、同一后端）。
     if "--mcp-stdio" in sys.argv:
         run_mcp_stdio(State())
         return
     state = State()
-    if not state.token or state.token == "please-change-me-to-a-long-random-token":
-        sys.stderr.write("拒绝启动：请先设置 LINJIAN_TOKEN 为长随机密钥。\n")
+    if not state.token or state.token == DEFAULT_TOKEN_PLACEHOLDER:
+        sys.stderr.write("拒绝启动：LINJIAN_TOKEN 无法解析，请检查 server/.env 权限。\n")
         sys.exit(1)
     # 挂载内嵌 MCP 引擎（HTTP /mcp、SSE /sse 与 stdio 共用）。
     try:
