@@ -83,7 +83,7 @@ public class MainActivity extends Activity {
     private Button toggleButton, accessibilityButton, usageAccessButton, testButton, openXhsButton, openTargetAppButton, homeButton, backButton, recentsButton, alarmTestButton, notifyTestButton, refreshLifeButton;
     private Button addPackageButton, testPackageButton, sequenceTestButton, refreshGateButton, addGateAppButton, addWeatherLocationButton, setCurrentWeatherButton, useCurrentLocationButton;
     private Button testGuidianButton, saveGuidianSettingsButton, chooseGuidianAvatarButton, guidianThemeDuskButton, guidianThemeCloudButton, guidianThemeBerryButton;
-    private Button themeCreamButton, themeBlueButton, themePeachButton, themeNightButton, themeMintButton, themePurpleButton, drawerThemeButton, drawerNowStateButton, locationPermissionButton, overlayPermissionButton, notificationListenerButton, mediaRebindButton;
+    private Button themeCreamButton, themeBlueButton, themePeachButton, themeNightButton, themeMintButton, themePurpleButton, drawerThemeButton, drawerNowStateButton, locationPermissionButton, overlayPermissionButton, notificationListenerButton, mediaRebindButton, themeDarkToggleButton;
     private Button drawerConnectionButton, drawerPermissionButton, drawerControlTestButton, drawerKnownAppsButton, drawerHomeModeButton, drawerGateAddButton, drawerReminderButton, drawerCycleButton, drawerDebugButton, drawerLifeDetailsButton, drawerAppGateButton, drawerWeatherButton, drawerVersionButton, checkUpdateButton, downloadUpdateButton;
     // P0 设置页边界：以下抽屉原先无显式「保存」按钮（部分甚至没有任何落盘时机），补齐。
     private Button saveReminderButton, saveCycleButton, saveHomeModeButton, saveConnectionButton, savePermissionButton, saveDebugFieldsButton;
@@ -193,7 +193,13 @@ public class MainActivity extends Activity {
         bindExplicitSaveButtons();
         bindInstantPersistToggles();
 
-        bindThemeButton(themeCreamButton, "奶油绿"); bindThemeButton(themeBlueButton, "雾蓝白"); bindThemeButton(themePeachButton, "白桃粉"); bindThemeButton(themeNightButton, "夜航黑"); bindThemeButton(themeMintButton, "薄荷透明"); bindThemeButton(themePurpleButton, "星云紫");
+        bindThemeButton(themeCreamButton, "经典白"); bindThemeButton(themeBlueButton, "雾灰"); bindThemeButton(themePeachButton, "暖米"); bindThemeButton(themeNightButton, "暮夜蓝紫"); bindThemeButton(themeMintButton, "云海青灰"); bindThemeButton(themePurpleButton, "落日莓雾");
+        if (themeDarkToggleButton != null) themeDarkToggleButton.setOnClickListener(v -> {
+            boolean dark = UITheme.toggleDarkMode(this);
+            applyVisualTheme();
+            updateUI();
+            UiKit.toast(this, dark ? "已切换到暗色" : "已切换到亮色");
+        });
 
         bindDrawer(drawerLifeDetailsButton, lifeStatusText, "展开详情");
         bindDrawer(drawerThemeButton, drawerTheme, "主题");
@@ -237,7 +243,7 @@ public class MainActivity extends Activity {
         toggleButton = findViewById(R.id.toggleButton); accessibilityButton = findViewById(R.id.accessibilityButton); usageAccessButton = findViewById(R.id.usageAccessButton); testButton = findViewById(R.id.testButton); openXhsButton = findViewById(R.id.openXhsButton); openTargetAppButton = findViewById(R.id.openTargetAppButton); homeButton = findViewById(R.id.homeButton); backButton = findViewById(R.id.backButton); recentsButton = findViewById(R.id.recentsButton); alarmTestButton = findViewById(R.id.alarmTestButton); notifyTestButton = findViewById(R.id.notifyTestButton); refreshLifeButton = findViewById(R.id.refreshLifeButton);
         addPackageButton = findViewById(R.id.addPackageButton); testPackageButton = findViewById(R.id.testPackageButton); sequenceTestButton = findViewById(R.id.sequenceTestButton); refreshGateButton = findViewById(R.id.refreshGateButton); addGateAppButton = findViewById(R.id.addGateAppButton); addWeatherLocationButton = findViewById(R.id.addWeatherLocationButton); setCurrentWeatherButton = findViewById(R.id.setCurrentWeatherButton); useCurrentLocationButton = findViewById(R.id.useCurrentLocationButton);
         testGuidianButton = findViewById(R.id.testGuidianButton); saveGuidianSettingsButton = findViewById(R.id.saveGuidianSettingsButton); chooseGuidianAvatarButton = findViewById(R.id.chooseGuidianAvatarButton); guidianThemeDuskButton = findViewById(R.id.guidianThemeDuskButton); guidianThemeCloudButton = findViewById(R.id.guidianThemeCloudButton); guidianThemeBerryButton = findViewById(R.id.guidianThemeBerryButton);
-        themeCreamButton = findViewById(R.id.themeCreamButton); themeBlueButton = findViewById(R.id.themeBlueButton); themePeachButton = findViewById(R.id.themePeachButton); themeNightButton = findViewById(R.id.themeNightButton); themeMintButton = findViewById(R.id.themeMintButton); themePurpleButton = findViewById(R.id.themePurpleButton); drawerThemeButton = findViewById(R.id.drawerThemeButton); drawerNowStateButton = findViewById(R.id.drawerNowStateButton); locationPermissionButton = findViewById(R.id.locationPermissionButton); overlayPermissionButton = findViewById(R.id.overlayPermissionButton); notificationListenerButton = findViewById(R.id.notificationListenerButton); mediaRebindButton = findViewById(R.id.mediaRebindButton);
+        themeCreamButton = findViewById(R.id.themeCreamButton); themeBlueButton = findViewById(R.id.themeBlueButton); themePeachButton = findViewById(R.id.themePeachButton); themeNightButton = findViewById(R.id.themeNightButton); themeMintButton = findViewById(R.id.themeMintButton); themePurpleButton = findViewById(R.id.themePurpleButton); drawerThemeButton = findViewById(R.id.drawerThemeButton); drawerNowStateButton = findViewById(R.id.drawerNowStateButton); locationPermissionButton = findViewById(R.id.locationPermissionButton); overlayPermissionButton = findViewById(R.id.overlayPermissionButton); notificationListenerButton = findViewById(R.id.notificationListenerButton); mediaRebindButton = findViewById(R.id.mediaRebindButton); themeDarkToggleButton = findViewById(R.id.themeDarkToggleButton);
         drawerConnectionButton = findViewById(R.id.drawerConnectionButton); drawerPermissionButton = findViewById(R.id.drawerPermissionButton); drawerControlTestButton = findViewById(R.id.drawerControlTestButton); drawerKnownAppsButton = findViewById(R.id.drawerKnownAppsButton); drawerHomeModeButton = findViewById(R.id.drawerHomeModeButton); drawerGateAddButton = findViewById(R.id.drawerGateAddButton); drawerReminderButton = findViewById(R.id.drawerReminderButton); drawerCycleButton = findViewById(R.id.drawerCycleButton); drawerDebugButton = findViewById(R.id.drawerDebugButton); drawerLifeDetailsButton = findViewById(R.id.drawerLifeDetailsButton); drawerAppGateButton = findViewById(R.id.drawerAppGateButton); drawerWeatherButton = findViewById(R.id.drawerWeatherButton); drawerVersionButton = findViewById(R.id.drawerVersionButton); checkUpdateButton = findViewById(R.id.checkUpdateButton); downloadUpdateButton = findViewById(R.id.downloadUpdateButton);
         saveReminderButton = findViewById(R.id.saveReminderButton); saveCycleButton = findViewById(R.id.saveCycleButton); saveHomeModeButton = findViewById(R.id.saveHomeModeButton); saveConnectionButton = findViewById(R.id.saveConnectionButton); savePermissionButton = findViewById(R.id.savePermissionButton); saveDebugFieldsButton = findViewById(R.id.saveDebugFieldsButton);
         drawerGuidianButton = findViewById(R.id.drawerGuidianButton); drawerGuidianSettingsButton = findViewById(R.id.drawerGuidianSettingsButton); drawerCalendarButton = findViewById(R.id.drawerCalendarButton); saveCalendarEventButton = findViewById(R.id.saveCalendarEventButton);
@@ -2375,7 +2381,7 @@ public class MainActivity extends Activity {
 
     private void applyBottomNavigationInsets() {
         if (bottomNav == null) return;
-        final int baseBottom = dp(6);
+        final int baseBottom = dp(16); // NAV-01：底部悬浮 16dp
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT_WATCH) {
             bottomNav.setOnApplyWindowInsetsListener((view, insets) -> {
                 ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) view.getLayoutParams();
@@ -2400,10 +2406,11 @@ public class MainActivity extends Activity {
     private void bindThemeButton(Button b, String name) {
         if (b == null) return;
         b.setOnClickListener(v -> {
-            AppPrefs.get(this).edit().putString(AppPrefs.KEY_THEME, name).apply();
+            // THEME-02：统一走 setTheme，联动亮/暗版；只写偏好再重绘，不重建 Activity
+            UITheme.setTheme(this, name);
             applyVisualTheme();
             updateUI();
-            Toast.makeText(this, "主题已切换为 " + name, Toast.LENGTH_SHORT).show();
+            UiKit.toast(this, "主题已切换为 " + name + " · " + (UITheme.isDarkMode(this) ? "暗" : "亮"));
         });
     }
 
@@ -2436,13 +2443,25 @@ public class MainActivity extends Activity {
         setTabSelected(tabSee, "see".equals(currentTab));
         setTabSelected(tabGate, "gate".equals(currentTab));
         setTabSelected(tabSettings, "settings".equals(currentTab));
-        styleThemeButton(themeCreamButton, t, "奶油绿"); styleThemeButton(themeBlueButton, t, "雾蓝白"); styleThemeButton(themePeachButton, t, "白桃粉"); styleThemeButton(themeNightButton, t, "夜航黑"); styleThemeButton(themeMintButton, t, "薄荷透明"); styleThemeButton(themePurpleButton, t, "星云紫");
+        styleThemeButton(themeCreamButton, t, "经典白"); styleThemeButton(themeBlueButton, t, "雾灰"); styleThemeButton(themePeachButton, t, "暖米"); styleThemeButton(themeNightButton, t, "暮夜蓝紫"); styleThemeButton(themeMintButton, t, "云海青灰"); styleThemeButton(themePurpleButton, t, "落日莓雾");
+        if (themeDarkToggleButton != null) {
+            boolean isDark = t.dark;
+            themeDarkToggleButton.setText(isDark ? "暗色 · 点击切亮" : "亮色 · 点击切暗");
+            themeDarkToggleButton.setBackground(t.chip(isDark));
+            themeDarkToggleButton.setTextColor(isDark ? t.text : t.subtext);
+            themeDarkToggleButton.setAllCaps(false);
+            themeDarkToggleButton.setTextSize(11);
+        }
         styleGuidianThemeButton(guidianThemeDuskButton, t, "粉色"); styleGuidianThemeButton(guidianThemeCloudButton, t, "白色"); styleGuidianThemeButton(guidianThemeBerryButton, t, "黑色");
         if (bottomNav != null) { bottomNav.setBackground(t.navBar()); bottomNav.setElevation(dp(.8f)); }
         if (heroCard != null) { heroCard.setBackground(t.hero()); heroCard.setElevation(dp(4)); }
         styleQuickCard(quickSeeButton, quickSeeIcon, quickSeeTitle, quickSeeDetail, quickSeeArrow, t);
         styleQuickCard(quickGuardButton, quickGuardIcon, quickGuardTitle, quickGuardDetail, quickGuardArrow, t);
         if (brandText != null) brandText.setTextColor(t.primary);
+        // NAV-02 通用头：11sp 大写小标签 + 28sp Bold 大标题 + 13sp 副标题
+        if (brandText != null) { brandText.setTextSize(UiTokens.FONT_PAGE_LABEL); brandText.setAllCaps(true); brandText.setLetterSpacing(UiTokens.LETTER_SPACING / UiTokens.FONT_PAGE_LABEL); }
+        if (headerTitle != null) { headerTitle.setTextSize(UiTokens.FONT_PAGE_TITLE); headerTitle.setTypeface(Typeface.create("sans-serif", Typeface.BOLD)); headerTitle.setTextColor(t.text); }
+        if (headerSubtitle != null) { headerSubtitle.setTextSize(UiTokens.FONT_VALUE); headerSubtitle.setTextColor(t.subtext); }
         if (heroLabelText != null) { heroLabelText.setTextColor(t.primary); heroLabelText.setBackground(t.chip(true)); heroLabelText.setPadding(dp(9), dp(4), dp(9), dp(4)); }
         if (overviewAdviceText != null) overviewAdviceText.setTextColor(t.text);
         if (overviewSecondaryText != null) overviewSecondaryText.setTextColor(t.text);
@@ -2637,7 +2656,7 @@ public class MainActivity extends Activity {
 
     private void styleThemeButton(Button b, UITheme t, String name) {
         if (b == null) return;
-        boolean selected = name.equals(t.name);
+        boolean selected = UITheme.currentBaseName(this).equals(name);
         b.setBackground(t.chip(selected));
         b.setTextColor(selected ? t.primary : t.subtext);
         b.setMinHeight(dp(29));
@@ -3210,7 +3229,7 @@ public class MainActivity extends Activity {
         if (drawerAppGateButton != null && (drawerAppGate == null || drawerAppGate.getVisibility() != View.VISIBLE)) drawerAppGateButton.setText(AppGate.summaryLine(this) + "  ›");
         if (gateStatusText != null) gateStatusText.setText(AppGate.prettyClean(this));
         if (debugText != null) debugText.setText(DebugState.get(this));
-        if (themeText != null) themeText.setText("当前主题：" + AppPrefs.get(this).getString(AppPrefs.KEY_THEME, "白桃粉") + "\n点击后即时切换背景、卡片、按钮和底部导航。守护日历主色：#B8A8D8。");
+        if (themeText != null) themeText.setText("当前主题：" + UITheme.currentBaseName(this) + " · " + (UITheme.isDarkMode(this) ? "暗" : "亮") + "\n六套预设均支持亮/暗两版，点击即时切换，无需重启。");
         if (guidianSummaryText != null) guidianSummaryText.setText(GuidianState.summaryText(this));
         if (guidianDetailText != null) guidianDetailText.setText(GuidianState.detailText(this));
         if (guidianSettingsStatusText != null) guidianSettingsStatusText.setText(GuidianState.detailText(this));

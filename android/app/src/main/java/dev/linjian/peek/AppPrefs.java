@@ -26,6 +26,7 @@ public class AppPrefs {
     public static final String KEY_WEATHER_NOTE = "life_weather_note";
     public static final String KEY_WEATHER_LOCATIONS = "weather_locations_lines";
     public static final String KEY_THEME = "ui_theme";
+    public static final String KEY_THEME_DARK = "ui_theme_dark"; // THEME-02：六套预设各自的亮/暗两版
     public static final String KEY_ACTIVE_REMINDERS = "active_reminders_enabled";
     public static final String KEY_RULE_BATTERY = "rule_battery_enabled";
     public static final String KEY_BATTERY_THRESHOLD = "rule_battery_threshold";

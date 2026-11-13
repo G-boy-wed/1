@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#FFE46E7D" />
-    <corners android:radius="16dp" />
+    <!-- 弱红 color.danger #C98A8A，不用纯红 -->
+    <solid android:color="#FFC98A8A" />
+    <corners android:radius="18dp" />
     <padding android:left="10dp" android:right="10dp" android:top="8dp" android:bottom="8dp" />
 </shape>

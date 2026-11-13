@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#FFFFF0F5" />
+    <!-- COMPONENT 卡内子块 #F7F7F7 / radius.row 18dp -->
+    <solid android:color="#FFF7F7F7" />
     <corners android:radius="18dp" />
-    <stroke android:width="0.6dp" android:color="#FFFFD6E3" />
+    <stroke android:width="0.6dp" android:color="#FFEFEFEF" />
 </shape>

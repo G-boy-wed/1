@@ -448,17 +448,18 @@
 
                 <Button android:id="@+id/drawerThemeButton" android:layout_width="match_parent" android:layout_height="30dp" android:text="主题  ›" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginBottom="8dp" />
                 <LinearLayout android:id="@+id/drawerTheme" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@drawable/card_bg" android:visibility="gone" android:layout_marginBottom="8dp">
-                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="主题" android:textStyle="bold" android:textSize="16sp" android:textColor="#FF2D3E39" />
-                    <TextView android:id="@+id/themeText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="当前主题：白桃粉" android:textSize="11sp" android:textColor="#FF916E7B" android:layout_marginTop="6dp" android:lineSpacingExtra="4dp" />
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="主题" android:textStyle="bold" android:textSize="16sp" android:textColor="#FF3A3A3A" />
+                    <TextView android:id="@+id/themeText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="当前主题：经典白 · 亮" android:textSize="11sp" android:textColor="#FF9A9A9A" android:layout_marginTop="6dp" android:lineSpacingExtra="4dp" />
+                    <Button android:id="@+id/themeDarkToggleButton" android:layout_width="match_parent" android:layout_height="34dp" android:text="亮色 · 点击切暗" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginTop="8dp" />
                     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="6dp">
-                        <Button android:id="@+id/themeCreamButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="奶油绿" android:textSize="11sp" android:background="@drawable/pill_soft" />
-                        <Button android:id="@+id/themeBlueButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="雾蓝白" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginLeft="5dp" />
-                        <Button android:id="@+id/themePeachButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="白桃粉" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginLeft="5dp" />
+                        <Button android:id="@+id/themeCreamButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="经典白" android:textSize="11sp" android:background="@drawable/pill_soft" />
+                        <Button android:id="@+id/themeBlueButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="雾灰" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginLeft="5dp" />
+                        <Button android:id="@+id/themePeachButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="暖米" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginLeft="5dp" />
                     </LinearLayout>
                     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="6dp">
-                        <Button android:id="@+id/themeNightButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="夜航黑" android:textSize="11sp" android:background="@drawable/pill_soft" />
-                        <Button android:id="@+id/themeMintButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="薄荷透明" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginLeft="5dp" />
-                        <Button android:id="@+id/themePurpleButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="星云紫" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginLeft="5dp" />
+                        <Button android:id="@+id/themeNightButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="暮夜蓝紫" android:textSize="11sp" android:background="@drawable/pill_soft" />
+                        <Button android:id="@+id/themeMintButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="云海青灰" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginLeft="5dp" />
+                        <Button android:id="@+id/themePurpleButton" android:layout_width="0dp" android:layout_height="30dp" android:layout_weight="1" android:text="落日莓雾" android:textSize="11sp" android:background="@drawable/pill_soft" android:layout_marginLeft="5dp" />
                     </LinearLayout>
                 </LinearLayout>
 
@@ -585,16 +586,16 @@
     <LinearLayout
         android:id="@+id/bottomNav"
         android:layout_width="match_parent"
-        android:layout_height="68dp"
+        android:layout_height="64dp"
         android:orientation="horizontal"
         android:gravity="center"
         android:paddingLeft="9dp"
         android:paddingRight="9dp"
         android:paddingTop="5dp"
         android:paddingBottom="5dp"
-        android:layout_marginLeft="34dp"
-        android:layout_marginRight="34dp"
-        android:layout_marginBottom="6dp"
+        android:layout_marginLeft="20dp"
+        android:layout_marginRight="20dp"
+        android:layout_marginBottom="16dp"
         android:elevation="1dp"
         android:background="@drawable/bottom_bar_bg">
 

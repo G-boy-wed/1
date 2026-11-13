@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <gradient android:startColor="#FFFFF2F7" android:centerColor="#FFFFF8FA" android:endColor="#FFFFFCFD" android:angle="270" />
+    <!-- THEME-01 color.page #F4F4F4，纯色页面底，不用渐变 -->
+    <solid android:color="#FFF4F4F4" />
 </shape>

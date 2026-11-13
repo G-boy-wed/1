@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#BFFFFFFF" />
-    <corners android:radius="14dp" />
-    <stroke android:width="0.6dp" android:color="#66E7A5B9" />
+    <!-- 页面小标签：白底胶囊 + 弱灰描边 -->
+    <solid android:color="#F2FFFFFF" />
+    <corners android:radius="18dp" />
+    <stroke android:width="0.6dp" android:color="#FFEFEFEF" />
     <padding android:left="9dp" android:right="9dp" android:top="4dp" android:bottom="4dp" />
 </shape>
