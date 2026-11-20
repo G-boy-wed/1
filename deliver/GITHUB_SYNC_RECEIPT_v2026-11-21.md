@@ -36,3 +36,14 @@
 - 三方 sha256 一致：远端下载 APK = 本地 APK = 远端 update.json = `00e1e3887348b72d7faa2bf19a5d0cbf648358487c696c86837b25f4774ac491`。
 - 下载链接：https://github.com/G-boy-wed/1/releases/download/v0.3.9.0/Zhangxinchuang-public-v0.3.9.0.apk
 - 本地提交 `001bede` 内容已全部落到远端；临时凭据已清理。
+
+---
+
+## 第三轮同步（一起看共享真实媒体 + 召回弹窗修复）v2026-11-21
+
+- Token 仍有效（会话内 PAT），走 GitHub REST API 等价推送。
+- 基线：远端 `806b4d22` → 新提交 `c199766a`；同步 13 个变更文件（WatchPartyActivity/State 改为共享本机真实媒体、ScreenshotService 前台包名过滤、PolicyScheduler 聊天白名单、AppGate 保护名单、linjian_server.py 服务端聊天豁免、mcp_engine.py 真实媒体读取、mcp_tools.json 工具描述、两个 update.json、APK、回执、预览）。
+- 远端校验：APK git blob sha 与本地完全一致（`a37b6b3a`）；`mcp_tools.json` 远端工具数 129 = 本地；远端 `update.json` sha256 = `d47504f8…54067277`。
+- Release `v0.3.9.0` APK 资产已 `--clobber` 覆盖（1174235 bytes）；curl API 下载校验 sha256 = `d47504f86857f7cde23758a92671300756f20e4df46e500e47940e8d54067277`，与本地、远端 update.json 三方一致。
+- 下载：https://github.com/G-boy-wed/1/releases/download/v0.3.9.0/Zhangxinchuang-public-v0.3.9.0.apk
+- 临时凭据已清理。
