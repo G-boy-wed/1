@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>掌心窗 · 粉白系角标图标替换预览</title>
+<style>
+:root{--ink:#4a3b42;--sub:#9a8891;--pink:#d9a7b8;--line:#efe3e8}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,"PingFang SC",sans-serif;background:linear-gradient(135deg,#faf5f2,#f3eaf0);color:var(--ink);padding:26px 16px 60px}
+h1{font-size:21px;margin:0 0 6px}
+.lead{color:var(--sub);font-size:13px;line-height:1.7;margin-bottom:22px}
+.card{background:#ffffffcc;border:1px solid var(--line);border-radius:18px;padding:18px;margin-bottom:18px}
+.card h2{font-size:15px;margin:0 0 14px;color:#7a5b69}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.item{text-align:center}
+.item img{width:74px;height:74px;border-radius:50%;object-fit:cover;border:2px solid #fff;box-shadow:0 4px 12px #b98aa044}
+.item .nm{font-size:11px;color:var(--sub);margin-top:7px}
+.compare{display:flex;gap:24px;align-items:center;justify-content:center;flex-wrap:wrap}
+.badge{width:82px;text-align:center}
+.badge .circle{width:58px;height:58px;border-radius:50%;overflow:hidden;border:2px solid #fff;box-shadow:0 3px 10px #b98aa04d;margin:0 auto}
+.badge .circle img{width:100%;height:100%;object-fit:cover}
+.badge .circle.glyph{display:flex;align-items:center;justify-content:center;font-size:26px;color:#8a6b76;background:#f7eef2}
+.badge .lbl{font-size:11px;color:var(--sub);margin-top:6px}
+.arrow{font-size:26px;color:var(--pink)}
+.note{font-size:12px;color:var(--sub);line-height:1.8;background:#fdf7fa;border:1px dashed var(--pink);border-radius:12px;padding:12px 14px;margin-top:12px}
+.tag{display:inline-block;background:var(--pink);color:#fff;border-radius:20px;padding:2px 10px;font-size:11px;margin:0 4px 4px 0}
+</style>
+</head>
+<body>
+<h1>掌心窗 · 粉白系角标图标替换预览</h1>
+<p class="lead">依据你提供的粉白四宫格参考图切分并延展，已内置为 App 角标图片。前 4 个功能角标正好对应四宫格的四张图，其余角标按同色系循环映射，UI 色调统一。</p>
+
+<div class="card">
+  <h2>① 参考图切出的 4 张 → 前 4 个角标</h2>
+  <div class="compare">
+    <div class="badge"><div class="circle glyph">◎</div><div class="lbl">查岗（原字符）</div></div>
+    <div class="arrow">→</div>
+    <div class="badge"><div class="circle"><img src="assets/ic_badge_0.png"></div><div class="lbl">查岗（玫瑰书页）</div></div>
+    <div class="badge"><div class="circle glyph">♡</div><div class="lbl">情绪（原字符）</div></div>
+    <div class="arrow">→</div>
+    <div class="badge"><div class="circle"><img src="assets/ic_badge_1.png"></div><div class="lbl">情绪（蝴蝶结）</div></div>
+    <div class="badge"><div class="circle glyph">✉</div><div class="lbl">主动找（原字符）</div></div>
+    <div class="arrow">→</div>
+    <div class="badge"><div class="circle"><img src="assets/ic_badge_2.png"></div><div class="lbl">主动找（樱花冰饮）</div></div>
+    <div class="badge"><div class="circle glyph">✂</div><div class="lbl">训诫（原字符）</div></div>
+    <div class="arrow">→</div>
+    <div class="badge"><div class="circle"><img src="assets/ic_badge_3.png"></div><div class="lbl">训诫（粉瓷茶具）</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>② 内置 8 张粉白系图标（可选池）</h2>
+  <div class="grid">
+    <div class="item"><img src="assets/ic_badge_0.png"><div class="nm">玫瑰书页</div></div>
+    <div class="item"><img src="assets/ic_badge_1.png"><div class="nm">蝴蝶结甜点</div></div>
+    <div class="item"><img src="assets/ic_badge_2.png"><div class="nm">樱花冰饮</div></div>
+    <div class="item"><img src="assets/ic_badge_3.png"><div class="nm">粉瓷茶具</div></div>
+    <div class="item"><img src="assets/ic_badge_4.png"><div class="nm">玫瑰·亮</div></div>
+    <div class="item"><img src="assets/ic_badge_5.png"><div class="nm">蝴蝶结·亮</div></div>
+    <div class="item"><img src="assets/ic_badge_6.png"><div class="nm">冰饮·亮</div></div>
+    <div class="item"><img src="assets/ic_badge_7.png"><div class="nm">茶具·亮</div></div>
+  </div>
+  <div class="note">
+    <b>如何替换：</b>手机端长按角标 → 点左上角编辑按钮 → 「选内置粉白图标」挑一张；机端（TA）用 MCP 工具 <code>set_desk_badge</code> 传 <code>builtin_index</code> 也能改。<br>
+    <b>优先级：</b>自定义上传图片 &gt; 内置粉白图 &gt; 字符图标。名字仍在图标正下方居中。
+  </div>
+</div>
+
+<div class="card">
+  <h2>③ 本轮配套能力</h2>
+  <div>
+    <span class="tag">四宫格切四角标</span><span class="tag">8 张同色系内置图</span>
+    <span class="tag">长按拖动位置</span><span class="tag">拖拽缩放尺寸</span>
+    <span class="tag">贴图增删+改大小位置</span><span class="tag">贴图避让角标</span>
+    <span class="tag">机端/手机端双向可改</span><span class="tag">源码 bug 已修</span>
+  </div>
+</div>
+</body>
+</html>

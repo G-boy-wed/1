@@ -393,6 +393,16 @@ public class CompanionService extends Service {
                 return;
             }
 
+            // [DESK] 桌面配置命令：机端 MCP 可改角标图标/名字/背景/文字/恢复默认，与手机端闭环。
+            if (action.startsWith("desk_")) {
+                JSONObject rr = DeskCommand.handleCommand(ctx, cmd);
+                boolean ok = rr != null && rr.optBoolean("ok", false);
+                String result = rr != null ? rr.toString() : "desk_unhandled";
+                DebugState.append(ctx, "执行桌面命令 " + action + "：" + (ok ? "成功" : result));
+                try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, true); } catch (Exception ignored) { }
+                return;
+            }
+
             if ("run_sequence".equals(action)) {
                 executeSequence(ctx, id, cmd, serverUrl, token);
                 return;

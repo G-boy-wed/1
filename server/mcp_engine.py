@@ -924,6 +924,10 @@ class McpEngine:
         "watch_party_danmaku": "_t_watch_party_danmaku",
         "watch_party_reaction": "_t_watch_party_reaction",
         "watch_party_end": "_t_watch_party_end",
+        # [DESK] 桌面角标/背景/文字的机端控制（与手机端闭环）
+        "set_desk_badge": "_t_set_desk_badge",
+        "get_desk_state": "_t_get_desk_state",
+        "reset_desk": "_t_reset_desk",
         "run_preset": "_t_run_preset",
         "get_screen_break_state": "_t_generic_gate_read",
         "get_lock_state": "_t_generic_gate_read",
@@ -1153,6 +1157,67 @@ class McpEngine:
             return _text({"ok": True, "queued": True, "action": action, "command": enq.get("command") or {}})
         except Exception as e:
             return _error({"ok": False, "error": "send_phone_command_failed", "message": str(e)})
+
+    def _t_set_desk_badge(self, args: dict) -> dict:
+        """机端改手机桌面角标：名字/内置图标/字符图标/某页背景色。全部经命令通道落手机本机。"""
+        device = self._device(args)
+        ident = str(args.get("id") or "").strip()
+        if not ident:
+            return _error({"ok": False, "error": "missing_id", "message": "请传角标 id。"})
+        old_entry = bool(args.get("old_entry", False))
+        queued = []
+        try:
+            name = str(args.get("name") or "").strip()
+            if name:
+                action = "desk_set_old_name" if old_entry else "desk_set_badge_name"
+                enq = self.ctx.enqueue({"action": action, "id": ident, "name": name,
+                                        "device_id": device, "payload": {"id": ident, "name": name}})
+                queued.append((action, (enq.get("command") or {}).get("id", "")))
+            if args.get("builtin_index") is not None and int(args.get("builtin_index", -1)) >= 0:
+                idx = int(args["builtin_index"])
+                action = "desk_set_old_icon" if old_entry else "desk_set_badge_icon"
+                enq = self.ctx.enqueue({"action": action, "id": ident, "builtin_index": idx,
+                                        "device_id": device, "payload": {"id": ident, "builtin_index": idx}})
+                queued.append((action, (enq.get("command") or {}).get("id", "")))
+            glyph = str(args.get("glyph") or "").strip()
+            if glyph:
+                action = "desk_set_old_icon" if old_entry else "desk_set_badge_icon"
+                enq = self.ctx.enqueue({"action": action, "id": ident, "glyph": glyph,
+                                        "device_id": device, "payload": {"id": ident, "glyph": glyph}})
+                queued.append((action, (enq.get("command") or {}).get("id", "")))
+            color = str(args.get("color") or "").strip()
+            if args.get("color") is not None:
+                enq = self.ctx.enqueue({"action": "desk_set_page_bg", "page": int(args.get("page", 0)),
+                                        "color": color, "device_id": device,
+                                        "payload": {"page": int(args.get("page", 0)), "color": color}})
+                queued.append(("desk_set_page_bg", (enq.get("command") or {}).get("id", "")))
+            if not queued:
+                return _error({"ok": False, "error": "nothing_to_change", "message": "请至少传 name / builtin_index / glyph / color 之一。"})
+            return _text({"ok": True, "queued": True, "id": ident, "commands": queued})
+        except Exception as e:
+            return _error({"ok": False, "error": "set_desk_badge_failed", "message": str(e)})
+
+    def _t_get_desk_state(self, args: dict) -> dict:
+        """读取手机桌面配置快照（来自本机状态上报镜像；若尚未上报给出提示）。"""
+        try:
+            st = self.ctx.desk_state(self._device(args)) if hasattr(self.ctx, "desk_state") else None
+            if st:
+                return _text({"ok": True, "desk": st})
+            return _text({"ok": True, "desk": None,
+                          "message": "桌面状态尚未从手机上报，可先用手机端打开桌面；或调用 set_desk_badge 下发更改。"})
+        except Exception as e:
+            return _text({"ok": True, "desk": None, "message": str(e)})
+
+    def _t_reset_desk(self, args: dict) -> dict:
+        scope = str(args.get("scope") or "all").strip()
+        if scope not in ("all", "layout", "icons", "bg"): scope = "all"
+        try:
+            enq = self.ctx.enqueue({"action": "desk_reset", "scope": scope,
+                                    "device_id": self._device(args), "payload": {"scope": scope}})
+            return _text({"ok": True, "queued": True, "scope": scope,
+                          "command_id": (enq.get("command") or {}).get("id", "")})
+        except Exception as e:
+            return _error({"ok": False, "error": "reset_desk_failed", "message": str(e)})
 
     def _t_whisper_get(self, args: dict) -> dict:
         return _text({"ok": True, "whisper": self.ctx.whisper_get()})

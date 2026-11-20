@@ -5295,5 +5295,78 @@
       "image": false,
       "time": false
     }
+  },
+  {
+    "name": "set_desk_badge",
+    "description": "更改掌心窗手机上桌面角标或旧功能入口的名字与图标，让 TA 从机端也能自定义桌面。id 用功能角标 id（checkin/emotion/initiative/discipline/distraction/appgate/reminder/schedule/memory/ocr/weather/homemode/global/permissions/debug/theme/watchparty）或旧入口 id（companion/diary/connection/settings/life/guard/calendar/guidian，旧入口请传 old_entry=true）。可只传要改的字段：name 改名；builtin_index(0-7) 选内置粉白系图标（对应四宫格切图）；glyph 改字符图标；color 设置某页背景。所有改动落到手机本机，重启不丢。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "old_entry": {
+          "type": "boolean",
+          "default": false
+        },
+        "name": {
+          "type": "string",
+          "default": ""
+        },
+        "builtin_index": {
+          "type": "integer",
+          "default": -1
+        },
+        "glyph": {
+          "type": "string",
+          "default": ""
+        },
+        "page": {
+          "type": "integer",
+          "default": 0
+        },
+        "color": {
+          "type": "string",
+          "default": ""
+        },
+        "device_id": {
+          "type": "string",
+          "default": "android-phone"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    }
+  },
+  {
+    "name": "get_desk_state",
+    "description": "读取掌心窗手机桌面的当前配置：所有功能角标与旧功能入口的 id/名字/内置图标索引、桌面名字、内置图标数量。用于确认桌面状态或改之前先看现状。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "device_id": {
+          "type": "string",
+          "default": "android-phone"
+        }
+      }
+    }
+  },
+  {
+    "name": "reset_desk",
+    "description": "把掌心窗手机桌面恢复默认。scope 可选 all(全部)/layout(位置尺寸)/icons(图标)/bg(背景)。需用户在手机上确认的场景请配合沟通。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "string",
+          "default": "all"
+        },
+        "device_id": {
+          "type": "string",
+          "default": "android-phone"
+        }
+      }
+    }
   }
 ]

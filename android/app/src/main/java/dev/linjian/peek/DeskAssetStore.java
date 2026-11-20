@@ -51,6 +51,11 @@ public final class DeskAssetStore {
         setFeatureIconUri(c, featureId, "");
     }
 
+    /** 清空所有角标的自定义上传图标（机端 desk_reset icons 使用）。 */
+    public static void clearAll(Context c) {
+        sp(c).edit().remove(K_FEATURE_ICONS).apply();
+    }
+
     /** 从相册选图结果里取 URI 并申请长期读取权限；失败返回 null。 */
     public static Uri pickResult(Context c, int resultCode, Intent data) {
         if (resultCode != android.app.Activity.RESULT_OK || data == null || data.getData() == null) return null;
