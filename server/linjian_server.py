@@ -2313,6 +2313,16 @@ class McpBackend:
     def guidian_state(self, device_id: str = DEFAULT_DEVICE) -> dict:
         return (self.state.device_states.get(device_id) or {}).get("guidian_state") or {}
 
+    def desk_state(self, device_id: str = DEFAULT_DEVICE) -> dict:
+        """掌心窗桌面镜像：角标明细 + 开关状态（来自手机端周期上报）。"""
+        raw = self.state.device_states.get(device_id) or {}
+        badges = raw.get("desk_badges")
+        toggles = raw.get("desk_toggles")
+        if not isinstance(badges, list) and not isinstance(toggles, dict):
+            return {}
+        return {"badges": badges if isinstance(badges, list) else [],
+                "toggles": toggles if isinstance(toggles, dict) else {}}
+
     def usage_snapshot(self, device_id: str = DEFAULT_DEVICE) -> dict:
         return build_usage_snapshot(self.state, device_id)
 

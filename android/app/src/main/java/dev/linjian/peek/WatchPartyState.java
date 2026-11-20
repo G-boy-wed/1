@@ -239,6 +239,57 @@ public final class WatchPartyState {
         return null; // 非本插件命令
     }
 
+    /**
+     * 合并服务端下发的房间状态（含对方发的弹幕/表情/位置），保留本机真实媒体进度。
+     * 弹幕/表情按 at_ms 指纹去重合并，避免来回覆盖导致互动丢失。
+     */
+    public static boolean mergeRemote(Context ctx, JSONObject remote) {
+        if (remote == null) return false;
+        try {
+            JSONObject o = room(ctx);
+            boolean changed = false;
+            JSONArray rd = remote.optJSONArray("danmaku");
+            if (rd != null && rd.length() > 0) {
+                JSONArray local = o.optJSONArray("danmaku");
+                if (local == null) local = new JSONArray();
+                java.util.Set<String> seen = new java.util.HashSet<>();
+                for (int i = 0; i < local.length(); i++) {
+                    JSONObject d = local.optJSONObject(i);
+                    if (d != null) seen.add(d.optString("at_ms", "") + "|" + d.optString("text", ""));
+                }
+                for (int i = 0; i < rd.length(); i++) {
+                    JSONObject d = rd.optJSONObject(i);
+                    if (d == null) continue;
+                    String fp = d.optString("at_ms", "") + "|" + d.optString("text", "");
+                    if (seen.add(fp)) { local.put(d); changed = true; }
+                }
+                o.put("danmaku", local);
+            }
+            JSONArray rr = remote.optJSONArray("reactions");
+            if (rr != null && rr.length() > 0) {
+                JSONArray local = o.optJSONArray("reactions");
+                if (local == null) local = new JSONArray();
+                java.util.Set<String> seen = new java.util.HashSet<>();
+                for (int i = 0; i < local.length(); i++) {
+                    JSONObject d = local.optJSONObject(i);
+                    if (d != null) seen.add(d.optString("at_ms", "") + "|" + d.optString("emoji", ""));
+                }
+                for (int i = 0; i < rr.length(); i++) {
+                    JSONObject d = rr.optJSONObject(i);
+                    if (d == null) continue;
+                    String fp = d.optString("at_ms", "") + "|" + d.optString("emoji", "");
+                    if (seen.add(fp)) { local.put(d); changed = true; }
+                }
+                o.put("reactions", local);
+            }
+            // 对方的位置/头像（不覆盖本机媒体进度）
+            JSONObject rp = remote.optJSONObject("partner");
+            if (rp != null && rp.length() > 0) { o.put("partner", rp); changed = true; }
+            if (changed) { o.put("updated_at_ms", System.currentTimeMillis()); save(ctx, o); }
+            return changed;
+        } catch (Exception ignored) { return false; }
+    }
+
     /** 供状态上报镜像到服务端：把房间状态塞进 life_state。 */
     public static JSONObject snapshot(Context ctx) { return room(ctx); }
 

@@ -55,11 +55,8 @@ public final class DeskFeatureStore {
         DEFS.add(new Feature("reminder",    "主动提醒", "⏰", "policy:reminder"));
         DEFS.add(new Feature("schedule",    "课表作息", "▤", "policy:schedule"));
         DEFS.add(new Feature("memory",      "共同记忆", "★", "policy:memory"));
-        DEFS.add(new Feature("ocr",         "识图感知", "☷", "policy:ocr"));
         DEFS.add(new Feature("weather",     "天气地区", "☁", "policy:weather"));
         DEFS.add(new Feature("homemode",    "回家模式", "⌂", "policy:homemode"));
-        DEFS.add(new Feature("global",      "全局",   "⚙", "policy:global"));
-        DEFS.add(new Feature("permissions", "权限",   "☻", "policy:permissions"));
         DEFS.add(new Feature("debug",       "调试",   "✎", "policy:debug"));
         DEFS.add(new Feature("theme",       "主题",   "❀", "theme:next"));
         // [WATCH-PARTY] 双人共同观看/吐槽角标（可点开使用、可长按改名换图标排序，与其它角标一致）

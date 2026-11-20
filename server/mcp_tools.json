@@ -5298,7 +5298,7 @@
   },
   {
     "name": "set_desk_badge",
-    "description": "更改掌心窗手机上桌面角标或旧功能入口的名字与图标，让 TA 从机端也能自定义桌面。id 用功能角标 id（checkin/emotion/initiative/discipline/distraction/appgate/reminder/schedule/memory/ocr/weather/homemode/global/permissions/debug/theme/watchparty）或旧入口 id（companion/diary/connection/settings/life/guard/calendar/guidian，旧入口请传 old_entry=true）。可只传要改的字段：name 改名；builtin_index(0-11) 选内置 ins 风低饱和风景图（0日出/1云海/2森林/3湖泊/4瀑布/5雪山/6星空/7山谷/8海岸/9海面/10木桥/11云雾山，全为真实风景照无emoji无简笔画）；color 设置某页背景。所有图标均为图片，不含字符/emoji/简笔画。所有改动落到手机本机，重启不丢。",
+    "description": "更改掌心窗手机上桌面角标或旧功能入口的名字与图标，让 TA 从机端也能自定义桌面。id 用功能角标 id（checkin/emotion/initiative/discipline/distraction/appgate/reminder/schedule/memory/weather/homemode/debug/theme/watchparty）或旧入口 id（companion/diary/connection/settings/life/guard/calendar/guidian，旧入口请传 old_entry=true）。可只传要改的字段：name 改名；builtin_index(0-11) 选内置 ins 风低饱和风景图（0日出/1云海/2森林/3湖泊/4瀑布/5雪山/6星空/7山谷/8海岸/9海面/10木桥/11云雾山，全为真实风景照无emoji无简笔画）；color 设置某页背景。所有图标均为图片，不含字符/emoji/简笔画。所有改动落到手机本机，重启不丢。 角标开关请用 set_desk_toggle 工具控制。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -5341,7 +5341,7 @@
   },
   {
     "name": "get_desk_state",
-    "description": "读取掌心窗手机桌面的当前配置：所有功能角标与旧功能入口的 id/名字/内置图标索引、桌面名字、内置图标数量。用于确认桌面状态或改之前先看现状。",
+    "description": "读取掌心窗手机桌面的当前配置：所有功能角标与旧功能入口的 id/名字/内置图标索引/开关状态(enabled)、桌面名字、内置图标数量。用于确认桌面状态或改之前先看现状。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -5367,6 +5367,29 @@
           "default": "android-phone"
         }
       }
+    }
+  },
+  {
+    "name": "set_desk_toggle",
+    "description": "开/关掌心窗手机上某个功能角标。关闭后角标置灰、点击不再打开该功能，手机与机端看到的开关状态一致。id 用功能角标 id（checkin/emotion/initiative/discipline/distraction/appgate/reminder/schedule/memory/weather/homemode/debug/theme/watchparty）。传 enabled=true 开启、false 关闭；不传 enabled 则翻转当前状态。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "device_id": {
+          "type": "string",
+          "default": "android-phone"
+        }
+      },
+      "required": [
+        "id"
+      ]
     }
   }
 ]

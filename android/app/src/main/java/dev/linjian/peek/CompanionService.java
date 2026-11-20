@@ -936,6 +936,20 @@ public class CompanionService extends Service {
         try { state.put("shared_memory", SharedMemoryState.getItems(ctx)); } catch (Exception ignored) { }
         // [WATCH-PARTY] 手机端一起看房间状态（含本机吐槽/表情）镜像到服务端，MCP 侧 get_watch_party 可读到。
         try { state.put("watch_party", WatchPartyState.snapshot(ctx)); } catch (Exception ignored) { }
+        // [DESK-TOGGLE] 角标开关状态镜像到服务端，机端 MCP get_desk_state 可读取。
+        try { state.put("desk_toggles", DeskFeatureToggleStore.snapshot(ctx)); } catch (Exception ignored) { }
+        // [DESK] 角标明细（id/名字/内置图标索引/开关）镜像到服务端，机端可读桌面全貌。
+        try {
+            org.json.JSONArray badges = new org.json.JSONArray();
+            for (DeskFeatureStore.Feature f : DeskFeatureStore.all(ctx)) {
+                org.json.JSONObject b = new org.json.JSONObject();
+                b.put("id", f.id).put("name", f.name)
+                 .put("builtin_index", DeskIconPack.indexOf(ctx, f.id))
+                 .put("enabled", DeskFeatureToggleStore.isEnabled(ctx, f.id));
+                badges.put(b);
+            }
+            state.put("desk_badges", badges);
+        } catch (Exception ignored) { }
         postJson(serverUrl + "/api/device/state", token, state);
         ActiveReminder.evaluate(ctx, state);
         HomeMode.evaluate(ctx, state);
@@ -962,6 +976,27 @@ public class CompanionService extends Service {
                 postJson(serverUrl + "/api/device/state", token, state);
             } catch (Exception ignored) { }
         }, "watchparty-report").start();
+    }
+
+    /** [WATCH-PARTY] 从服务端拉取权威房间状态（含对方发的弹幕/表情/进度）。 */
+    public static String getJson(String urlStr, String token) {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(urlStr).openConnection();
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("X-Auth-Token", token);
+            conn.setConnectTimeout(6000);
+            conn.setReadTimeout(6000);
+            InputStream is = conn.getResponseCode() >= 400 ? conn.getErrorStream() : conn.getInputStream();
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            if (is != null) {
+                byte[] buf = new byte[1024]; int n;
+                while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
+                is.close();
+            }
+            return new String(bos.toByteArray(), "UTF-8");
+        } catch (Exception ignored) { return ""; }
+        finally { if (conn != null) conn.disconnect(); }
     }
 
     private static String postJson(String urlStr, String token, JSONObject obj) throws Exception {

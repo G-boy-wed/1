@@ -15,6 +15,7 @@ import org.json.JSONObject;
  *  - desk_set_old_name    : 改旧功能入口名字
  *  - desk_set_page_bg     : 设置某页背景纯色（16 进制 RRGGBB）
  *  - desk_set_text        : 编辑桌面文字卡（名字/账号/简介/标题/便签等）
+ *  - desk_set_toggle      : 开/关某个功能角标（enabled=true/false）
  *  - desk_reset           : 恢复默认摆放/图标/背景
  *  - desk_get_state       : 读取当前桌面配置快照
  *
@@ -85,18 +86,25 @@ public final class DeskCommand {
                 if (key.isEmpty()) return out.put("ok", false).put("error", "missing_key");
                 DeskSkinStore.setText(ctx, key, value);
                 out.put("ok", true).put("key", key).put("value", value);
+            } else if ("desk_set_toggle".equals(action)) {
+                String id = cmd.optString("id", "");
+                if (id.isEmpty()) return out.put("ok", false).put("error", "missing_id");
+                boolean enabled = cmd.has("enabled") ? cmd.optBoolean("enabled", true) : !DeskFeatureToggleStore.isEnabled(ctx, id);
+                DeskFeatureToggleStore.setEnabled(ctx, id, enabled);
+                out.put("ok", true).put("id", id).put("enabled", enabled);
             } else if ("desk_reset".equals(action)) {
                 String scope = cmd.optString("scope", "all");
                 if ("layout".equals(scope)) DeskLayoutStore.resetAll(ctx);
                 else if ("icons".equals(scope)) { DeskIconPack.resetAll(ctx); DeskAssetStore.clearAll(ctx); }
                 else if ("bg".equals(scope)) { for (int p = 0; p < 4; p++) { DeskSkinStore.setPageBgUri(ctx, p, ""); DeskSkinStore.setPageBgColor(ctx, p, 0); } }
-                else { DeskLayoutStore.resetAll(ctx); DeskIconPack.resetAll(ctx); DeskAssetStore.clearAll(ctx); DeskFeatureStore.reset(ctx); OldEntryStore.resetAll(ctx); }
+                else { DeskLayoutStore.resetAll(ctx); DeskIconPack.resetAll(ctx); DeskAssetStore.clearAll(ctx); DeskFeatureStore.reset(ctx); OldEntryStore.resetAll(ctx); DeskFeatureToggleStore.resetAll(ctx); }
                 out.put("ok", true).put("scope", scope);
             } else if ("desk_get_state".equals(action)) {
                 JSONArray badges = new JSONArray();
                 for (DeskFeatureStore.Feature f : DeskFeatureStore.all(ctx)) {
                     JSONObject o = new JSONObject();
-                    o.put("id", f.id).put("name", f.name).put("builtin_index", DeskIconPack.indexOf(ctx, f.id));
+                    o.put("id", f.id).put("name", f.name).put("builtin_index", DeskIconPack.indexOf(ctx, f.id))
+                     .put("enabled", DeskFeatureToggleStore.isEnabled(ctx, f.id));
                     badges.put(o);
                 }
                 JSONArray olds = new JSONArray();

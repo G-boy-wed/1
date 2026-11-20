@@ -65,6 +65,8 @@ public class WatchPartyActivity extends Activity {
                         }
                     } catch (Exception ignored) { }
                 }
+                // 拉取服务端房间：对方（TA/机端）发的弹幕/表情/位置能显示在我这页。
+                pullRemote();
                 ui.post(() -> refresh());
             }
         }, 1200, 1500);
@@ -257,6 +259,19 @@ public class WatchPartyActivity extends Activity {
             String base = AppPrefs.server(this), token = AppPrefs.token(this);
             if (base == null || base.trim().isEmpty()) return;
             CompanionService.handleWatchPartyLocal(this, base, token, new JSONObject());
+        } catch (Exception ignored) { }
+    }
+
+    /** 从服务端拉取房间（含对方弹幕/表情/位置），合并进本机；本机真实媒体进度不被覆盖。 */
+    private void pullRemote() {
+        try {
+            String base = AppPrefs.server(this), token = AppPrefs.token(this);
+            if (base == null || base.trim().isEmpty()) return;
+            String body = CompanionService.getJson(base.replaceAll("/+$", "") + "/api/watch_party", token);
+            if (body == null || body.trim().isEmpty()) return;
+            JSONObject resp = new JSONObject(body);
+            JSONObject wp = resp.optJSONObject("watch_party");
+            if (wp != null) WatchPartyState.mergeRemote(this, wp);
         } catch (Exception ignored) { }
     }
 

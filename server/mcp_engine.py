@@ -287,12 +287,45 @@ class LocalState:
         with self.lock:
             return dict(self.watchparty)
 
+    @staticmethod
+    def _merge_events(old, incoming, key_fields=("at_ms", "text", "emoji")):
+        """合并弹幕/表情：按内容指纹去重、按时间排序，永不因一方上报空数组而吞掉另一方的互动。"""
+        items = []
+        seen = set()
+        for src in (old, incoming):
+            for e in (src or []):
+                if not isinstance(e, dict):
+                    continue
+                fp = tuple(str(e.get(k, "")) for k in key_fields) + (str(e.get("author", "")),)
+                if fp in seen:
+                    continue
+                seen.add(fp)
+                items.append(dict(e))
+        items.sort(key=lambda x: float(x.get("at_ms", 0) or 0))
+        return items[-200:]
+
     def watchparty_update(self, patch: dict) -> dict:
         with self.lock:
             wp = dict(self.watchparty)
-            for k, v in (patch or {}).items():
-                if k in ("device_id", "action", "wait_seconds"):
-                    continue
+            patch = dict(patch or {})
+            for k in ("device_id", "action", "wait_seconds"):
+                patch.pop(k, None)
+            # 双方互动：合并而非覆盖。手机端每 1.5s 上报的 snapshot 常不含机端刚发的弹幕，
+            # 若整体覆盖会导致「发了弹幕/表情对方看不到、状态一直不更新」。
+            if "danmaku" in patch:
+                wp["danmaku"] = self._merge_events(wp.get("danmaku"), patch.pop("danmaku"))
+            if "reactions" in patch:
+                wp["reactions"] = self._merge_events(wp.get("reactions"), patch.pop("reactions"))
+            # member/partner：逐字段合并，空串不覆盖已有值（避免位置/头像被清空）。
+            for who in ("member", "partner"):
+                if who in patch and isinstance(patch[who], dict):
+                    merged = dict(wp.get(who) or {})
+                    for k, v in patch[who].items():
+                        if v not in (None, ""):
+                            merged[k] = v
+                    wp[who] = merged
+                    patch.pop(who)
+            for k, v in patch.items():
                 wp[k] = v
             wp["round"] = int(wp.get("round", 0) or 0) + 1
             wp["updated_at_ms"] = int(time.time() * 1000)
@@ -926,6 +959,7 @@ class McpEngine:
         "watch_party_end": "_t_watch_party_end",
         # [DESK] 桌面角标/背景/文字的机端控制（与手机端闭环）
         "set_desk_badge": "_t_set_desk_badge",
+        "set_desk_toggle": "_t_set_desk_toggle",
         "get_desk_state": "_t_get_desk_state",
         "reset_desk": "_t_reset_desk",
         "run_preset": "_t_run_preset",
@@ -1196,6 +1230,24 @@ class McpEngine:
             return _text({"ok": True, "queued": True, "id": ident, "commands": queued})
         except Exception as e:
             return _error({"ok": False, "error": "set_desk_badge_failed", "message": str(e)})
+
+    def _t_set_desk_toggle(self, args: dict) -> dict:
+        """机端开/关手机桌面某个功能角标；不传 enabled 则翻转。经命令通道落手机本机。"""
+        device = self._device(args)
+        ident = str(args.get("id") or "").strip()
+        if not ident:
+            return _error({"ok": False, "error": "missing_id", "message": "请传角标 id。"})
+        payload = {"id": ident}
+        if "enabled" in args and args.get("enabled") is not None:
+            payload["enabled"] = bool(args.get("enabled"))
+        try:
+            enq = self.ctx.enqueue({"action": "desk_set_toggle", "device_id": device,
+                                    "payload": payload, **payload})
+            return _text({"ok": True, "queued": True, "id": ident,
+                          "enabled": payload.get("enabled", "toggle"),
+                          "command_id": (enq.get("command") or {}).get("id", "")})
+        except Exception as e:
+            return _error({"ok": False, "error": "set_desk_toggle_failed", "message": str(e)})
 
     def _t_get_desk_state(self, args: dict) -> dict:
         """读取手机桌面配置快照（来自本机状态上报镜像；若尚未上报给出提示）。"""
