@@ -2,8 +2,13 @@ package dev.linjian.peek;
 
 import android.animation.ObjectAnimator;
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.RadialGradient;
+import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
@@ -35,33 +40,25 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * 掌心窗主入口 —— 严格按「图1」两张独立手机截图的排列重构。
+ * 掌心窗主入口 —— 图一「小手机」UI 美化的统一实现。
  *
- * 【数据来源：只认掌心窗真实存在的插件，绝不复制图一里的应用/文案】
- *  - 世界页（左屏）：顶部「一起听」入口（真实功能）→ 全部桌面插件宫格
- *                    数据来自 {@link DeskPluginStore#all()}（已按 id 去重，可增删改换图标）。
- *  - 终端页（右屏）：大字时间 + 真实天气 + 真实周历 + 能力宫格
- *                    能力来自 {@link PluginRegistry#all()}（掌心窗真实登记的 16 项能力）。
- *  - 守护页：图2 的守护功能项，按图1 宫格排列、去重、每格可点开更改。
+ * 【统一视觉】所有页面共用 StarryBg（柔绿径向渐变 + 星点）+ 毛玻璃白圆角卡片 +
+ * 细体大字时间，切换主题即时生效；没有第二套视觉语言。
  *
- * 图1 只是【排列样式】参考（两屏独立 / 宫格 / 大字时间天气 / Dock）。
- * 界面上每一个格子都是掌心窗真实插件，没有一处是照抄图一的假应用或假文案。
+ * 【界面不重复】三屏内容各司其职，杜绝三套雷同宫格：
+ *  - 世界页（图1左屏）：一起听入口 + 掌心窗真实插件宫格（DeskPluginStore，可增删改换图标）。
+ *  - 终端页（图1右屏）：大字时间 + 真实天气 + 真实周历 + 「此刻」真实状态卡（不放宫格）。
+ *  - 守护页：图2 守护功能项宫格（去重、开关即存、点开进设置）。
+ *  - 一起听页：网易云同款，位置/头像/时间。
+ * Dock 只保留图一 4 项：世界 / 终端 / 守护 / 主题。
  *
- * 【已修的自身 bug】
- *  1. 删除硬编码假内容：CosmicLove / 拍立得照片卡 / 无限象限便签 / 影像之外句子 /
- *     假 4 图标行 / 黑胶唱片。
- *  2. polaroidCard() 里 View 被重复 addView 再 removeView 的废逻辑整体移除。
- *  3. 守护项深链分区修正：focus/calendar/guidian/plugins/profile 这些在设置页
- *     根本不存在的 section，统一走 openSection() 打开「全部设置」，不再跳空白页。
+ * 【不保留旧 UI】不再从主链路跳转旧 MainActivity；所有设置走统一风格的 PolicySettingsActivity。
  */
 public class PalmDeskActivity extends Activity {
-    private static final String TAG = "PalmDesk";
-
     private static final int PAGE_WORLD = 0;      // 图1左屏「世界」
     private static final int PAGE_TERMINAL = 1;   // 图1右屏「终端」
     private static final int PAGE_GUARD = 2;      // 守护页
     private static final int PAGE_MUSIC = 3;      // 一起听
-    private static final int PAGE_CLASSIC = 4;    // 旧 MainActivity 完整功能
     private int currentPage = PAGE_WORLD;
     private boolean editMode = false;
 
@@ -106,17 +103,49 @@ public class PalmDeskActivity extends Activity {
         super.onDestroy();
     }
 
+    /** 统一背景：柔绿径向渐变 + 星点，所有页面共用这一套。 */
+    private class StarryBg extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        // 归一化坐标 {x, y, 半径dp}，固定分布，像图一那样散落的微光
+        private final float[][] stars = {
+                {0.08f,0.11f,3},{0.21f,0.19f,2},{0.34f,0.08f,2.4f},{0.49f,0.15f,2},
+                {0.63f,0.09f,3},{0.78f,0.21f,2},{0.91f,0.13f,2.4f},{0.14f,0.38f,2},
+                {0.44f,0.31f,2.2f},{0.58f,0.44f,2.6f},{0.87f,0.36f,2},{0.29f,0.56f,2.4f},
+                {0.71f,0.60f,2},{0.10f,0.68f,2},{0.94f,0.66f,2.4f},{0.52f,0.72f,2}
+        };
+        StarryBg(Context c) { super(c); }
+        @Override protected void onDraw(Canvas cv) {
+            int w = getWidth(), h = getHeight();
+            if (w <= 0 || h <= 0) return;
+            int center = UiTokens.blend(t.bgTop, t.dark ? 0xFF2C352E : 0xFFE3EFDE, t.dark ? 0.30f : 0.60f);
+            RadialGradient rg = new RadialGradient(w * 0.42f, h * 0.28f, Math.max(w, h) * 0.92f,
+                    center, t.bgTop, Shader.TileMode.CLAMP);
+            paint.setShader(rg);
+            cv.drawRect(0, 0, w, h, paint);
+            paint.setShader(null);
+            paint.setColor(t.dark ? 0x44FFFFFF : 0x99FFFFFF);
+            for (float[] s : stars) cv.drawCircle(s[0] * w, s[1] * h, dp(s[2]), paint);
+        }
+    }
+
+    /** 给每个页面套上统一背景，content 背景透明。 */
+    private View pageFrame(ScrollView content) {
+        FrameLayout f = new FrameLayout(this);
+        f.addView(new StarryBg(this), new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        content.setBackgroundColor(Color.TRANSPARENT);
+        f.addView(content, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        return f;
+    }
+
     // ============================================================
-    // 图1 左屏：世界页 —— 一起听入口 + 全部真实桌面插件宫格
+    // 图1 左屏：世界页 —— 一起听入口 + 掌心窗真实插件宫格
     // ============================================================
     private View buildWorldPage() {
         ScrollView sv = new ScrollView(this);
-        sv.setBackgroundColor(t.bgTop);
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(dpI(16), dpI(28), dpI(16), dpI(96));
 
-        // 顶部：一起听入口（掌心窗真实功能，点击进一起听页；不写死任何假歌名）
         col.addView(buildMusicEntry(), matchWrap());
         col.addView(spacer(16));
 
@@ -125,14 +154,12 @@ public class PalmDeskActivity extends Activity {
         gl.setTypeface(Typeface.DEFAULT_BOLD);
         col.addView(gl, marginB(10));
 
-        // 宫格：DeskPluginStore 的全部真实插件（已按 id 去重），4 列铺开
         col.addView(buildPluginGrid(), matchWrap());
         col.addView(spacer(14));
-
         col.addView(buildEditBar(), matchWrapTop(6));
 
         sv.addView(col, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        return sv;
+        return pageFrame(sv);
     }
 
     /** 一起听入口：显示真实功能名 + 当前位置/时间，点击进入一起听页。 */
@@ -149,13 +176,12 @@ public class PalmDeskActivity extends Activity {
         meta.addView(title);
         meta.addView(sub, matchWrapTop(2));
         cap.addView(meta, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView go = tv("›", 22, t.subtext);
-        cap.addView(go);
+        cap.addView(tv("›", 22, t.subtext));
         cap.setOnClickListener(v -> switchPage(PAGE_MUSIC));
         return cap;
     }
 
-    /** 全部桌面插件宫格：数据唯一来源 DeskPluginStore，4 列，不重复。 */
+    /** 全部桌面插件宫格：数据唯一来源 DeskPluginStore，4 列，按 id 去重。 */
     private View buildPluginGrid() {
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
@@ -247,11 +273,10 @@ public class PalmDeskActivity extends Activity {
     }
 
     // ============================================================
-    // 图1 右屏：终端页 —— 大字时间 + 真实天气 + 真实周历 + 能力宫格
+    // 图1 右屏：终端页 —— 大字时间 + 真实天气 + 真实周历 + 此刻状态（不放宫格，避免重复）
     // ============================================================
     private View buildTerminalPage() {
         ScrollView sv = new ScrollView(this);
-        sv.setBackgroundColor(t.bgTop);
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(dpI(16), dpI(28), dpI(16), dpI(96));
@@ -272,21 +297,35 @@ public class PalmDeskActivity extends Activity {
         head.addView(wx, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         col.addView(head, marginB(16));
 
-        // 真实周历（当前日期来自系统日历，非硬编码），点击进守护日历
+        // 真实周历（系统日历，今天高亮），点击进守护日历
         col.addView(buildWeekStrip(), matchWrap());
         col.addView(spacer(16));
 
-        TextView cl = tv("✦  掌心窗 · 能力插件", UiTokens.FONT_VALUE, t.subtext);
-        cl.setTypeface(Typeface.DEFAULT_BOLD);
-        col.addView(cl, marginB(10));
-
-        // 能力宫格：PluginRegistry 全部真实登记能力，4 列，点开对应设置
-        col.addView(buildCapabilityGrid(), matchWrap());
+        // 「此刻」真实状态卡：全部取真实数据，不重复摆宫格
+        LinearLayout now = cardCol(t.card, dp(16));
+        now.addView(tv("此刻", 13, t.text));
+        now.addView(infoLine("◉  位置", currentPlaceLabel()), matchWrapTop(10));
+        now.addView(infoLine("☁  天气", weatherShort()), matchWrapTop(8));
+        int onCount = 0;
+        for (GuardItem g : guardItems()) if (AppPrefs.get(this).getBoolean(g.prefKey, g.on)) onCount++;
+        now.addView(infoLine("♡  守护开启", onCount + " / " + dedupGuard(guardItems()).size() + " 项"), matchWrapTop(8));
+        now.addView(infoLine("⏱  此刻", new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(new Date())), matchWrapTop(8));
+        col.addView(now, matchWrap());
 
         sv.addView(col, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         refreshClock();
         refreshDeskWeather();
-        return sv;
+        return pageFrame(sv);
+    }
+
+    private View infoLine(String label, String value) {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.addView(tv(label, 12, t.subtext), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView v = tv(value, 12, t.text);
+        v.setMaxLines(1); v.setEllipsize(TextUtils.TruncateAt.END);
+        r.addView(v, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f));
+        return r;
     }
 
     /** 真实周历卡：日期来自系统日历，今天高亮；点击进守护日历分区。 */
@@ -318,74 +357,6 @@ public class PalmDeskActivity extends Activity {
         return box;
     }
 
-    /** 能力宫格：数据唯一来源 PluginRegistry，按 id 去重，4 列。 */
-    private View buildCapabilityGrid() {
-        LinearLayout grid = new LinearLayout(this);
-        grid.setOrientation(LinearLayout.VERTICAL);
-        List<PluginRegistry.Plugin> caps = PluginRegistry.all();
-        Set<String> seen = new LinkedHashSet<>();
-        List<PluginRegistry.Plugin> uniq = new ArrayList<>();
-        for (PluginRegistry.Plugin c : caps) {
-            if (c == null || seen.contains(c.id)) continue;
-            seen.add(c.id); uniq.add(c);
-        }
-        final int cols = 4;
-        int idx = 0;
-        while (idx < uniq.size()) {
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            for (int c = 0; c < cols && idx < uniq.size(); c++, idx++)
-                row.addView(capabilityCell(uniq.get(idx)), weight1());
-            grid.addView(row, marginB(10));
-        }
-        return grid;
-    }
-
-    private View capabilityCell(final PluginRegistry.Plugin cap) {
-        LinearLayout cell = cardCol(t.card, dp(10));
-        cell.setGravity(Gravity.CENTER_HORIZONTAL);
-        TextView ic = tv(capabilityIcon(cap.id), 22, t.primary);
-        ic.setGravity(Gravity.CENTER);
-        ic.setBackground(shape(t.cardSoft, UiTokens.RADIUS_SM));
-        ic.setPadding(0, dpI(8), 0, dpI(8));
-        cell.addView(ic, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpI(44)));
-        TextView nm = tv(cap.name, 10, t.text);
-        nm.setGravity(Gravity.CENTER); nm.setMaxLines(1); nm.setEllipsize(TextUtils.TruncateAt.END);
-        cell.addView(nm, matchWrapTop(6));
-        cell.setOnClickListener(v -> openCapability(cap));
-        return cell;
-    }
-
-    /** 能力插件图标（只是掌心窗能力的字符标识，非图一应用）。 */
-    private String capabilityIcon(String id) {
-        switch (id) {
-            case "checkin_pullback": return "◎";
-            case "app_gate": return "⚑";
-            case "usage_auto_lock": return "⏰";
-            case "focus_mode": return "◷";
-            case "companion_emotion": return "♡";
-            case "initiative": return "❀";
-            case "discipline": return "✂";
-            case "class_schedule": return "▤";
-            case "guard_calendar": return "▦";
-            case "cycle_reminder": return "⏰";
-            case "guidian": return "⚡";
-            case "night_lock": return "☾";
-            case "notifications": return "⏰";
-            case "shared_memory": return "★";
-            case "ocr": return "☷";
-            case "guard_visual": return "✦";
-            default: return "✦";
-        }
-    }
-
-    private void openCapability(PluginRegistry.Plugin cap) {
-        if ("guidian".equals(cap.id)) {
-            try { startActivity(new Intent(this, GuidianActivity.class)); return; } catch (Throwable ignored) { }
-        }
-        openSection(PluginRegistry.guardSectionOf(cap.id));
-    }
-
     // ============================================================
     // 守护页 —— 图2 守护功能项，按图1 宫格排列、去重、可点开更改
     // ============================================================
@@ -399,7 +370,6 @@ public class PalmDeskActivity extends Activity {
 
     private View buildGuardPage() {
         ScrollView sv = new ScrollView(this);
-        sv.setBackgroundColor(t.bgTop);
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(dpI(16), dpI(28), dpI(16), dpI(96));
@@ -414,7 +384,7 @@ public class PalmDeskActivity extends Activity {
         TextView avatar = tv("♡", 20, t.dark ? t.text : Color.WHITE);
         avatar.setBackground(shape(t.primarySoft, 40)); avatar.setGravity(Gravity.CENTER);
         int av = dpI(42); avatar.setLayoutParams(new LinearLayout.LayoutParams(av, av));
-        avatar.setOnClickListener(v -> openSection(null)); // 个人资料在全部设置里改
+        avatar.setOnClickListener(v -> openSection(null));
         titleRow.addView(avatar);
         col.addView(titleRow, marginB(16));
 
@@ -429,14 +399,8 @@ public class PalmDeskActivity extends Activity {
             col.addView(row, marginB(10));
         }
 
-        Button more = new Button(this);
-        more.setText("打开完整功能与设置"); more.setTextSize(12); more.setAllCaps(false);
-        more.setBackground(shape(t.cardSoft, UiTokens.RADIUS_ROW)); more.setTextColor(t.subtext);
-        more.setOnClickListener(v -> switchPage(PAGE_CLASSIC));
-        col.addView(more, matchWrapTop(16));
-
         sv.addView(col, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        return sv;
+        return pageFrame(sv);
     }
 
     private View guardCell(final GuardItem it) {
@@ -498,11 +462,7 @@ public class PalmDeskActivity extends Activity {
         return l;
     }
 
-    /**
-     * 统一分区跳转：只在设置页真实存在的 section 才深链；
-     * focus/calendar/plugins/profile/guidian 等不存在的 key 一律打开「全部设置」，
-     * 绝不再跳空白页（这是修复的自身 bug）。
-     */
+    /** 统一分区跳转：不存在的 section 一律打开「全部设置」，不再跳空白页。 */
     private void openSection(String section) {
         Intent i = new Intent(this, PolicySettingsActivity.class);
         if (section != null && VALID_SECTIONS.contains(section)) i.putExtra("section", section);
@@ -514,9 +474,7 @@ public class PalmDeskActivity extends Activity {
     // 一起听（网易云同款）
     // ============================================================
     private void buildMusicPageAsync() {
-        musicViewRef = new ScrollView(this);
-        ScrollView sv = (ScrollView) musicViewRef;
-        sv.setBackgroundColor(t.bgTop);
+        ScrollView sv = new ScrollView(this);
         final LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(dpI(20), dpI(30), dpI(20), dpI(96));
@@ -525,6 +483,7 @@ public class PalmDeskActivity extends Activity {
         TextView loading = tv("正在连接在线曲库…", 12, t.subtext);
         col.addView(loading, matchWrapTop(16));
         sv.addView(col, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        musicViewRef = pageFrame(sv);
         new Thread(() -> {
             FreeMusic.Result res = FreeMusic.hot(12);
             runOnUiThread(() -> renderMusic(col, loading, res));
@@ -556,9 +515,8 @@ public class PalmDeskActivity extends Activity {
         ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         bar.setMax(100); bar.setProgress(media != null ? media.optInt("progress_percent", 0) : 18);
         nowCard.addView(bar, matchWrapTop(12));
-        String where = currentPlaceLabel();
-        String time = new SimpleDateFormat("HH:mm", Locale.CHINA).format(new Date());
-        TextView meta = tv("◉ " + where + "   ⏱ " + time + " 起一起听", 11, t.subtext);
+        TextView meta = tv("◉ " + currentPlaceLabel() + "   ⏱ " +
+                new SimpleDateFormat("HH:mm", Locale.CHINA).format(new Date()) + " 起一起听", 11, t.subtext);
         meta.setGravity(Gravity.CENTER);
         nowCard.addView(meta, matchWrapTop(10));
         nowCard.addView(buildAvatars(), matchWrapTop(12));
@@ -616,7 +574,7 @@ public class PalmDeskActivity extends Activity {
     }
 
     // ============================================================
-    // 导航 / 工具
+    // 导航 / 工具 —— Dock 只保留图一的 4 项，不再跳旧 MainActivity
     // ============================================================
     private LinearLayout buildDock() {
         LinearLayout bar = new LinearLayout(this);
@@ -628,18 +586,15 @@ public class PalmDeskActivity extends Activity {
         int side = dpI(UiTokens.DOCK_SIDE), bottom = dpI(UiTokens.DOCK_BOTTOM);
         lp.setMargins(side, 0, side, bottom);
         bar.setLayoutParams(lp);
-        String[] labels = {"世界", "终端", "守护", "主题", "设置"};
-        final int[] pageOf = {PAGE_WORLD, PAGE_TERMINAL, PAGE_GUARD, -1, PAGE_CLASSIC};
+        String[] labels = {"世界", "终端", "守护", "主题"};
+        final int[] pageOf = {PAGE_WORLD, PAGE_TERMINAL, PAGE_GUARD, -1};
         for (int i = 0; i < labels.length; i++) {
             Button b = new Button(this);
             b.setText(labels[i]); b.setTextSize(11); b.setAllCaps(false);
             b.setBackground(t.navItem(i == currentPage));
             b.setTextColor(t.text);
             final int pg = pageOf[i];
-            b.setOnClickListener(v -> {
-                if (pg == -1) showThemeDialog();
-                else switchPage(pg);
-            });
+            b.setOnClickListener(v -> { if (pg == -1) showThemeDialog(); else switchPage(pg); });
             bar.addView(b, weight1());
         }
         return bar;
@@ -668,10 +623,6 @@ public class PalmDeskActivity extends Activity {
     }
 
     private void switchPage(int page) {
-        if (page == PAGE_CLASSIC) {
-            startActivity(new Intent(this, MainActivity.class));
-            return;
-        }
         currentPage = page;
         for (int i = pages.getChildCount() - 1; i >= 0; i--) pages.removeViewAt(i);
         if (page == PAGE_WORLD) pages.addView(buildWorldPage());
@@ -725,8 +676,7 @@ public class PalmDeskActivity extends Activity {
                 else if ("guard".equals(pg)) switchPage(PAGE_GUARD);
                 else if ("world".equals(pg)) switchPage(PAGE_WORLD);
                 else if ("terminal".equals(pg)) switchPage(PAGE_TERMINAL);
-                else if ("classic".equals(pg)) switchPage(PAGE_CLASSIC);
-                else toast("页面：" + pg);
+                else openSection(null); // classic 等旧入口统一收敛到新设置，不再跳旧 UI
             } else if (a.startsWith("policy:")) {
                 openSection(a.substring(7));
             } else if (a.startsWith("app:")) {
@@ -817,17 +767,23 @@ public class PalmDeskActivity extends Activity {
         g.setColor(color); g.setCornerRadius(dp(radius));
         return g;
     }
+    private GradientDrawable glass(int color, float radius) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(color); g.setCornerRadius(dp(radius));
+        g.setStroke(dpI(1), t.line); // 图一毛玻璃白描边
+        return g;
+    }
     private LinearLayout cardCol(int color, float pad) {
         LinearLayout l = new LinearLayout(this);
         l.setOrientation(LinearLayout.VERTICAL);
-        l.setBackground(shape(color, UiTokens.RADIUS_CARD));
+        l.setBackground(glass(color, UiTokens.RADIUS_CARD));
         l.setPadding(dpI(pad), dpI(pad), dpI(pad), dpI(pad));
         return l;
     }
     private LinearLayout cardRow(int color, float pad) {
         LinearLayout l = new LinearLayout(this);
         l.setOrientation(LinearLayout.HORIZONTAL);
-        l.setBackground(shape(color, UiTokens.RADIUS_CARD));
+        l.setBackground(glass(color, UiTokens.RADIUS_CARD));
         l.setPadding(dpI(pad), dpI(pad), dpI(pad), dpI(pad));
         return l;
     }
