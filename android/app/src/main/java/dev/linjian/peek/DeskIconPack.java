@@ -8,27 +8,29 @@ import android.graphics.drawable.Drawable;
 import org.json.JSONObject;
 
 /**
- * 掌心窗内置角标图标包（粉白/奶油色系，来自参考四宫格切分图）。
+ * 掌心窗内置角标图标包 —— 与 UI 同色系的莫兰迪几何 App 图标。
  *
- * - 默认：每个功能角标按序映射到一张内置图片（前四个正好对应四宫格切出的四张），
- *   使角标 UI 与参考图色系统一。
- * - 用户可为任意角标指定另一张内置图片（含旧功能入口），也仍可自定义上传图片或换字符图标。
- * 优先级：自定义上传 URI > 内置图片 > 字符图标。
+ * 全部为纯几何图形（圆/弧/条/点/环），颜色取自 UI 色系（米白/柔绿/藕粉/淡蓝/浅灰…），
+ * 不含任何 emoji、文字或简笔画。默认每个角标按语义稳定映射到一张图，
+ * 用户也可为任意角标（含旧功能入口）另选一张内置图，或自定义上传图片。
+ * 优先级：自定义上传 URI > 内置图片。
  */
 public final class DeskIconPack {
     private static final String PREF = "desk_icon_pack_v1";
     private static final String K_BUILTIN = "builtin"; // {"checkin":3, "old_diary":1, ...}
 
-    /** 内置图片资源（drawable-nodpi），0..7；前 4 张即参考四宫格切分图。 */
+    /** 内置图片资源（drawable-nodpi），0..11，均为 UI 同色系纯几何图标。 */
     public static final int[] RES = {
             R.drawable.ic_badge_0, R.drawable.ic_badge_1,
             R.drawable.ic_badge_2, R.drawable.ic_badge_3,
             R.drawable.ic_badge_4, R.drawable.ic_badge_5,
-            R.drawable.ic_badge_6, R.drawable.ic_badge_7
+            R.drawable.ic_badge_6, R.drawable.ic_badge_7,
+            R.drawable.ic_badge_8, R.drawable.ic_badge_9,
+            R.drawable.ic_badge_10, R.drawable.ic_badge_11
     };
     public static final String[] NAMES = {
-            "玫瑰书页", "蝴蝶结甜点", "樱花冰饮", "粉瓷茶具",
-            "玫瑰书页·亮", "蝴蝶结甜点·亮", "樱花冰饮·亮", "粉瓷茶具·亮"
+            "柔绿", "藕粉", "淡蓝", "米杏", "浅灰", "淡紫",
+            "燕麦", "青灰", "暖粉", "雾蓝", "芽绿", "豆沙"
     };
     public static final int COUNT = RES.length;
 
@@ -52,7 +54,7 @@ public final class DeskIconPack {
         return Math.abs(h) % COUNT;
     }
 
-    /** 取某角标当前选定的内置索引；-1 表示未启用内置图（走字符或自定义 URI）。 */
+    /** 取某角标当前选定的内置索引；-1 表示用户显式关闭了内置图。 */
     public static int indexOf(Context c, String assetKey) {
         JSONObject o = obj(c);
         if (!o.has(assetKey)) return defaultIndexFor(assetKey);

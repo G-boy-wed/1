@@ -5298,7 +5298,7 @@
   },
   {
     "name": "set_desk_badge",
-    "description": "更改掌心窗手机上桌面角标或旧功能入口的名字与图标，让 TA 从机端也能自定义桌面。id 用功能角标 id（checkin/emotion/initiative/discipline/distraction/appgate/reminder/schedule/memory/ocr/weather/homemode/global/permissions/debug/theme/watchparty）或旧入口 id（companion/diary/connection/settings/life/guard/calendar/guidian，旧入口请传 old_entry=true）。可只传要改的字段：name 改名；builtin_index(0-7) 选内置粉白系图标（对应四宫格切图）；glyph 改字符图标；color 设置某页背景。所有改动落到手机本机，重启不丢。",
+    "description": "更改掌心窗手机上桌面角标或旧功能入口的名字与图标，让 TA 从机端也能自定义桌面。id 用功能角标 id（checkin/emotion/initiative/discipline/distraction/appgate/reminder/schedule/memory/ocr/weather/homemode/global/permissions/debug/theme/watchparty）或旧入口 id（companion/diary/connection/settings/life/guard/calendar/guidian，旧入口请传 old_entry=true）。可只传要改的字段：name 改名；builtin_index(0-11) 选内置同色系几何图标（0柔绿/1藕粉/2淡蓝/3米杏/4浅灰/5淡紫/6燕麦/7青灰/8暖粉/9雾蓝/10芽绿/11豆沙，纯几何无emoji无简笔画）；color 设置某页背景。所有图标均为图片，不含字符/emoji/简笔画。所有改动落到手机本机，重启不丢。",
     "inputSchema": {
       "type": "object",
       "properties": {

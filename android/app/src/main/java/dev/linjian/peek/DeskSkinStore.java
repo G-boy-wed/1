@@ -45,6 +45,13 @@ public final class DeskSkinStore {
     public static final String S_DYN3 = "dyn3";
     public static final String S_DYN4 = "dyn4";
     public static final String S_DYN5 = "dyn5";
+    // 第四页（旧功能入口页）专用贴图槽：与相册页隔离，互不覆盖
+    public static final String S_OLD0 = "old0";
+    public static final String S_OLD1 = "old1";
+    public static final String S_OLD2 = "old2";
+    public static final String S_OLD3 = "old3";
+    public static final String S_OLD4 = "old4";
+    public static final String S_OLD5 = "old5";
 
     /** 选图请求码 = REQ_PICK_BASE + 本数组下标；onActivityResult 据此还原槽位。 */
     public static final String[] PICK_SLOTS = {
@@ -52,7 +59,8 @@ public final class DeskSkinStore {
             S_PHOTO0, S_PHOTO1, S_PHOTO2,
             S_FRIEND0, S_FRIEND1, S_FRIEND2, S_FRIEND3,
             S_FEEDBG, S_FEEDAVATAR,
-            S_DYN0, S_DYN1, S_DYN2, S_DYN3, S_DYN4, S_DYN5
+            S_DYN0, S_DYN1, S_DYN2, S_DYN3, S_DYN4, S_DYN5,
+            S_OLD0, S_OLD1, S_OLD2, S_OLD3, S_OLD4, S_OLD5
     };
 
     /** 第二页相册贴图的全部可用槽（含默认三张 + 动态增补）。 */
@@ -61,13 +69,32 @@ public final class DeskSkinStore {
             S_DYN0, S_DYN1, S_DYN2, S_DYN3, S_DYN4, S_DYN5
     };
 
+    /** 第四页旧功能入口页的全部贴图槽。 */
+    public static final String[] OLD_SLOTS = {
+            S_OLD0, S_OLD1, S_OLD2, S_OLD3, S_OLD4, S_OLD5
+    };
+
     /** 找到第一个还没有图片的相册槽，用于"添加贴图"；-full 返回 null。 */
     public static String firstEmptyAlbumSlot(Context c) {
         for (String s : ALBUM_SLOTS) if (slotUri(c, s).isEmpty()) return s;
         return null;
     }
+
+    /** 找到第一个还没有图片的第四页贴图槽；-full 返回 null。 */
+    public static String firstEmptyOldSlot(Context c) {
+        for (String s : OLD_SLOTS) if (slotUri(c, s).isEmpty()) return s;
+        return null;
+    }
+
+    /** 判断某槽位属于哪一页：0=个人页，1=相册页，2=动态页，3=旧功能入口页。 */
+    public static int pageOfSlot(String slot) {
+        for (String s : ALBUM_SLOTS) if (s.equals(slot)) return 1;
+        for (String s : OLD_SLOTS) if (s.equals(slot)) return 3;
+        if (slot != null && slot.startsWith("feed")) return 2;
+        return 0; // cover / avatar / about 等个人页贴图
+    }
     public static final int REQ_PICK_BASE = 3000;
-    public static final int REQ_BG_BASE = 4000; // +page(0..2) 更换整页背景
+    public static final int REQ_BG_BASE = 4000; // +page(0..3) 更换整页背景
 
     private DeskSkinStore() { }
 

@@ -196,8 +196,10 @@ public class PalmDeskActivity extends Activity {
         @Override public void onDelete(String kind, String id) {
             if (FreeDeskLayout.KIND_STICKER.equals(kind)) {
                 DeskSkinStore.setSlotUri(PalmDeskActivity.this, id, "");
-                DeskLayoutStore.remove(PalmDeskActivity.this, PAGE_ALBUM, kind, id);
-                rebuildPage(PAGE_ALBUM);
+                int page = DeskSkinStore.pageOfSlot(id);
+                if (page < 0) page = currentPage;
+                DeskLayoutStore.remove(PalmDeskActivity.this, page, kind, id);
+                rebuildPage(page);
                 toast("贴图已删除");
             }
         }
@@ -288,6 +290,16 @@ public class PalmDeskActivity extends Activity {
         }
         // 说明文字卡（不可删）
         addText(stage, "oldhint", 8, 200, 300, 60);
+        // 第四页贴图（可增删/拖动/缩放，独立槽 old0..old5）
+        float[] tx = {8, 108, 208};
+        int n = 0;
+        for (String s : DeskSkinStore.OLD_SLOTS) {
+            if (DeskSkinStore.slotUri(this, s).isEmpty()) continue;
+            float x = tx[n % 3];
+            float y = 274 + (n / 3) * 112f;
+            addSticker(stage, s, x, y, 92, 104);
+            n++;
+        }
     }
 
     // ============================================================
@@ -334,31 +346,26 @@ public class PalmDeskActivity extends Activity {
     }
 
     /**
-     * 图标视图优先级：自定义上传 URI > 内置粉白系图片 > 字符图标。
-     * 内置图默认按序映射，前四个功能角标正好对应参考四宫格切出的四张图。
+     * 角标图标：与 UI 同色系的圆角方块 App 图标（纯几何，无 emoji/文字/简笔画）。
+     * 优先级：自定义上传 URI > 内置几何图标。永不回退到字符图标。
+     * 图标铺满整个圆角方块（padding=0），解决旧版被 13dp 内边距挤到看不清的问题。
      */
     private View iconView(String assetKey, String glyph, int side) {
+        SoftAvatarView img = new SoftAvatarView(this);
+        img.setCircle(false);
+        img.setCornerDp(12);
+        img.setFallbackPaddingDp(0);
+        img.setColors(t.card, t.line, t.primary);
         String uri = DeskAssetStore.featureIconUri(this, assetKey);
         if (!uri.isEmpty()) {
-            SoftAvatarView img = new SoftAvatarView(this);
-            img.setCircle(true);
-            img.setColors(t.card, t.line, t.primary);
             img.setImageUri(Uri.parse(uri));
             return img;
         }
         int builtin = DeskIconPack.indexOf(this, assetKey);
-        if (builtin >= 0) {
-            SoftAvatarView img = new SoftAvatarView(this);
-            img.setCircle(true);
-            img.setColors(t.card, t.line, t.primary);
-            Drawable d = DeskIconPack.drawable(this, builtin);
-            if (d != null) img.setFallback(d);
-            return img;
-        }
-        TextView g = tv(glyph, 24, t.text);
-        g.setGravity(Gravity.CENTER);
-        g.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
-        return g;
+        if (builtin < 0) builtin = DeskIconPack.defaultIndexFor(assetKey); // 永不落回字符
+        Drawable d = DeskIconPack.drawable(this, builtin);
+        if (d != null) img.setFallback(d);
+        return img;
     }
 
     private String FDeskAssetKey(String featureId) { return featureId; }
@@ -518,24 +525,46 @@ public class PalmDeskActivity extends Activity {
         }
     }
 
-    /** 页设置入口行：右侧 ⚙ 图标（纯图标无文字），第 2、3、4 页左侧返回箭头。 */
+    /** 页设置入口行：右侧设置图标（图片无字符），第 2、3、4 页左侧返回箭头（图片）。 */
     private View pageSettingRow(final int pageIndex) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
+        int iconSide = dpI(20);
         if (pageIndex > 0) {
-            TextView back = tv("‹", 24, t.text);
-            back.setPadding(dpI(2), 0, dpI(10), 0);
+            TextView back = new TextView(this);
+            Drawable bd = iconDrawable(R.drawable.ic_back);
+            if (bd != null) bd.setBounds(0, 0, iconSide, iconSide);
+            back.setCompoundDrawables(bd, null, null, null);
+            back.setPadding(0, 0, dpI(10), 0);
+            back.setMinWidth(iconSide);
+            back.setMinimumHeight(iconSide);
             back.setOnClickListener(v -> goPage(pageIndex - 1));
             row.addView(back);
         }
-        TextView gear = tv("⚙", 18, t.subtext);
+        TextView gear = new TextView(this);
+        Drawable gd = iconDrawable(R.drawable.ic_settings);
+        if (gd != null) gd.setBounds(0, 0, iconSide, iconSide);
+        gear.setCompoundDrawables(gd, null, null, null);
+        gear.setMinWidth(iconSide);
+        gear.setMinimumHeight(iconSide);
         LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         gp.weight = 1; gp.gravity = Gravity.END;
         gear.setOnClickListener(v -> showPageMenu(pageIndex));
         row.addView(gear, gp);
         return row;
+    }
+
+    /** 加载内置 drawable，并按当前文字弱色做 tint，保持同色系统一。 */
+    private Drawable iconDrawable(int res) {
+        try {
+            Drawable d = getResources().getDrawable(res, null);
+            if (d == null) return null;
+            d = d.mutate();
+            d.setTint(t.subtext);
+            return d;
+        } catch (Exception e) { return null; }
     }
 
     // ============================================================
@@ -623,7 +652,7 @@ public class PalmDeskActivity extends Activity {
         opts.add("恢复默认背景");
         opts.add("恢复本页摆放");
         if (page == PAGE_ALBUM) opts.add("添加贴图");
-        if (page == PAGE_OLD) opts.add("恢复旧功能入口默认");
+        if (page == PAGE_OLD) { opts.add("添加贴图"); opts.add("恢复旧功能入口默认"); }
         final String[] arr = opts.toArray(new String[0]);
         new AlertDialog.Builder(this).setTitle("第 " + (page + 1) + " 页设置")
                 .setItems(arr, (d, w) -> {
@@ -640,8 +669,10 @@ public class PalmDeskActivity extends Activity {
                         rebuildPage(page);
                         toast("已恢复本页默认摆放");
                     } else if ("添加贴图".equals(s)) {
-                        String empty = DeskSkinStore.firstEmptyAlbumSlot(this);
-                        if (empty == null) toast("贴图已达上限（9 张）");
+                        String empty = page == PAGE_OLD
+                                ? DeskSkinStore.firstEmptyOldSlot(this)
+                                : DeskSkinStore.firstEmptyAlbumSlot(this);
+                        if (empty == null) toast("贴图已达上限（6 张）");
                         else pickImage(empty);
                     } else if ("恢复旧功能入口默认".equals(s)) {
                         OldEntryStore.resetAll(this);
@@ -680,15 +711,14 @@ public class PalmDeskActivity extends Activity {
 
     private void editFeatureDialog(final DeskFeatureStore.Feature f) {
         new AlertDialog.Builder(this).setTitle("功能：" + f.name)
-                .setItems(new String[]{"改名", "自定义上传图标", "选内置粉白图标", "换字符图标",
+                .setItems(new String[]{"改名", "自定义上传图标", "选内置图标",
                                 "前移", "后移", "恢复这一个默认", "清除自定义图标"}, (d, w) -> {
                     if (w == 0) showRenameFeatureDialog(f);
                     else if (w == 1) pickFeatureIcon("feature", f.id);
                     else if (w == 2) showBuiltinIconDialog(f.id);
-                    else if (w == 3) cycleIcon(f);
-                    else if (w == 4) moveFeature(f, -1);
-                    else if (w == 5) moveFeature(f, 1);
-                    else if (w == 6) {
+                    else if (w == 3) moveFeature(f, -1);
+                    else if (w == 4) moveFeature(f, 1);
+                    else if (w == 5) {
                         DeskFeatureStore.setIcon(this, f.id, f.defIcon);
                         DeskFeatureStore.setName(this, f.id, f.defName);
                         DeskAssetStore.clearFeatureIconUri(this, f.id);
@@ -696,7 +726,7 @@ public class PalmDeskActivity extends Activity {
                         DeskLayoutStore.remove(this, pageOfFeature(f.id), FreeDeskLayout.KIND_FEATURE, f.id);
                         rebuildAll();
                         toast("已恢复默认");
-                    } else if (w == 7) {
+                    } else if (w == 6) {
                         DeskAssetStore.clearFeatureIconUri(this, f.id);
                         rebuildAll();
                         toast("已清除自定义上传图标");
@@ -716,7 +746,7 @@ public class PalmDeskActivity extends Activity {
 
     private void editOldEntryDialog(final OldEntryStore.Entry e) {
         new AlertDialog.Builder(this).setTitle("入口：" + e.name)
-                .setItems(new String[]{"改名", "自定义上传图标", "选内置粉白图标", "换字符图标", "恢复默认", "清除自定义图标"}, (d, w) -> {
+                .setItems(new String[]{"改名", "自定义上传图标", "选内置图标", "恢复默认", "清除自定义图标"}, (d, w) -> {
                     if (w == 0) {
                         final EditText name = new EditText(this);
                         name.setText(e.name);
@@ -730,18 +760,12 @@ public class PalmDeskActivity extends Activity {
                     } else if (w == 1) pickFeatureIcon("old", e.id);
                     else if (w == 2) showBuiltinIconDialog("old_" + e.id);
                     else if (w == 3) {
-                        String[] icons = DeskFeatureStore.ICONS;
-                        int cur = 0;
-                        for (int i = 0; i < icons.length; i++) if (icons[i].equals(e.icon)) { cur = i; break; }
-                        OldEntryStore.setIcon(this, e.id, icons[(cur + 1) % icons.length]);
-                        rebuildPage(PAGE_OLD);
-                    } else if (w == 4) {
                         OldEntryStore.resetOne(this, e.id);
                         DeskIconPack.resetOne(this, "old_" + e.id);
                         DeskLayoutStore.remove(this, PAGE_OLD, "old", e.id);
                         rebuildPage(PAGE_OLD);
                         toast("已恢复默认");
-                    } else if (w == 5) {
+                    } else if (w == 4) {
                         DeskAssetStore.clearFeatureIconUri(this, "old_" + e.id);
                         rebuildPage(PAGE_OLD);
                         toast("已清除自定义上传图标");
@@ -760,27 +784,16 @@ public class PalmDeskActivity extends Activity {
         rebuildAll();
     }
 
-    /** 从内置粉白系图标里选一张作为角标图标；选"用字符图标"则关闭内置图。 */
+    /** 从 UI 同色系的几何图标里选一张作为角标图标（全部为图片，无字符图标）。 */
     private void showBuiltinIconDialog(final String assetKey) {
-        String[] opts = new String[DeskIconPack.COUNT + 1];
+        String[] opts = new String[DeskIconPack.COUNT];
         for (int i = 0; i < DeskIconPack.COUNT; i++) opts[i] = (i + 1) + ". " + DeskIconPack.NAMES[i];
-        opts[DeskIconPack.COUNT] = "用字符图标（关闭内置图）";
-        new AlertDialog.Builder(this).setTitle("选内置粉白图标")
+        new AlertDialog.Builder(this).setTitle("选内置图标（" + DeskIconPack.COUNT + " 款同色系）")
                 .setItems(opts, (d, w) -> {
-                    if (w == DeskIconPack.COUNT) DeskIconPack.resetOne(this, assetKey);
-                    else DeskIconPack.setIndex(this, assetKey, w);
+                    DeskIconPack.setIndex(this, assetKey, w);
                     rebuildAll();
-                    toast(w == DeskIconPack.COUNT ? "已改为字符图标" : "角标图标已更换");
+                    toast("角标图标已更换");
                 }).show();
-    }
-
-    private void cycleIcon(final DeskFeatureStore.Feature f) {
-        String[] icons = DeskFeatureStore.ICONS;
-        int cur = 0;
-        for (int i = 0; i < icons.length; i++) if (icons[i].equals(f.icon)) { cur = i; break; }
-        DeskFeatureStore.setIcon(this, f.id, icons[(cur + 1) % icons.length]);
-        rebuildAll();
-        toast("字符图标已切换（继续点可循环）");
     }
 
     private void showRenameFeatureDialog(final DeskFeatureStore.Feature f) {
