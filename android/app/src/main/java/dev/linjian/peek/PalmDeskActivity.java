@@ -12,7 +12,6 @@ import android.graphics.Paint;
 import android.graphics.RadialGradient;
 import android.graphics.Shader;
 import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -20,6 +19,7 @@ import android.os.Looper;
 import android.text.InputType;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
@@ -34,7 +34,6 @@ import org.json.JSONObject;
 
 import java.io.InputStream;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashSet;
@@ -43,21 +42,19 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * 掌心窗主入口 —— 参考图「三页横滑」美化布局，内容全部来自掌心窗真实插件。
+ * 掌心窗主入口 —— 参考图「三页横滑」美化布局，内容全部来自掌心窗真实功能。
  *
- * 【布局严格照图，内容不用图里的假软件名】
- *  - 个人页：封面大卡(可贴图) + 圆头像(可贴图) + 名字/@账号/简介/地区(可改) +
- *            2×2 真实插件宫格 + About me 卡(可贴图) + 搜索栏。
- *  - 相册页：返回/更多 + N Photo Selected + 3 张照片墙(可贴图) + 4 好友头像(可贴图) +
- *            2×2 真实插件宫格 + New List 卡 + 搜索栏。
- *  - 动态页：点状背景卡 + 头像(可贴图) + 标题/日期 + 对话气泡 + 输入框 +
- *            真实插件宫格 + 搜索栏。
- *  三页共性：每页可自定义背景(图/纯色)，底部 4 图标 Dock（真实插件，可点开/可改）。
+ * 【图标位 = 掌心窗真实可更改功能】查岗/情绪/主动/训诫/分心/门禁/提醒/课表/
+ * 记忆/识图/天气/回家/全局/权限/调试/主题，共 16 项，全部来自 DeskFeatureStore，
+ * 绝不出现「消息/图片/联系人/便签」这类无关系统应用；去重、无重复铺满三页。
+ * 每个角标：点按=打开对应设置进行更改；长按=改名/换图标/移动。
  *
- * 【数据唯一来源】DeskPluginStore（20 个真实插件，去重后按顺序无重复铺满三页 + Dock）。
- * 每个图标：点按=打开使用；长按=改名/换图标/改动作/移动/删除。皮肤存 DeskSkinStore。
+ * 【贴图位零字符】封面/头像/照片墙/好友头像/动态背景/动态头像等可换图区域
+ * 只显示纯图片，上面不叠加任何文字；换图/清除靠点击与长按菜单完成。
  *
- * 【无旧 UI / 无假数据】不跳旧 MainActivity；天气/时间/位置取真实状态；深链走白名单。
+ * 【三页横滑】个人页 / 相册页 / 动态页，手势左右滑动，无底部标签栏。
+ * 每页背景可换图或纯色；名字/账号/简介/地区/标题为独立文字卡可点击编辑。
+ * 皮肤与角标自定义全部落 SharedPreferences，重启不丢。
  */
 public class PalmDeskActivity extends Activity {
     private static final int PAGE_PROFILE = 0;
@@ -76,7 +73,6 @@ public class PalmDeskActivity extends Activity {
     private HorizontalScrollView hsv;
     private LinearLayout track;
     private final View[] pages = new View[PAGE_COUNT];
-    private LinearLayout dock;
     private TextView feedClock, feedDate;
     private final Handler clock = new Handler(Looper.getMainLooper());
     private final Runnable clockTick = new Runnable() {
@@ -103,27 +99,18 @@ public class PalmDeskActivity extends Activity {
         track.setOrientation(LinearLayout.HORIZONTAL);
         for (int i = 0; i < PAGE_COUNT; i++) {
             View page = buildPage(i);
-            LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(screenW, ViewGroup.LayoutParams.MATCH_PARENT);
-            page.setLayoutParams(pp);
+            page.setLayoutParams(new LinearLayout.LayoutParams(screenW, ViewGroup.LayoutParams.MATCH_PARENT));
             pages[i] = page;
             track.addView(page);
         }
         hsv.addView(track, new HorizontalScrollView.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
         hsv.setOnTouchListener((v, e) -> {
-            if (e.getAction() == android.view.MotionEvent.ACTION_UP
-                    || e.getAction() == android.view.MotionEvent.ACTION_CANCEL) snapPage();
+            if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) snapPage();
             return false;
         });
         root.addView(hsv, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-        dock = buildDock();
-        FrameLayout.LayoutParams dp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        dp.gravity = Gravity.BOTTOM;
-        root.addView(dock, dp);
-
         setContentView(root);
         clock.post(clockTick);
         refreshDeskWeather();
@@ -134,7 +121,6 @@ public class PalmDeskActivity extends Activity {
         super.onDestroy();
     }
 
-    /** 横滑结束吸附到最近一页。 */
     private void snapPage() {
         int page = Math.round(hsv.getScrollX() / (float) Math.max(1, screenW));
         page = Math.max(0, Math.min(PAGE_COUNT - 1, page));
@@ -166,7 +152,6 @@ public class PalmDeskActivity extends Activity {
         return shell;
     }
 
-    /** 重建某一页（编辑/换图后调用）。 */
     private void rebuildPage(int index) {
         if (index < 0 || index >= PAGE_COUNT) return;
         View fresh = buildPage(index);
@@ -178,7 +163,6 @@ public class PalmDeskActivity extends Activity {
 
     private void rebuildAll() {
         for (int i = 0; i < PAGE_COUNT; i++) rebuildPage(i);
-        rebuildDock();
         hsv.scrollTo(currentPage * screenW, 0);
     }
 
@@ -237,12 +221,14 @@ public class PalmDeskActivity extends Activity {
     // ============================================================
     private LinearLayout buildProfilePage() {
         LinearLayout col = column();
-        // 封面大卡（可贴图）
+        // 右上角：页设置（换背景/纯色/恢复），无文字图标
+        col.addView(pageSettingRow(false));
+
+        // 封面大卡（纯贴图，零字符）+ 圆头像（纯贴图，零字符）
         FrameLayout cover = new FrameLayout(this);
         cover.setLayoutParams(matchWrap());
         SoftAvatarView coverImg = sticker(DeskSkinStore.S_COVER, false, UiTokens.RADIUS_CARD, t.cardSoft, t.line);
         cover.addView(coverImg, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpI(180)));
-        // 圆形头像（可贴图），压在封面下沿
         SoftAvatarView avatar = sticker(DeskSkinStore.S_AVATAR, true, 0, t.card, t.line);
         FrameLayout.LayoutParams avp = new FrameLayout.LayoutParams(dpI(84), dpI(84));
         avp.gravity = Gravity.CENTER_HORIZONTAL;
@@ -250,11 +236,11 @@ public class PalmDeskActivity extends Activity {
         cover.addView(avatar, avp);
         col.addView(cover, marginB(14));
 
-        // 信息卡：名字 / @账号 / 简介 / 地区
+        // 信息卡：名字 / @账号 / 简介 / 地区（文字卡，非贴图位）
         LinearLayout info = cardCol(t.card, dpI(18));
         info.setGravity(Gravity.CENTER_HORIZONTAL);
         String name = DeskSkinStore.text(this, "name", "掌心窗");
-        String account = DeskSkinStore.text(this, "account", "@" + "我的掌心窗");
+        String account = DeskSkinStore.text(this, "account", "@我的掌心窗");
         String bio = DeskSkinStore.text(this, "bio", "在这里，记录我们的一天");
         info.addView(editTextRow(name, 20, t.text, "name", "编辑名字"));
         info.addView(editTextRow(account, 13, t.subtext, "account", "编辑账号"), matchWrapTop(3));
@@ -263,21 +249,13 @@ public class PalmDeskActivity extends Activity {
                 12, t.subtext, "region", "编辑地区"), matchWrapTop(6));
         col.addView(info, marginB(14));
 
-        // 2×2 真实插件宫格
-        col.addView(pluginGrid(4, 8, 2), marginB(14));
+        // 真实功能角标（2×2）
+        col.addView(featureGrid(0, 4, 2), marginB(14));
 
-        // About me 卡（可贴图）
-        FrameLayout about = new FrameLayout(this);
-        about.setLayoutParams(matchWrap());
+        // About me（纯贴图，零字符）
         SoftAvatarView aboutImg = sticker(DeskSkinStore.S_ABOUT, false, UiTokens.RADIUS_CARD, t.cardSoft, t.line);
-        about.addView(aboutImg, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpI(110)));
-        TextView aboutLb = tv("About me  ·  长按可换图", 12, t.text);
-        FrameLayout.LayoutParams alp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        alp.gravity = Gravity.BOTTOM | Gravity.START;
-        alp.leftMargin = dpI(16); alp.bottomMargin = dpI(12);
-        about.addView(aboutLb, alp);
-        col.addView(about, marginB(10));
+        col.addView(aboutImg, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dpI(110)));
 
         col.addView(searchBar());
         col.addView(spacer(96));
@@ -289,41 +267,9 @@ public class PalmDeskActivity extends Activity {
     // ============================================================
     private LinearLayout buildAlbumPage() {
         LinearLayout col = column();
-        // 顶部返回 / 更多
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        TextView back = tv("‹", 26, t.text);
-        back.setPadding(dpI(4), 0, dpI(14), 0);
-        back.setOnClickListener(v -> goPage(PAGE_PROFILE));
-        TextView more = tv("···", 20, t.text);
-        more.setOnClickListener(v -> showPageMenu(PAGE_ALBUM));
-        LinearLayout.LayoutParams mrp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        mrp.weight = 1; mrp.gravity = Gravity.END;
-        top.addView(back);
-        top.addView(more, mrp);
-        col.addView(top, marginB(10));
+        col.addView(pageSettingRow(true));
 
-        // 1 Photo Selected 卡
-        LinearLayout sel = cardCol(t.card, dpI(16));
-        LinearLayout selRow = new LinearLayout(this);
-        selRow.setOrientation(LinearLayout.HORIZONTAL);
-        selRow.setGravity(Gravity.CENTER_VERTICAL);
-        SoftAvatarView selThumb = sticker(DeskSkinStore.S_PHOTO0, false, UiTokens.RADIUS_SM, t.cardSoft, t.line);
-        selRow.addView(selThumb, new LinearLayout.LayoutParams(dpI(40), dpI(40)));
-        LinearLayout selText = new LinearLayout(this);
-        selText.setOrientation(LinearLayout.VERTICAL);
-        selText.addView(tv(countPhotos() + " Photo Selected", 13, t.text));
-        selText.addView(tv("点照片或头像可更换贴图  ›", 11, t.subtext));
-        selRow.addView(selText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        TextView close = tv("×", 18, t.subtext);
-        close.setOnClickListener(v -> clearPhotos());
-        selRow.addView(close);
-        sel.addView(selRow);
-        col.addView(sel, marginB(12));
-
-        // 3 张照片墙（可贴图）
+        // 3 张照片墙（纯贴图，零字符）
         LinearLayout wall = new LinearLayout(this);
         wall.setOrientation(LinearLayout.HORIZONTAL);
         wall.setWeightSum(3);
@@ -331,40 +277,31 @@ public class PalmDeskActivity extends Activity {
         for (int i = 0; i < 3; i++) {
             SoftAvatarView ph = sticker(photoSlots[i], false, UiTokens.RADIUS_ROW, t.cardSoft, t.line);
             LinearLayout.LayoutParams lp = weight1();
-            lp.height = dpI(120);
+            lp.height = dpI(130);
             lp.rightMargin = i < 2 ? dpI(8) : 0;
             wall.addView(ph, lp);
         }
         col.addView(wall, marginB(14));
 
-        // 4 好友头像（可贴图）
+        // 4 好友头像（纯贴图，零字符）
         LinearLayout friends = new LinearLayout(this);
         friends.setOrientation(LinearLayout.HORIZONTAL);
         friends.setWeightSum(4);
         String[] friendSlots = {DeskSkinStore.S_FRIEND0, DeskSkinStore.S_FRIEND1,
                 DeskSkinStore.S_FRIEND2, DeskSkinStore.S_FRIEND3};
-        String[] friendNames = {"自己", "伴侣", "家人", "好友"};
         for (int i = 0; i < 4; i++) {
-            LinearLayout f = new LinearLayout(this);
-            f.setOrientation(LinearLayout.VERTICAL);
-            f.setGravity(Gravity.CENTER_HORIZONTAL);
             SoftAvatarView av = sticker(friendSlots[i], true, 0, t.card, t.line);
-            f.addView(av, new LinearLayout.LayoutParams(dpI(52), dpI(52)));
-            f.addView(tv(friendNames[i], 10, t.subtext), matchWrapTop(4));
             LinearLayout.LayoutParams fp = weight1();
-            friends.addView(f, fp);
+            fp.height = dpI(58);
+            friends.addView(av, fp);
         }
-        col.addView(friends, marginB(14));
+        col.addView(friends, marginB(16));
 
-        // 2×2 真实插件宫格
-        col.addView(pluginGrid(8, 12, 2), marginB(14));
+        // 真实功能角标（2×2）
+        col.addView(featureGrid(4, 8, 2), marginB(14));
 
-        // New List 卡（课表/守护日历真实入口）
-        LinearLayout nl = cardCol(t.card, dpI(16));
-        nl.addView(tv("New List", 13, t.text));
-        nl.addView(tv("Templates  ·  课表 / 守护日历", 11, t.subtext), matchWrapTop(3));
-        nl.setOnClickListener(v -> openSection("schedule"));
-        col.addView(nl, marginB(10));
+        // 真实功能角标（2×2）
+        col.addView(featureGrid(8, 12, 2), marginB(14));
 
         col.addView(searchBar());
         col.addView(spacer(96));
@@ -376,33 +313,33 @@ public class PalmDeskActivity extends Activity {
     // ============================================================
     private LinearLayout buildFeedPage() {
         LinearLayout col = column();
-        // 点状背景卡（可贴图 / 可换背景）
-        FrameLayout hero = new FrameLayout(this);
-        hero.setLayoutParams(matchWrap());
+        col.addView(pageSettingRow(false));
+
+        // 顶部贴图横幅（纯贴图，零字符）
         SoftAvatarView heroBg = sticker(DeskSkinStore.S_FEEDBG, false, UiTokens.RADIUS_CARD, t.cardSoft, t.line);
-        hero.addView(heroBg, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpI(150)));
-        LinearLayout heroInner = new LinearLayout(this);
-        heroInner.setOrientation(LinearLayout.HORIZONTAL);
-        heroInner.setGravity(Gravity.CENTER_VERTICAL);
-        heroInner.setPadding(dpI(14), dpI(18), dpI(14), dpI(14));
+        col.addView(heroBg, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dpI(140)));
+
+        // 文字信息卡（非贴图位）：头像 + 标题/日期/时钟
+        LinearLayout infoCard = cardCol(t.card, dpI(14));
+        infoCard.setOrientation(LinearLayout.HORIZONTAL);
+        infoCard.setGravity(Gravity.CENTER_VERTICAL);
         SoftAvatarView heroAv = sticker(DeskSkinStore.S_FEEDAVATAR, false, UiTokens.RADIUS_SM, t.card, t.line);
-        heroInner.addView(heroAv, new LinearLayout.LayoutParams(dpI(44), dpI(44)));
+        infoCard.addView(heroAv, new LinearLayout.LayoutParams(dpI(48), dpI(48)));
         LinearLayout heroTxt = new LinearLayout(this);
         heroTxt.setOrientation(LinearLayout.VERTICAL);
         String title = DeskSkinStore.text(this, "feedtitle", "掌心窗 · 我们的世界");
         heroTxt.addView(editTextRow(title, 14, t.text, "feedtitle", "编辑标题"));
         feedDate = tv(new SimpleDateFormat("yyyy年MM月dd日 E", Locale.CHINA).format(new Date()), 10, t.subtext);
         heroTxt.addView(feedDate, matchWrapTop(2));
-        feedClock = tv("", 30, t.text);
+        feedClock = tv("", 28, t.text);
         feedClock.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
-        heroTxt.addView(feedClock, matchWrapTop(6));
-        heroInner.addView(heroTxt, new LinearLayout.LayoutParams(0,
+        heroTxt.addView(feedClock, matchWrapTop(4));
+        infoCard.addView(heroTxt, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        hero.addView(heroInner, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        col.addView(hero, marginB(12));
+        col.addView(infoCard, marginB(14));
 
-        // 对话气泡（真实状态，不用假情话）
+        // 对话气泡（文字卡）+ 输入框（非贴图位）
         LinearLayout bubbles = new LinearLayout(this);
         bubbles.setOrientation(LinearLayout.VERTICAL);
         bubbles.addView(bubble("♡  " + statusLine()));
@@ -417,9 +354,8 @@ public class PalmDeskActivity extends Activity {
         input.setTextColor(t.text);
         input.setBackground(null);
         input.setSingleLine(true);
-        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        inp.addView(input, ip);
+        inp.addView(input, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         TextView send = tv("↑", 18, t.primary);
         send.setOnClickListener(v -> {
             String s = input.getText().toString().trim();
@@ -435,15 +371,34 @@ public class PalmDeskActivity extends Activity {
         if (!note.isEmpty()) bubbles.addView(bubble("✎  " + note));
         col.addView(bubbles, marginB(14));
 
-        // 真实插件宫格（剩余全部插件）
-        col.addView(pluginGrid(12, 99, 4), marginB(14));
+        // 真实功能角标（剩余 4 项，4 列）
+        col.addView(featureGrid(12, 16, 4), marginB(14));
 
         col.addView(searchBar());
         col.addView(spacer(96));
         return col;
     }
 
-    /** 第 3 页可编辑文案点击行（名字/账号/简介/地区/标题）。 */
+    /** 页设置入口行：左侧返回/标题，右侧 ⚙ 图标（纯图标无文字）。 */
+    private View pageSettingRow(boolean showBack) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        if (showBack) {
+            TextView back = tv("‹", 24, t.text);
+            back.setPadding(dpI(2), 0, dpI(10), 0);
+            back.setOnClickListener(v -> goPage(PAGE_PROFILE));
+            row.addView(back);
+        }
+        TextView gear = tv("⚙", 18, t.subtext);
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        gp.weight = 1; gp.gravity = Gravity.END;
+        gear.setOnClickListener(v -> showPageMenu(currentPage));
+        row.addView(gear, gp);
+        return row;
+    }
+
     private TextView editTextRow(String value, float size, int color, final String key, final String title) {
         TextView v = tv(value, size, color);
         v.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -464,16 +419,16 @@ public class PalmDeskActivity extends Activity {
     }
 
     // ============================================================
-    // 真实插件宫格：从 DeskPluginStore 按区间取，无重复
+    // 真实功能角标：来自 DeskFeatureStore，无重复铺满三页
     // ============================================================
-    private View pluginGrid(int from, int to, int columns) {
-        List<DeskPluginStore.Plugin> all = DeskPluginStore.all(this);
-        List<DeskPluginStore.Plugin> slice = new ArrayList<>();
+    private View featureGrid(int from, int to, int columns) {
+        List<DeskFeatureStore.Feature> all = DeskFeatureStore.all(this);
+        List<DeskFeatureStore.Feature> slice = new java.util.ArrayList<>();
         for (int i = from; i < to && i < all.size(); i++) slice.add(all.get(i));
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
         if (slice.isEmpty()) {
-            grid.addView(tv("（暂无插件，长按底部图标可新增）", 12, t.subtext));
+            grid.addView(tv("（暂无功能项）", 12, t.subtext));
             return grid;
         }
         int rows = (slice.size() + columns - 1) / columns;
@@ -483,14 +438,14 @@ public class PalmDeskActivity extends Activity {
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setWeightSum(columns);
             for (int c = 0; c < columns && idx < slice.size(); c++, idx++) {
-                row.addView(pluginCell(slice.get(idx)), weight1());
+                row.addView(featureCell(slice.get(idx)), weight1());
             }
             grid.addView(row, matchWrapTop(r == 0 ? 0 : 12));
         }
         return grid;
     }
 
-    private View pluginCell(final DeskPluginStore.Plugin p) {
+    private View featureCell(final DeskFeatureStore.Feature f) {
         LinearLayout cell = new LinearLayout(this);
         cell.setOrientation(LinearLayout.VERTICAL);
         cell.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -498,75 +453,20 @@ public class PalmDeskActivity extends Activity {
         box.setGravity(Gravity.CENTER);
         box.setBackground(t.soft(UiTokens.RADIUS_ROW));
         box.setLayoutParams(new LinearLayout.LayoutParams(dpI(54), dpI(54)));
-        box.addView(tv(p.icon, 22, t.text));
-        TextView lb = tv(p.label, 11, t.subtext);
+        box.addView(tv(f.icon, 22, t.text));
+        TextView lb = tv(f.name, 11, t.subtext);
         lb.setSingleLine(true);
         lb.setEllipsize(android.text.TextUtils.TruncateAt.END);
         cell.addView(box);
         cell.addView(lb, matchWrapTop(4));
-        cell.setOnClickListener(v -> openPlugin(p));
-        cell.setOnLongClickListener(v -> { editPluginDialog(p); return true; });
+        cell.setOnClickListener(v -> openFeature(f));
+        cell.setOnLongClickListener(v -> { editFeatureDialog(f); return true; });
         UiKit.pressScale(cell);
         return cell;
     }
 
     // ============================================================
-    // 底部 Dock：真实插件（前 4 个），可点开 / 长按编辑
-    // ============================================================
-    private LinearLayout buildDock() {
-        LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER);
-        bar.setBackground(t.navBar());
-        int pad = dpI(12);
-        bar.setPadding(pad, dpI(8), pad, dpI(8));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(dpI(14), 0, dpI(14), dpI(12));
-        bar.setLayoutParams(lp);
-        fillDock(bar);
-        return bar;
-    }
-
-    private void fillDock(LinearLayout bar) {
-        bar.removeAllViews();
-        List<DeskPluginStore.Plugin> all = DeskPluginStore.all(this);
-        int[] pick = {0, 1, 2, 3};
-        for (int i = 0; i < 4; i++) {
-            final DeskPluginStore.Plugin p = i < all.size() ? all.get(pick[i]) : null;
-            LinearLayout item = new LinearLayout(this);
-            item.setOrientation(LinearLayout.VERTICAL);
-            item.setGravity(Gravity.CENTER_HORIZONTAL);
-            LinearLayout island = new LinearLayout(this);
-            island.setGravity(Gravity.CENTER);
-            island.setBackground(t.navItem(p != null && p.id.equals(
-                    pluginIdAt(currentPage * 4))));
-            island.setLayoutParams(new LinearLayout.LayoutParams(dpI(56), dpI(40)));
-            island.addView(tv(p == null ? "✦" : p.icon, 18, t.text));
-            item.addView(island);
-            TextView lb = tv(p == null ? "插件" : p.label, 9, t.subtext);
-            item.addView(lb, matchWrapTop(2));
-            final LinearLayout finalBar = bar;
-            item.setOnClickListener(v -> {
-                if (p != null) openPlugin(p); else addPluginDialog();
-            });
-            item.setOnLongClickListener(v -> {
-                if (p != null) editPluginDialog(p); else showPageMenu(currentPage);
-                return true;
-            });
-            bar.addView(item, weight1());
-        }
-    }
-
-    private void rebuildDock() { fillDock(dock); }
-
-    private String pluginIdAt(int index) {
-        List<DeskPluginStore.Plugin> all = DeskPluginStore.all(this);
-        return index < all.size() ? all.get(index).id : "";
-    }
-
-    // ============================================================
-    // 贴图：点击换图 / 长按清除
+    // 贴图：点击换图 / 长按更换或清除（贴图位本身零字符）
     // ============================================================
     private SoftAvatarView sticker(String slot, boolean circle, float corner, int fill, int stroke) {
         SoftAvatarView v = new SoftAvatarView(this);
@@ -583,7 +483,7 @@ public class PalmDeskActivity extends Activity {
         v.setOnClickListener(x -> pickImage(slot));
         v.setOnLongClickListener(x -> {
             new AlertDialog.Builder(this)
-                    .setTitle("这个贴图位")
+                    .setTitle("更换这张图片")
                     .setItems(new String[]{"从相册更换", "清除图片"}, (d, w) -> {
                         if (w == 0) pickImage(slot);
                         else { DeskSkinStore.setSlotUri(this, slot, ""); rebuildAll(); toast("已清除"); }
@@ -634,23 +534,8 @@ public class PalmDeskActivity extends Activity {
             String slot = DeskSkinStore.PICK_SLOTS[req - DeskSkinStore.REQ_PICK_BASE];
             DeskSkinStore.setSlotUri(this, slot, uri.toString());
             rebuildAll();
-            toast("贴图已更换");
+            toast("图片已更换");
         }
-    }
-
-    private int countPhotos() {
-        int n = 0;
-        for (String s : new String[]{DeskSkinStore.S_PHOTO0, DeskSkinStore.S_PHOTO1, DeskSkinStore.S_PHOTO2})
-            if (!DeskSkinStore.slotUri(this, s).isEmpty()) n++;
-        return n;
-    }
-
-    private void clearPhotos() {
-        DeskSkinStore.setSlotUri(this, DeskSkinStore.S_PHOTO0, "");
-        DeskSkinStore.setSlotUri(this, DeskSkinStore.S_PHOTO1, "");
-        DeskSkinStore.setSlotUri(this, DeskSkinStore.S_PHOTO2, "");
-        rebuildPage(PAGE_ALBUM);
-        toast("照片墙已清空");
     }
 
     // ============================================================
@@ -658,7 +543,7 @@ public class PalmDeskActivity extends Activity {
     // ============================================================
     private void showPageMenu(final int page) {
         new AlertDialog.Builder(this).setTitle("第 " + (page + 1) + " 页设置")
-                .setItems(new String[]{"更换本页背景图", "选纯色背景", "恢复默认背景", "新增插件", "恢复默认插件"},
+                .setItems(new String[]{"更换本页背景图", "选纯色背景", "恢复默认背景", "恢复默认角标"},
                         (d, w) -> {
                             if (w == 0) pickPageBg(page);
                             else if (w == 1) showBgColorDialog(page);
@@ -667,11 +552,10 @@ public class PalmDeskActivity extends Activity {
                                 DeskSkinStore.setPageBgColor(this, page, 0);
                                 rebuildPage(page);
                                 toast("已恢复默认背景");
-                            } else if (w == 3) addPluginDialog();
-                            else if (w == 4) {
-                                DeskPluginStore.reset(this);
+                            } else if (w == 3) {
+                                DeskFeatureStore.reset(this);
                                 rebuildAll();
-                                toast("插件已恢复默认");
+                                toast("角标已恢复默认");
                             }
                         }).show();
     }
@@ -702,103 +586,82 @@ public class PalmDeskActivity extends Activity {
                 .setNegativeButton("取消", null).show();
     }
 
-    private void editPluginDialog(final DeskPluginStore.Plugin p) {
-        new AlertDialog.Builder(this).setTitle("插件：" + p.label)
-                .setItems(new String[]{"改名 / 动作", "换图标", "前移", "后移", "删除"}, (d, w) -> {
-                    if (w == 0) showRenameDialog(p);
-                    else if (w == 1) cycleIcon(p);
-                    else if (w == 2) movePlugin(p, -1);
-                    else if (w == 3) movePlugin(p, 1);
+    private void editFeatureDialog(final DeskFeatureStore.Feature f) {
+        new AlertDialog.Builder(this).setTitle("功能：" + f.name)
+                .setItems(new String[]{"改名", "换图标", "前移", "后移", "恢复这一个默认"}, (d, w) -> {
+                    if (w == 0) showRenameFeatureDialog(f);
+                    else if (w == 1) cycleIcon(f);
+                    else if (w == 2) moveFeature(f, -1);
+                    else if (w == 3) moveFeature(f, 1);
                     else if (w == 4) {
-                        DeskPluginStore.remove(this, p.id);
+                        DeskFeatureStore.setIcon(this, f.id, f.defIcon);
+                        DeskFeatureStore.setName(this, f.id, f.defName);
                         rebuildAll();
-                        toast("已删除 " + p.label);
+                        toast("已恢复默认");
                     }
                 }).show();
     }
 
-    private void movePlugin(DeskPluginStore.Plugin p, int delta) {
-        List<DeskPluginStore.Plugin> all = DeskPluginStore.all(this);
+    private void moveFeature(DeskFeatureStore.Feature f, int delta) {
+        List<DeskFeatureStore.Feature> all = DeskFeatureStore.all(this);
         int from = -1;
-        for (int i = 0; i < all.size(); i++) if (all.get(i).id.equals(p.id)) { from = i; break; }
+        for (int i = 0; i < all.size(); i++) if (all.get(i).id.equals(f.id)) { from = i; break; }
         if (from < 0) return;
         int to = from + delta;
         if (to < 0 || to >= all.size()) { toast("已经到边了"); return; }
-        DeskPluginStore.move(this, from, to);
+        DeskFeatureStore.move(this, from, to);
         rebuildAll();
     }
 
-    private void cycleIcon(final DeskPluginStore.Plugin p) {
-        String[] icons = DeskPluginStore.ICONS;
+    private void cycleIcon(final DeskFeatureStore.Feature f) {
+        String[] icons = DeskFeatureStore.ICONS;
         int cur = 0;
-        for (int i = 0; i < icons.length; i++) if (icons[i].equals(p.icon)) { cur = i; break; }
+        for (int i = 0; i < icons.length; i++) if (icons[i].equals(f.icon)) { cur = i; break; }
         String next = icons[(cur + 1) % icons.length];
-        DeskPluginStore.update(this, p.id, p.label, next, p.action);
+        DeskFeatureStore.setIcon(this, f.id, next);
         rebuildAll();
         toast("图标已换为 " + next + "（继续点可循环）");
     }
 
-    private void showRenameDialog(final DeskPluginStore.Plugin p) {
+    private void showRenameFeatureDialog(final DeskFeatureStore.Feature f) {
         final EditText name = new EditText(this);
-        name.setText(p.label);
-        final EditText action = new EditText(this);
-        action.setText(p.action);
-        action.setHint("policy:calendar / page / app:包名 / none");
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dpI(20), dpI(12), dpI(20), dpI(4));
-        box.addView(name);
-        box.addView(action);
-        new AlertDialog.Builder(this).setTitle("编辑插件：" + p.label).setView(box)
+        name.setText(f.name);
+        new AlertDialog.Builder(this).setTitle("重命名：" + f.name).setView(name)
                 .setPositiveButton("保存", (dd, ww) -> {
-                    DeskPluginStore.update(this, p.id, name.getText().toString(), p.icon,
-                            action.getText().toString());
+                    String n = name.getText().toString().trim();
+                    if (!n.isEmpty()) DeskFeatureStore.setName(this, f.id, n);
                     rebuildAll();
                     toast("已保存");
                 })
                 .setNegativeButton("取消", null).show();
     }
 
-    private void addPluginDialog() {
-        final EditText name = new EditText(this);
-        name.setHint("插件名称");
-        final EditText action = new EditText(this);
-        action.setHint("动作：policy:xxx / app:包名（可留空）");
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dpI(20), dpI(12), dpI(20), dpI(4));
-        box.addView(name);
-        box.addView(action);
-        new AlertDialog.Builder(this).setTitle("新增插件").setView(box)
-                .setPositiveButton("添加", (dd, ww) -> {
-                    DeskPluginStore.add(this, name.getText().toString(), "✦", action.getText().toString());
-                    rebuildAll();
-                    toast("已添加");
-                })
-                .setNegativeButton("取消", null).show();
-    }
-
-    private void openPlugin(DeskPluginStore.Plugin p) { openAction(p.action, p.label); }
+    private void openFeature(DeskFeatureStore.Feature f) { openAction(f.action, f.name); }
 
     private void openAction(String a, String label) {
         try {
             if (a == null || a.isEmpty() || "none".equals(a)) {
                 toast(label + " · 长按可编辑");
-            } else if (a.startsWith("page:")) {
-                String pg = a.substring(5);
-                if ("profile".equals(pg) || "world".equals(pg)) goPage(PAGE_PROFILE);
-                else if ("album".equals(pg)) goPage(PAGE_ALBUM);
-                else if ("feed".equals(pg) || "terminal".equals(pg)) goPage(PAGE_FEED);
-                else openSection(null);
+            } else if (a.startsWith("theme:")) {
+                cycleTheme();
             } else if (a.startsWith("policy:")) {
                 openSection(a.substring(7));
-            } else if (a.startsWith("app:")) {
-                Intent i = getPackageManager().getLaunchIntentForPackage(a.substring(4));
-                if (i != null) startActivity(i); else toast("本机未安装该应用");
             } else toast(label);
         } catch (Exception e) {
             toast("打开失败：" + ScreenshotService.shortMsg(e));
         }
+    }
+
+    private void cycleTheme() {
+        String[] names = UITheme.themeNames();
+        String cur = UITheme.currentBaseName(this);
+        int idx = 0;
+        for (int i = 0; i < names.length; i++) if (names[i].equals(cur)) { idx = i; break; }
+        String next = names[(idx + 1) % names.length];
+        UITheme.setTheme(this, next);
+        t = UITheme.current(this);
+        rebuildAll();
+        toast("主题已切换为" + next);
     }
 
     private void openSection(String section) {
@@ -809,11 +672,11 @@ public class PalmDeskActivity extends Activity {
     }
 
     private void showSearchDialog() {
-        List<DeskPluginStore.Plugin> all = DeskPluginStore.all(this);
+        List<DeskFeatureStore.Feature> all = DeskFeatureStore.all(this);
         String[] names = new String[all.size()];
-        for (int i = 0; i < all.size(); i++) names[i] = all.get(i).icon + "  " + all.get(i).label;
-        new AlertDialog.Builder(this).setTitle("打开插件")
-                .setItems(names, (d, w) -> openPlugin(all.get(w))).show();
+        for (int i = 0; i < all.size(); i++) names[i] = all.get(i).icon + "  " + all.get(i).name;
+        new AlertDialog.Builder(this).setTitle("掌心窗功能")
+                .setItems(names, (d, w) -> openFeature(all.get(w))).show();
     }
 
     // ============================================================

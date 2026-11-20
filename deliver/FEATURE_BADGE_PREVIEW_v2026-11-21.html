@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>掌心窗 · 功能角标 + 贴图零字符 预览</title>
+<style>
+  :root{ --bg:#e8eee7; --card:#ffffffcc; --stroke:#ffffff; --text:#3a3a3a; --sub:#9a9a9a; --accent:#4a6b57; }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{ font-family:-apple-system,"PingFang SC",sans-serif; background:linear-gradient(135deg,#dfe9dd,#f2ece4); color:var(--text); padding:24px; }
+  h1{ font-size:22px; font-weight:600; margin-bottom:6px; }
+  .lead{ color:var(--sub); font-size:13px; margin-bottom:22px; }
+  .hint{ background:#fff9; border:1px solid #fff; border-radius:14px; padding:12px 16px; font-size:13px; line-height:1.9; margin-bottom:24px; }
+  .hint b{ color:var(--accent); }
+  .screens{ display:flex; gap:24px; flex-wrap:wrap; justify-content:center; }
+  .phone{ width:300px; height:620px; background:radial-gradient(circle at 42% 26%,#eef4ea,#dce6da); border-radius:36px; border:8px solid #fff; box-shadow:0 18px 40px #0002; padding:18px 14px; position:relative; overflow:hidden; }
+  .status{ font-size:10px; color:#888; display:flex; justify-content:space-between; margin-bottom:8px; }
+  .toprow{ display:flex; justify-content:flex-end; height:20px; }
+  .gear{ font-size:16px; color:var(--sub); }
+  .card{ background:var(--card); border:1px solid var(--stroke); border-radius:20px; padding:14px; margin-bottom:12px; box-shadow:0 6px 16px #0001; }
+  .img{ background:linear-gradient(135deg,#dfe3df,#cdd3cd); border-radius:16px; }
+  .cover{ height:100px; position:relative; }
+  .avatar{ width:66px; height:66px; border-radius:50%; background:#e6e6e6; border:3px solid #fff; position:absolute; left:50%; bottom:-30px; transform:translateX(-50%); }
+  .name{ text-align:center; font-weight:600; font-size:17px; margin-top:38px; }
+  .acct,.bio,.region{ text-align:center; color:var(--sub); font-size:11px; margin-top:4px; }
+  .region{ color:var(--accent); }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:12px 0; }
+  .grid4{ display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:12px 0; }
+  .ic{ text-align:center; }
+  .ic .box{ width:50px; height:50px; margin:0 auto; background:#ffffffb0; border:1px solid #fff; border-radius:15px; display:flex; align-items:center; justify-content:center; font-size:21px; }
+  .ic .lb{ font-size:10px; color:var(--sub); margin-top:4px; }
+  .about{ height:64px; }
+  .wall{ display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
+  .photo{ height:120px; }
+  .friends{ display:flex; gap:12px; margin-top:12px; }
+  .friends .fa{ width:52px; height:52px; border-radius:50%; background:#e6e6e6; border:2px solid #fff; }
+  .heroimg{ height:130px; }
+  .infocard{ display:flex; gap:10px; align-items:center; }
+  .infocard .av{ width:44px; height:44px; background:#e6e6e6; border-radius:12px; }
+  .clock{ font-size:26px; font-weight:300; }
+  .bubble{ background:#ffffffb0; border-radius:14px; padding:10px 12px; font-size:11px; margin-bottom:8px; }
+  .input{ background:#fff; border-radius:14px; padding:9px 12px; font-size:11px; color:var(--sub); display:flex; justify-content:space-between; }
+  .search{ width:120px; margin:6px auto 0; background:#ffffffb0; border-radius:14px; text-align:center; padding:7px; font-size:11px; color:var(--sub); }
+  .tag{ position:absolute; top:14px; left:14px; font-size:10px; color:#7a8c7f; background:#ffffffaa; padding:4px 10px; border-radius:10px; }
+  .note{ font-size:10px; color:#8a9a8d; text-align:center; margin-top:8px; }
+</style>
+</head>
+<body>
+  <h1>掌心窗 · 功能角标 + 贴图零字符</h1>
+  <div class="lead">图标位 = 掌心窗真实可更改功能（无消息/图片/联系人等无关应用）· 贴图位纯图零字符 · 2026-11-21</div>
+  <div class="hint">
+    <b>16 个功能角标</b>：查岗 / 情绪感知 / 主动找 / 训诫 / 分心查岗 / 应用门禁 / 主动提醒 / 课表作息 / 共同记忆 / 识图感知 / 天气地区 / 回家模式 / 全局 / 权限 / 调试 / 主题 —— 点按进对应设置更改，长按改名 / 换图标 / 排序。<br>
+    <b>贴图位纯图无字</b>：封面 / 头像 / About me / 照片墙 / 好友头像 / 动态背景 / 动态头像上均无任何文字；点击换图、长按清除。<br>
+    <b>三页横滑</b>：个人页 / 相册页 / 动态页；每页背景可换图或纯色（右上角 ⚙ 进入）。
+  </div>
+  <div class="screens">
+    <!-- 屏1 -->
+    <div class="phone">
+      <div class="status"><span>11:28</span><span>▮▮▮ ᯤ 56</span></div>
+      <span class="tag">① 个人页</span>
+      <div class="toprow"><span class="gear">⚙</span></div>
+      <div class="img cover"><div class="avatar"></div></div>
+      <div class="card" style="margin-top:6px">
+        <div class="name">掌心窗</div>
+        <div class="acct">@我的掌心窗</div>
+        <div class="bio">在这里，记录我们的一天</div>
+        <div class="region">⌖ 当前位置 · 21°</div>
+      </div>
+      <div class="grid2">
+        <div class="ic"><div class="box">◎</div><div class="lb">查岗</div></div>
+        <div class="ic"><div class="box">♡</div><div class="lb">情绪感知</div></div>
+        <div class="ic"><div class="box">✉</div><div class="lb">主动找</div></div>
+        <div class="ic"><div class="box">✂</div><div class="lb">训诫</div></div>
+      </div>
+      <div class="img about"></div>
+      <div class="note">↑ 贴图位纯图，无任何文字</div>
+      <div class="search">⌕ 搜索</div>
+    </div>
+
+    <!-- 屏2 -->
+    <div class="phone">
+      <div class="status"><span>11:28</span><span>▮▮▮ ᯤ 56</span></div>
+      <span class="tag">② 相册页</span>
+      <div class="toprow"><span class="gear">⚙</span></div>
+      <div class="wall">
+        <div class="img photo"></div><div class="img photo"></div><div class="img photo"></div>
+      </div>
+      <div class="friends">
+        <div class="fa"></div><div class="fa"></div><div class="fa"></div><div class="fa"></div>
+      </div>
+      <div class="note">↑ 照片墙 / 好友头像：纯图零字符</div>
+      <div class="grid2">
+        <div class="ic"><div class="box">⚡</div><div class="lb">分心查岗</div></div>
+        <div class="ic"><div class="box">⚑</div><div class="lb">应用门禁</div></div>
+        <div class="ic"><div class="box">⏰</div><div class="lb">主动提醒</div></div>
+        <div class="ic"><div class="box">▤</div><div class="lb">课表作息</div></div>
+      </div>
+      <div class="grid2" style="margin-top:0">
+        <div class="ic"><div class="box">★</div><div class="lb">共同记忆</div></div>
+        <div class="ic"><div class="box">☷</div><div class="lb">识图感知</div></div>
+        <div class="ic"><div class="box">☁</div><div class="lb">天气地区</div></div>
+        <div class="ic"><div class="box">⌂</div><div class="lb">回家模式</div></div>
+      </div>
+      <div class="search">⌕ 搜索</div>
+    </div>
+
+    <!-- 屏3 -->
+    <div class="phone">
+      <div class="status"><span>11:28</span><span>▮▮▮ ᯤ 56</span></div>
+      <span class="tag">③ 动态页</span>
+      <div class="toprow"><span class="gear">⚙</span></div>
+      <div class="img heroimg"></div>
+      <div class="note">↑ 动态背景：纯图零字符</div>
+      <div class="card infocard">
+        <div class="av"></div>
+        <div>
+          <div style="font-size:13px;font-weight:600">掌心窗 · 我们的世界</div>
+          <div style="font-size:10px;color:var(--sub)">2026年11月21日 周六</div>
+          <div class="clock">00:12</div>
+        </div>
+      </div>
+      <div class="bubble">♡ 此刻 21° · 当前位置</div>
+      <div class="input"><span>记一句此刻…</span><span>↑</span></div>
+      <div class="grid4">
+        <div class="ic"><div class="box">⚙</div><div class="lb">全局</div></div>
+        <div class="ic"><div class="box">☻</div><div class="lb">权限</div></div>
+        <div class="ic"><div class="box">✎</div><div class="lb">调试</div></div>
+        <div class="ic"><div class="box">❀</div><div class="lb">主题</div></div>
+      </div>
+      <div class="search">⌕ 搜索</div>
+    </div>
+  </div>
+</body>
+</html>
