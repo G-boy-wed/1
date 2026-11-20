@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>掌心窗 · 四页自由桌面 + 旧功能回归</title>
+<style>
+  :root{
+    --bg:#eef3ea; --card:#ffffffcc; --ink:#3a4a40; --sub:#7c8c80;
+    --green:#78ae90; --green2:#5b9bd5; --red:#e07a7a; --line:#dfe8dc;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:linear-gradient(135deg,#e9f0e4,#f6f1ea);color:var(--ink);padding:28px 18px 60px}
+  h1{font-size:22px;margin:0 0 6px}
+  .lead{color:var(--sub);font-size:13px;margin-bottom:24px;line-height:1.7}
+  .wrap{display:flex;gap:18px;flex-wrap:wrap;justify-content:center}
+  .phone{width:250px;background:var(--card);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:30px;padding:14px 12px 18px;box-shadow:0 12px 30px #6b8c7822}
+  .bar{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--sub);margin-bottom:10px;padding:0 4px}
+  .stage{position:relative;height:430px;border-radius:18px;background:radial-gradient(circle at 40% 25%,#f3f9ef,#e3eee0);border:1px dashed #cdddc8;overflow:hidden}
+  .el{position:absolute;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:11px;text-align:center;transition:.2s}
+  .el:hover{transform:scale(1.04);box-shadow:0 6px 14px #6b8c7833}
+  .ico{font-size:22px;line-height:1}
+  .stick{border:1px solid #cfe0d8;background:#ffffffaa;color:var(--sub)}
+  .feat{background:#fff;color:var(--ink);box-shadow:0 2px 8px #6b8c7818}
+  .text{background:transparent;color:var(--ink)}
+  .old{background:#eef6ff;color:#35639a;border:1px solid #cfe0f2}
+  .tag{position:absolute;top:8px;right:8px;background:var(--green);color:#fff;font-size:10px;padding:2px 8px;border-radius:10px}
+  .cap{font-size:12px;color:var(--sub);text-align:center;margin-top:12px;line-height:1.6}
+  .cap b{color:var(--ink)}
+  .legend{max-width:1080px;margin:26px auto 0;background:#fff9;border:1px solid var(--line);border-radius:16px;padding:18px 22px}
+  .legend h3{margin:0 0 10px;font-size:15px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;font-size:12px;line-height:1.6}
+  .grid div{background:#f7faf5;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .k{display:inline-block;background:var(--green2);color:#fff;border-radius:6px;padding:0 6px;font-size:11px;margin-right:6px}
+</style>
+</head>
+<body>
+  <h1>掌心窗 · 四页自由桌面 + 旧功能回归</h1>
+  <p class="lead">启动仍是美化桌面；新增第四页把原来「找不到的旧功能」用角标接回来。所有元素可长按拖动 / 拖拽缩放；贴图可增删且避让角标；角标图标可自定义上传；名字在图标正下方居中。</p>
+
+  <div class="wrap">
+    <!-- 页1 -->
+    <div>
+      <div class="phone">
+        <div class="bar"><span>‹</span><span>个人页 · 1/4</span><span>⚙</span></div>
+        <div class="stage">
+          <div class="el stick" style="left:4%;top:2%;width:92%;height:34%">封面贴图</div>
+          <div class="el stick" style="left:38%;top:26%;width:24%;height:18%;border-radius:50%">头像</div>
+          <div class="el text" style="left:4%;top:47%;width:92%;height:6%;font-size:15px">掌心窗（可编辑）</div>
+          <div class="el text" style="left:4%;top:53%;width:92%;height:5%">@我的掌心窗 · 简介 · 地区</div>
+          <div class="el feat" style="left:4%;top:60%;width:45%;height:15%"><span class="ico">◎</span>查岗</div>
+          <div class="el feat" style="left:51%;top:60%;width:45%;height:15%"><span class="ico">♡</span>情绪感知</div>
+          <div class="el feat" style="left:4%;top:76%;width:45%;height:15%"><span class="ico">✉</span>主动找</div>
+          <div class="el feat" style="left:51%;top:76%;width:45%;height:15%"><span class="ico">✂</span>训诫</div>
+          <div class="tag">可拖动 / 缩放</div>
+        </div>
+      </div>
+      <div class="cap"><b>第 1 页 · 个人</b><br>封面 / 头像贴图 · 文字卡 · 功能角标</div>
+    </div>
+
+    <!-- 页2 -->
+    <div>
+      <div class="phone">
+        <div class="bar"><span>‹</span><span>相册页 · 2/4</span><span>⚙</span></div>
+        <div class="stage">
+          <div class="el stick" style="left:4%;top:2%;width:30%;height:22%">照片1</div>
+          <div class="el stick" style="left:35%;top:2%;width:30%;height:22%">照片2</div>
+          <div class="el stick" style="left:66%;top:2%;width:30%;height:22%">照片3</div>
+          <div class="el feat" style="left:4%;top:32%;width:22%;height:14%"><span class="ico">⚡</span>分心</div>
+          <div class="el feat" style="left:28%;top:32%;width:22%;height:14%"><span class="ico">⚑</span>门禁</div>
+          <div class="el feat" style="left:52%;top:32%;width:22%;height:14%"><span class="ico">⏰</span>提醒</div>
+          <div class="el feat" style="left:76%;top:32%;width:22%;height:14%"><span class="ico">▤</span>课表</div>
+          <div class="el feat" style="left:4%;top:49%;width:22%;height:14%"><span class="ico">★</span>记忆</div>
+          <div class="el feat" style="left:28%;top:49%;width:22%;height:14%"><span class="ico">☷</span>识图</div>
+          <div class="el feat" style="left:52%;top:49%;width:22%;height:14%"><span class="ico">☁</span>天气</div>
+          <div class="el feat" style="left:76%;top:49%;width:22%;height:14%"><span class="ico">⌂</span>回家</div>
+          <div class="tag">3 张贴图 · 可增删 · 避让</div>
+        </div>
+      </div>
+      <div class="cap"><b>第 2 页 · 相册</b><br>默认留 3 张贴图（可加至 9 张），拖动自动避让角标</div>
+    </div>
+
+    <!-- 页3 -->
+    <div>
+      <div class="phone">
+        <div class="bar"><span>‹</span><span>动态页 · 3/4</span><span>⚙</span></div>
+        <div class="stage">
+          <div class="el stick" style="left:4%;top:2%;width:92%;height:24%">顶部横幅贴图</div>
+          <div class="el text" style="left:4%;top:29%;width:92%;height:8%;font-size:14px">掌心窗 · 我们的世界</div>
+          <div class="el text" style="left:4%;top:38%;width:92%;height:12%;font-size:24px">21:37</div>
+          <div class="el text" style="left:4%;top:51%;width:92%;height:6%">此刻 24° · 当前位置</div>
+          <div class="el feat" style="left:4%;top:62%;width:22%;height:14%"><span class="ico">❀</span>主题</div>
+          <div class="el feat" style="left:28%;top:62%;width:22%;height:14%"><span class="ico">⚙</span>全局</div>
+          <div class="el feat" style="left:52%;top:62%;width:22%;height:14%"><span class="ico">☻</span>权限</div>
+          <div class="el feat" style="left:76%;top:62%;width:22%;height:14%"><span class="ico">✎</span>调试</div>
+          <div class="el feat" style="left:4%;top:79%;width:92%;height:14%;background:#eaf6ee"><span class="ico">▶</span>一起看（共享本机抖音 / 电影 + 弹幕）</div>
+          <div class="tag">主题 = 一键换色</div>
+        </div>
+      </div>
+      <div class="cap"><b>第 3 页 · 动态</b><br>时钟 / 便签 · 主题一键换色 · 一起看保留</div>
+    </div>
+
+    <!-- 页4 -->
+    <div>
+      <div class="phone">
+        <div class="bar"><span>‹</span><span>旧功能入口 · 4/4</span><span>⚙</span></div>
+        <div class="stage">
+          <div class="el old" style="left:4%;top:5%;width:22%;height:17%"><span class="ico">♡</span>陪伴</div>
+          <div class="el old" style="left:28%;top:5%;width:22%;height:17%"><span class="ico">✎</span>TA 的日记</div>
+          <div class="el old" style="left:52%;top:5%;width:22%;height:17%"><span class="ico">⚙</span>连接设置</div>
+          <div class="el old" style="left:76%;top:5%;width:22%;height:17%"><span class="ico">☻</span>设置</div>
+          <div class="el old" style="left:4%;top:25%;width:22%;height:17%"><span class="ico">☀</span>生活</div>
+          <div class="el old" style="left:28%;top:25%;width:22%;height:17%"><span class="ico">⚑</span>守护</div>
+          <div class="el old" style="left:52%;top:25%;width:22%;height:17%"><span class="ico">▦</span>守护日历</div>
+          <div class="el old" style="left:76%;top:25%;width:22%;height:17%"><span class="ico">✦</span>归电</div>
+          <div class="el text" style="left:4%;top:50%;width:92%;height:30%;font-size:10px;color:#7c8c80">以上入口可回到掌心窗原来的陪伴、日记、连接设置与设置页面。长按任意图标可改名、换图标、拖动位置或拖拽缩放。</div>
+          <div class="tag">旧功能全部回归</div>
+        </div>
+      </div>
+      <div class="cap"><b>第 4 页 · 旧功能入口</b><br>点击直达原 MainActivity 对应页面（MCP 连接 / 日记写入都在）</div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <h3>本轮改动对照你的确认</h3>
+    <div class="grid">
+      <div><span class="k">启动页</span>仍用美化桌面为主入口</div>
+      <div><span class="k">第四页</span>旧功能入口角标，点击直达陪伴/日记/连接设置/设置/生活/守护/日历/归电</div>
+      <div><span class="k">全部恢复</span>旧版功能一行未删，只是补回入口</div>
+      <div><span class="k">一起看</span>保留在动态页</div>
+      <div><span class="k">主题</span>保留一键换主题</div>
+      <div><span class="k">第二页</span>贴图留 3 张，可拖动 + 避让角标 + 增删（最多 9 张）</div>
+      <div><span class="k">换图标</span>支持从相册自定义上传图片作图标（也可换字符图标）</div>
+      <div><span class="k">名字</span>图标正下方居中，不跑偏</div>
+      <div><span class="k">长按</span>拖动位置 + 拖拽右下角把手缩放；角标不可删，贴图可删</div>
+    </div>
+  </div>
+</body>
+</html>

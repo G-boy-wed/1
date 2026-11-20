@@ -38,14 +38,34 @@ public final class DeskSkinStore {
     public static final String S_FRIEND3 = "friend3";
     public static final String S_FEEDBG = "feedbg";
     public static final String S_FEEDAVATAR = "feedavatar";
+    // 第二页「可增删贴图」动态槽：默认三张 photo0/1/2，用户可继续添加到 dyn0..dyn5
+    public static final String S_DYN0 = "dyn0";
+    public static final String S_DYN1 = "dyn1";
+    public static final String S_DYN2 = "dyn2";
+    public static final String S_DYN3 = "dyn3";
+    public static final String S_DYN4 = "dyn4";
+    public static final String S_DYN5 = "dyn5";
 
     /** 选图请求码 = REQ_PICK_BASE + 本数组下标；onActivityResult 据此还原槽位。 */
     public static final String[] PICK_SLOTS = {
             S_COVER, S_AVATAR, S_ABOUT,
             S_PHOTO0, S_PHOTO1, S_PHOTO2,
             S_FRIEND0, S_FRIEND1, S_FRIEND2, S_FRIEND3,
-            S_FEEDBG, S_FEEDAVATAR
+            S_FEEDBG, S_FEEDAVATAR,
+            S_DYN0, S_DYN1, S_DYN2, S_DYN3, S_DYN4, S_DYN5
     };
+
+    /** 第二页相册贴图的全部可用槽（含默认三张 + 动态增补）。 */
+    public static final String[] ALBUM_SLOTS = {
+            S_PHOTO0, S_PHOTO1, S_PHOTO2,
+            S_DYN0, S_DYN1, S_DYN2, S_DYN3, S_DYN4, S_DYN5
+    };
+
+    /** 找到第一个还没有图片的相册槽，用于"添加贴图"；-full 返回 null。 */
+    public static String firstEmptyAlbumSlot(Context c) {
+        for (String s : ALBUM_SLOTS) if (slotUri(c, s).isEmpty()) return s;
+        return null;
+    }
     public static final int REQ_PICK_BASE = 3000;
     public static final int REQ_BG_BASE = 4000; // +page(0..2) 更换整页背景
 

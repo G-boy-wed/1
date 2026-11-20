@@ -230,6 +230,7 @@ public class MainActivity extends Activity {
         if (quickGuardButton != null) quickGuardButton.setOnClickListener(v -> showTab("gate"));
         CompanionWindowState.recordJourney(this, "打开掌心窗", "回到今天的窗边");
         showTab("life");
+        applyLaunchIntent();
         applyBottomNavigationInsets();
         playOpeningWindowAnimation();
         checkForUpdates(false);
@@ -2393,6 +2394,55 @@ public class MainActivity extends Activity {
             bottomNav.requestApplyInsets();
         }
     }
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        applyLaunchIntent();
+    }
+
+    /**
+     * 桌面第四页「旧功能入口」角标点击后，MainActivity 依据 Intent extra 直达对应页面。
+     * 支持：tab=see|gate|settings|life、diary=1（TA 的日记）、connection=1（展开连接设置抽屉）、
+     * calendar=1（守护日历详情）。
+     */
+    private void applyLaunchIntent() {
+        Intent in = getIntent();
+        if (in == null) return;
+        String tab = in.getStringExtra("tab");
+        if (tab == null) tab = "";
+        boolean diaryRequested = "diary".equals(tab) || in.getBooleanExtra("diary", false);
+        boolean calendarRequested = in.getBooleanExtra("calendar", false);
+        boolean connectionRequested = in.getBooleanExtra("connection", false);
+        boolean guidianRequested = in.getBooleanExtra("guidian", false);
+        if (tab.isEmpty() && !diaryRequested && !calendarRequested && !connectionRequested && !guidianRequested) return;
+        if ("see".equals(tab) && !diaryRequested) {
+            diaryPageOpen = false;
+            diaryContentOpen = false;
+            showCompanionHomePage();
+        }
+        if ("gate".equals(tab) && !calendarRequested) {
+            guardianCalendarDetailOpen = false;
+            showGuardHomePage();
+        }
+        if ("see".equals(tab) || "gate".equals(tab) || "settings".equals(tab) || "life".equals(tab)) {
+            showTab(tab);
+        }
+        if (diaryRequested) {
+            showTab("see");
+            showDiaryHomePage();
+        } else if (calendarRequested) {
+            showTab("gate");
+            showGuardianCalendarDetailPage();
+        } else if (guidianRequested) {
+            showTab("settings");
+            if (drawerGuidianButton != null) drawerGuidianButton.performClick();
+        } else if (connectionRequested) {
+            showTab("settings");
+            if (drawerConnection != null) drawerConnection.setVisibility(View.VISIBLE);
+            if (drawerConnectionButton != null) drawerConnectionButton.setText("连接设置  ˄");
+        }
+    }
+
     private void bindDrawer(Button b, View drawer, String title) {
         if (b == null || drawer == null) return;
         b.setText(title + "  ›");
