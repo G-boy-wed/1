@@ -8,18 +8,19 @@ import android.graphics.drawable.Drawable;
 import org.json.JSONObject;
 
 /**
- * 掌心窗内置角标图标包 —— 与 UI 同色系的莫兰迪几何 App 图标。
+ * 掌心窗内置角标图标包 —— ins 风低饱和风景照 App 图标。
  *
- * 全部为纯几何图形（圆/弧/条/点/环），颜色取自 UI 色系（米白/柔绿/藕粉/淡蓝/浅灰…），
- * 不含任何 emoji、文字或简笔画。默认每个角标按语义稳定映射到一张图，
- * 用户也可为任意角标（含旧功能入口）另选一张内置图，或自定义上传图片。
+ * 全部为真实风景照片（山/湖/森林/海/星空/瀑布），统一做低饱和+柔和胶片调色，
+ * 与掌心窗 UI 的柔和色系协调，不含任何 emoji、文字或简笔画。
+ * 默认每个角标按 id 稳定映射到一张图，用户也可为任意角标（含旧功能入口）
+ * 另选一张内置图，或自定义上传图片。
  * 优先级：自定义上传 URI > 内置图片。
  */
 public final class DeskIconPack {
     private static final String PREF = "desk_icon_pack_v1";
     private static final String K_BUILTIN = "builtin"; // {"checkin":3, "old_diary":1, ...}
 
-    /** 内置图片资源（drawable-nodpi），0..11，均为 UI 同色系纯几何图标。 */
+    /** 内置图片资源（drawable-nodpi），0..11，均为 ins 风低饱和风景照。 */
     public static final int[] RES = {
             R.drawable.ic_badge_0, R.drawable.ic_badge_1,
             R.drawable.ic_badge_2, R.drawable.ic_badge_3,
@@ -29,8 +30,9 @@ public final class DeskIconPack {
             R.drawable.ic_badge_10, R.drawable.ic_badge_11
     };
     public static final String[] NAMES = {
-            "柔绿", "藕粉", "淡蓝", "米杏", "浅灰", "淡紫",
-            "燕麦", "青灰", "暖粉", "雾蓝", "芽绿", "豆沙"
+            "日出山峦", "云海雪山", "森林小径", "碧蓝湖泊",
+            "山间瀑布", "粉霞雪山", "星空夜幕", "云上山谷",
+            "绿色海岸", "静谧海面", "林间木桥", "云雾山谷"
     };
     public static final int COUNT = RES.length;
 

@@ -65,8 +65,9 @@ public final class DeskCommand {
                 if (page < 0 || page > 3) return out.put("ok", false).put("error", "page_out_of_range");
                 if (!color.isEmpty()) {
                     try {
-                        int c = (int) Long.parseLong(color.replace("#", ""), 16);
-                        if (color.length() <= 6) c |= 0xFF000000;
+                        String hex = color.replace("#", "");
+                        int c = (int) Long.parseLong(hex, 16);
+                        if (hex.length() <= 6) c |= 0xFF000000; // 去#后判断，避免#RRGGBB被当作透明
                         DeskSkinStore.setPageBgUri(ctx, page, "");
                         DeskSkinStore.setPageBgColor(ctx, page, c);
                         out.put("ok", true).put("page", page).put("color", String.format("#%06X", c & 0xFFFFFF));

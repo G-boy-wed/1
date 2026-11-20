@@ -346,8 +346,8 @@ public class PalmDeskActivity extends Activity {
     }
 
     /**
-     * 角标图标：与 UI 同色系的圆角方块 App 图标（纯几何，无 emoji/文字/简笔画）。
-     * 优先级：自定义上传 URI > 内置几何图标。永不回退到字符图标。
+     * 角标图标：ins 风低饱和风景照圆角方块 App 图标（无 emoji/文字/简笔画）。
+     * 优先级：自定义上传 URI > 内置风景图标。永不回退到字符图标。
      * 图标铺满整个圆角方块（padding=0），解决旧版被 13dp 内边距挤到看不清的问题。
      */
     private View iconView(String assetKey, String glyph, int side) {
@@ -357,13 +357,11 @@ public class PalmDeskActivity extends Activity {
         img.setFallbackPaddingDp(0);
         img.setColors(t.card, t.line, t.primary);
         String uri = DeskAssetStore.featureIconUri(this, assetKey);
-        if (!uri.isEmpty()) {
-            img.setImageUri(Uri.parse(uri));
-            return img;
-        }
+        boolean loaded = !uri.isEmpty() && img.setImageUri(Uri.parse(uri));
         int builtin = DeskIconPack.indexOf(this, assetKey);
         if (builtin < 0) builtin = DeskIconPack.defaultIndexFor(assetKey); // 永不落回字符
         Drawable d = DeskIconPack.drawable(this, builtin);
+        // 自定义图解码失败(权限撤销/文件被删)时回退到内置风景图，避免只剩纯色块
         if (d != null) img.setFallback(d);
         return img;
     }
@@ -617,7 +615,10 @@ public class PalmDeskActivity extends Activity {
         if (req == 6000) {
             Uri uri = DeskAssetStore.pickResult(this, result, data);
             if (uri != null && pendingIconId != null && !pendingIconId.isEmpty()) {
-                DeskAssetStore.setFeatureIconUri(this, pendingIconId, uri.toString());
+                // 旧功能入口的图标 key 需带 old_ 前缀，与 oldEntryCell/iconView 读取保持一致
+                String key = ("old".equals(pendingIconCategory) && !pendingIconId.startsWith("old_"))
+                        ? "old_" + pendingIconId : pendingIconId;
+                DeskAssetStore.setFeatureIconUri(this, key, uri.toString());
                 rebuildAll();
                 toast("图标已换成你上传的图片");
             }
@@ -784,7 +785,7 @@ public class PalmDeskActivity extends Activity {
         rebuildAll();
     }
 
-    /** 从 UI 同色系的几何图标里选一张作为角标图标（全部为图片，无字符图标）。 */
+    /** 从 ins 风低饱和风景图里选一张作为角标图标（全部为图片，无字符图标）。 */
     private void showBuiltinIconDialog(final String assetKey) {
         String[] opts = new String[DeskIconPack.COUNT];
         for (int i = 0; i < DeskIconPack.COUNT; i++) opts[i] = (i + 1) + ". " + DeskIconPack.NAMES[i];

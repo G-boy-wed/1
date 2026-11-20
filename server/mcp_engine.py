@@ -1159,7 +1159,7 @@ class McpEngine:
             return _error({"ok": False, "error": "send_phone_command_failed", "message": str(e)})
 
     def _t_set_desk_badge(self, args: dict) -> dict:
-        """机端改手机桌面角标：名字/内置同色系几何图标/某页背景色。全部经命令通道落手机本机。"""
+        """机端改手机桌面角标：名字/内置ins风低饱和风景图标/某页背景色。全部经命令通道落手机本机。"""
         device = self._device(args)
         ident = str(args.get("id") or "").strip()
         if not ident:
