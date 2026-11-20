@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>掌心窗 · 图1排列精确还原预览</title>
+<style>
+  :root{
+    --page:#EDEDEA; --card:rgba(255,255,255,.62); --card-solid:#FBFCFB;
+    --stroke:rgba(255,255,255,.85); --ink:#3A3A3A; --sub:#8E8E8E; --weak:#B9B9B9;
+    --accent:#4A5A4E; --accent-soft:#E4EBE3; --glass:rgba(255,255,255,.55);
+    --radius:20px; --shadow:0 10px 30px rgba(0,0,0,.08);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+  body{background:#0d0d0f;color:var(--ink);padding:32px 20px 60px;min-height:100vh}
+  .stage{max-width:1000px;margin:0 auto}
+
+  /* 相册外壳：还原图1「1/3」黑色背景 */
+  .album-bar{display:flex;align-items:center;justify-content:space-between;color:#fff;padding:6px 6px 26px;font-size:15px}
+  .album-bar .x{font-size:30px;font-weight:300;line-height:1;cursor:pointer}
+  .album-bar .idx{font-size:16px;letter-spacing:1px;opacity:.9}
+  .album-bar .sp{width:30px}
+  .album-hint{text-align:center;color:#7a7a80;font-size:12px;margin-bottom:26px;line-height:1.7}
+  .album-hint b{color:#cfcfd4;font-weight:600}
+
+  /* 两屏并排 */
+  .screens{display:flex;gap:26px;justify-content:center;flex-wrap:wrap}
+  .phone{
+    width:360px;height:760px;border-radius:44px;position:relative;overflow:hidden;
+    background:linear-gradient(160deg,#E9EDE6 0%,#EDEDEA 40%,#E6EAE4 100%);
+    box-shadow:0 24px 70px rgba(0,0,0,.5),inset 0 0 0 1px rgba(255,255,255,.4);
+    flex:0 0 auto;
+  }
+  .phone::before{ /* 星闪纹理装饰 */
+    content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
+    background-image:
+      radial-gradient(circle at 12% 18%,#fff 0 1px,transparent 1.5px),
+      radial-gradient(circle at 78% 12%,#fff 0 1px,transparent 1.5px),
+      radial-gradient(circle at 42% 62%,rgba(255,255,255,.9) 0 1px,transparent 1.5px),
+      radial-gradient(circle at 88% 78%,#fff 0 1px,transparent 1.5px),
+      radial-gradient(circle at 25% 88%,#fff 0 1px,transparent 1.5px);
+  }
+  .status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 26px;font-size:13px;font-weight:600;color:#2e2e2e;position:relative;z-index:2}
+  .status .r{display:flex;gap:6px;align-items:center;font-size:12px}
+  .content{height:calc(100% - 44px);overflow-y:auto;padding:6px 16px 96px;position:relative;z-index:2}
+  .content::-webkit-scrollbar{display:none}
+  .tag-pos{position:absolute;top:52px;left:16px;z-index:5;font-size:10px;color:#6a7a6c;background:rgba(255,255,255,.7);padding:3px 9px;border-radius:10px;letter-spacing:.5px}
+  .clickable{cursor:pointer;transition:transform .15s,box-shadow .15s}
+  .clickable:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,.12)}
+  .clickable:active{transform:scale(.97)}
+
+  .card{background:var(--card);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--stroke);border-radius:var(--radius);box-shadow:var(--shadow)}
+
+  /* ===== 左屏：音乐胶囊 ===== */
+  .music{padding:12px}
+  .music-head{display:flex;align-items:center;gap:11px}
+  .cover{width:52px;height:52px;border-radius:14px;background:linear-gradient(145deg,#cdd8c9,#e7ede4);display:flex;align-items:center;justify-content:center;font-size:26px;flex:0 0 auto;box-shadow:inset 0 0 0 1px rgba(255,255,255,.6)}
+  .music-meta{flex:1;min-width:0}
+  .music-meta .t{font-size:15px;font-weight:700;color:#333}
+  .music-meta .a{font-size:10px;color:var(--sub);margin-top:2px}
+  .bar{height:3px;background:rgba(0,0,0,.08);border-radius:3px;margin-top:8px;overflow:hidden}
+  .bar i{display:block;height:100%;width:24%;background:#5a6a5e;border-radius:3px}
+  .ctrl{display:flex;margin-top:10px;text-align:center}
+  .ctrl span{flex:1;font-size:16px;color:#444;padding:5px 0;border-radius:8px}
+  .ctrl span:hover{background:rgba(255,255,255,.7)}
+
+  .grid-label{font-size:12px;color:var(--sub);font-weight:600;margin:18px 2px 10px;display:flex;justify-content:space-between}
+  .grid-label em{font-style:normal;color:var(--weak);font-weight:400;font-size:10px}
+
+  /* 4列宫格 */
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}
+  .cell{background:rgba(255,255,255,.5);border:1px solid var(--stroke);border-radius:16px;padding:9px 4px;text-align:center;min-height:74px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .cell .ic{font-size:22px;color:var(--accent);width:42px;height:42px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.55);border-radius:12px;margin-bottom:5px}
+  .cell .nm{font-size:10px;color:#444}
+  .photo{background:#fff;border-radius:6px;padding:5px 5px 16px;box-shadow:0 6px 16px rgba(0,0,0,.14);text-align:center;transform:rotate(-3deg)}
+  .photo .img{height:56px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:24px;background:linear-gradient(145deg,#dfe7dc,#eef2ea)}
+  .photo .lb{font-size:8px;color:#888;margin-top:4px}
+  .photo.tilt{transform:rotate(4deg)}
+  .note{padding:12px;grid-column:span 2}
+  .note .h{font-size:12px;font-weight:700;color:#3a3a3a}
+  .note .d{font-size:9px;color:var(--sub);margin-top:2px}
+  .note .txt{font-size:13px;line-height:1.7;margin-top:8px;color:#444}
+  .note .tm{font-size:9px;color:var(--weak);margin-top:8px}
+
+  /* ===== 右屏：大字时间/天气 ===== */
+  .hero{display:flex;align-items:flex-start;justify-content:space-between;padding:6px 2px 0}
+  .hero .time{font-size:66px;font-weight:200;letter-spacing:-3px;line-height:1;color:#2e2e2e}
+  .hero .wx{text-align:right;padding-top:14px}
+  .hero .wx .t{font-size:22px;color:#3a3a3a}
+  .hero .wx .s{font-size:10px;color:var(--sub);margin-top:2px}
+
+  .week{padding:14px;margin-top:18px}
+  .week .m{font-size:11px;color:var(--sub)}
+  .week .days{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-top:10px;text-align:center}
+  .week .days div{font-size:10px;color:var(--sub)}
+  .week .days .n{font-size:15px;color:#444;margin-top:6px}
+  .week .days .sel{width:30px;height:30px;border-radius:50%;background:#3a3a3a;color:#fff;display:flex;align-items:center;justify-content:center;margin:2px auto -2px}
+
+  .trio{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:center;margin-top:20px}
+  .trio .p{height:84px;border-radius:14px;background:linear-gradient(145deg,#d7e0d4,#eef3ea)}
+  .disc{width:92px;height:92px;border-radius:50%;background:conic-gradient(#1c1c1c,#3a3a3a,#1c1c1c);margin:0 auto;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 16px rgba(0,0,0,.25)}
+  .disc i{width:30px;height:30px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-style:normal;font-size:12px;color:#333}
+
+  .iconrow{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:20px}
+  .iconrow .cell{min-height:70px}
+
+  .whisper{margin-top:16px;padding:12px 14px;display:flex;align-items:center;gap:10px;border-radius:22px}
+  .whisper .q{font-size:18px;color:var(--accent)}
+  .whisper .w{font-size:12px;color:#444;line-height:1.5}
+
+  /* ===== Dock（图1：世界/终端/主题/设置）===== */
+  .dock{position:absolute;bottom:14px;left:16px;right:16px;height:60px;border-radius:28px;background:rgba(255,255,255,.6);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.9);box-shadow:0 8px 24px rgba(0,0,0,.12);display:flex;align-items:center;padding:6px;z-index:6}
+  .dock .d{flex:1;text-align:center;border-radius:16px;padding:8px 0;color:#777;font-size:10px;line-height:1.4}
+  .dock .d .i{font-size:17px;display:block;color:#555}
+  .dock .d.on{background:rgba(255,255,255,.85);color:#333;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+
+  .legend{max-width:1000px;margin:34px auto 0;color:#9a9aa0;font-size:12px;line-height:1.9}
+  .legend h3{color:#cfcfd4;font-size:14px;margin-bottom:8px;font-weight:600}
+  .legend code{background:#1c1c20;padding:2px 7px;border-radius:5px;color:#c9d6ca;font-size:11px}
+  .legend b{color:#b9d0bb;font-weight:600}
+  .note-tip{background:rgba(201,138,138,.12);border:1px solid rgba(201,138,138,.3);color:#d8b6b6;padding:12px 16px;border-radius:12px;margin-top:20px;font-size:12px;line-height:1.8}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="album-bar">
+    <span class="x">×</span>
+    <span class="sp"></span>
+    <span class="idx">1 / 3</span>
+    <span class="sp"></span>
+    <span style="width:30px"></span>
+  </div>
+  <div class="album-hint">
+    掌心窗 UI 排列精确还原 —— <b>图1是相册里并排的两张独立手机截图</b><br>
+    左屏「世界页」与右屏「终端页」各自独立满屏，用底部 Dock 的「世界 / 终端」切换，绝不堆在一起
+  </div>
+
+  <div class="screens">
+    <!-- ==================== 左屏：世界页 ==================== -->
+    <div class="phone">
+      <div class="status"><span>19:27</span><span class="r">◔ 📍 05 5G ▮▮▮ 85% ▰</span></div>
+      <div class="tag-pos">左屏 · 世界页</div>
+      <div class="content">
+        <!-- 音乐胶囊 -->
+        <div class="card music clickable" onclick="tip('音乐胶囊 → 进入「一起听」页')">
+          <div class="music-head">
+            <div class="cover">🍏</div>
+            <div class="music-meta">
+              <div class="t">CosmicLove</div>
+              <div class="a">掌心窗 · 一起听</div>
+              <div class="bar"><i></i></div>
+            </div>
+          </div>
+          <div class="ctrl">
+            <span onclick="event.stopPropagation();tip('上一首')">◀</span>
+            <span onclick="event.stopPropagation();tip('播放 / 进入一起听')">▶</span>
+            <span onclick="event.stopPropagation();tip('下一首')">▶|</span>
+            <span onclick="event.stopPropagation();tip('播放列表')">≡</span>
+            <span onclick="event.stopPropagation();tip('循环')">↻</span>
+          </div>
+        </div>
+
+        <div class="grid-label"><span>✦ 世界 · 插件宫格</span><em>长按进入编辑</em></div>
+        <!-- 4列宫格 -->
+        <div class="grid">
+          <div class="cell clickable" onclick="tip('资讯 · 点开更改')"><div class="ic">💬</div><div class="nm">资讯</div></div>
+          <div class="cell clickable" onclick="tip('约会 · 点开更改')"><div class="ic">📅</div><div class="nm">约会</div></div>
+          <div class="photo clickable" onclick="tip('拍立得照片 → 更改情感相册')"><div class="img">🍏</div><div class="lb">此刻的窗</div></div>
+          <div class="photo tilt clickable" onclick="tip('拍立得照片 → 更改情感相册')"><div class="img">🌿</div><div class="lb">想你的花</div></div>
+
+          <div class="cell clickable" onclick="tip('论坛 · 点开更改')"><div class="ic">▤</div><div class="nm">论坛</div></div>
+          <div class="cell clickable" onclick="tip('群组 · 点开更改')"><div class="ic">👥</div><div class="nm">群组</div></div>
+          <div class="cell clickable" onclick="tip('关心 · 点开更改')"><div class="ic">♡</div><div class="nm">关心</div></div>
+          <div class="cell clickable" onclick="tip('细细 · 点开更改')"><div class="ic">🦋</div><div class="nm">细细</div></div>
+
+          <div class="cell clickable" onclick="tip('重逢 · 点开更改')"><div class="ic">👤</div><div class="nm">重逢</div></div>
+          <div class="cell clickable" onclick="tip('记忆 · 点开更改')"><div class="ic">∞</div><div class="nm">记忆</div></div>
+          <div class="note clickable" onclick="tip('便签 → 进入守护页编辑')">
+            <div class="h">无限象限</div>
+            <div class="d">4月8日 · 星期三 ☀</div>
+            <div class="txt">也许我们应该在<br>自我热切的自由中执着。</div>
+            <div class="tm">◷ 19:27</div>
+          </div>
+        </div>
+
+        <div class="card clickable" style="margin-top:14px;padding:9px;text-align:center;font-size:11px;color:var(--sub)" onclick="tip('✎ 管理插件：换图标 / 移动 / 删除 / 新增 / 保存')">✎ 管理插件（长按任意图标进入编辑）</div>
+      </div>
+      <div class="dock">
+        <div class="d on clickable" onclick="tip('世界页 · 当前')"><span class="i">🌐</span>世界</div>
+        <div class="d clickable" onclick="tip('切到终端页（右屏）')"><span class="i">▤</span>终端</div>
+        <div class="d clickable" onclick="tip('主题：6 套 × 亮暗切换')"><span class="i">🎨</span>主题</div>
+        <div class="d clickable" onclick="tip('设置 → 守护页（图2功能项宫格）')"><span class="i">⚙</span>设置</div>
+      </div>
+    </div>
+
+    <!-- ==================== 右屏：终端页 ==================== -->
+    <div class="phone">
+      <div class="status"><span>19:27</span><span class="r">◔ 📍 05 5G ▮▮▮ 85% ▰</span></div>
+      <div class="tag-pos">右屏 · 终端页</div>
+      <div class="content">
+        <!-- 大字时间 + 天气 -->
+        <div class="hero">
+          <div class="time clickable" onclick="tip('大字时间 · 点开设置')">19:27</div>
+          <div class="wx clickable" onclick="tip('天气 → 守护页天气模块（用当前定位）')">
+            <div class="t">☁ 24°</div>
+            <div class="s">当前位置</div>
+          </div>
+        </div>
+
+        <!-- 周历 -->
+        <div class="card week clickable" onclick="tip('周历 → 守护日历')">
+          <div class="m" id="ym">2026年4月</div>
+          <div class="days">
+            <div>SUN</div><div>MON</div><div>TUE</div><div>WED</div><div>THU</div><div>FRI</div><div>SAT</div>
+            <div class="n">5</div><div class="n">6</div><div class="n">7</div>
+            <div><div class="n sel">8</div></div>
+            <div class="n">9</div><div class="n">10</div><div class="n">11</div>
+          </div>
+        </div>
+
+        <!-- 照片 / 唱片 / 照片 -->
+        <div class="trio">
+          <div class="p clickable" onclick="tip('照片卡')">🌫</div>
+          <div class="disc clickable" onclick="tip('黑胶唱片 → 一起听')"><i>♫</i></div>
+          <div class="photo tilt clickable" onclick="tip('拍立得照片 → 更改情感相册')"><div class="img">🍽</div><div class="lb">影像之外</div></div>
+        </div>
+
+        <!-- 4 图标行 -->
+        <div class="iconrow">
+          <div class="cell clickable" onclick="tip('信笺 → 守护页')"><div class="ic">✉</div><div class="nm">信笺</div></div>
+          <div class="cell clickable" onclick="tip('织梦 → 完整功能')"><div class="ic">▤</div><div class="nm">织梦</div></div>
+          <div class="cell clickable" onclick="tip('相册')"><div class="ic">♡</div><div class="nm">相册</div></div>
+          <div class="cell clickable" onclick="tip('泡泡 → 一起听')"><div class="ic">○○</div><div class="nm">泡泡</div></div>
+        </div>
+
+        <!-- 一句话横条 -->
+        <div class="card whisper clickable" onclick="tip('点开编辑这句话并保存')">
+          <span class="q">❝</span>
+          <span class="w">影像之外的蝴蝶 以什么形态致死绵延</span>
+        </div>
+      </div>
+      <div class="dock">
+        <div class="d clickable" onclick="tip('切到世界页（左屏）')"><span class="i">🌐</span>世界</div>
+        <div class="d on clickable" onclick="tip('终端页 · 当前')"><span class="i">▤</span>终端</div>
+        <div class="d clickable" onclick="tip('主题：6 套 × 亮暗切换')"><span class="i">🎨</span>主题</div>
+        <div class="d clickable" onclick="tip('设置 → 守护页')"><span class="i">⚙</span>设置</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <h3>本批按你的要求修正了什么</h3>
+    <b>① 两屏彻底分开：</b>图1左屏=世界页、右屏=终端页，各自独立满屏，Dock「世界/终端」切换 —— 不再把两屏元素堆进同一个滚动页。<br>
+    <b>② 排列严格对齐图1：</b>左屏＝音乐胶囊(CosmicLove+◀▶▶|≡↻) → 4列宫格(资讯/约会/论坛/群组/关心/细细/重逢/记忆)＋2张拍立得照片卡＋便签卡(无限象限)；右屏＝大字时间+天气 → 周历 → 照片/黑胶唱片/照片 → 4图标行(信笺/织梦/相册/泡泡) → 一句话横条。<br>
+    <b>③ 守护页功能项宫格化+去重：</b>图2 的查岗/分心/训诫/情绪感知…约20项改为图1宫格卡片，按 id 去重，每格可点开编辑并保存。<br>
+    <b>④ 所有可点处都能改：</b>每个插件格、照片卡、便签、大字时间、天气、周历、唱片、图标行、一句话横条、Dock 全部可点开更改。<br>
+    <b>只还原排列，不参考颜色</b>——配色沿用既有设计令牌。点任意元素可查看其点击反馈。
+    <div class="note-tip">
+      说明：沙箱无 Android 模拟器，本预览用真实排列结构还原，视觉以真机安装 APK 为准；编译与 v1/v2/v3 验签均为真实跑过。免费音乐 API 为公开社区接口，做了多源降级与本机媒体兜底。
+    </div>
+  </div>
+</div>
+<script>
+  function tip(msg){
+    var el=document.createElement('div');
+    el.textContent=msg;
+    el.style.cssText='position:fixed;left:50%;bottom:36px;transform:translateX(-50%);background:#1c1c20;color:#e6e6e6;padding:12px 22px;border-radius:24px;font-size:13px;z-index:999;box-shadow:0 8px 30px rgba(0,0,0,.4);transition:opacity .3s';
+    document.body.appendChild(el);
+    setTimeout(function(){el.style.opacity='0';setTimeout(function(){el.remove()},300)},1600);
+  }
+  // 周历年月跟随当前月
+  var d=new Date();
+  document.getElementById('ym').textContent=d.getFullYear()+'年'+(d.getMonth()+1)+'月';
+</script>
+</body>
+</html>
