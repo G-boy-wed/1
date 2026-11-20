@@ -223,7 +223,8 @@ DEFAULT_CARE_POLICY = {
         {"name": "抖音", "package": "com.ss.android.ugc.aweme", "max_lock_minutes": 90},
     ],
     "quiet_hours": {"start": "23:30", "end": "08:00"},
-    "timezone_offset": "+08:00", "history_limit": 80, "repeat_cooldown_minutes": 10,
+    # [STRENGTH+] 主动关怀重复冷却 10 -> 5 分钟，查岗/想你/训诫联动更积极。
+    "timezone_offset": "+08:00", "history_limit": 80, "repeat_cooldown_minutes": 5,
 }
 
 
@@ -269,8 +270,68 @@ class LocalState:
         self.lock = Lock()
         self.care_path = self.dir / "care_state.json"
         self.visit_path = self.dir / "visit_state.json"
+        self.watchparty_path = self.dir / "watchparty_state.json"
         self.care = self._load(self.care_path, {"policy": dict(DEFAULT_CARE_POLICY), "history": []})
         self.visit = self._load(self.visit_path, {"policy": dict(DEFAULT_VISIT_POLICY), "visits": []})
+        # [WATCH-PARTY] 双人共同观看/吐槽房间状态（单一事实来源，MCP 与手机端共享）
+        self.watchparty = self._load(self.watchparty_path, self._default_watchparty())
+
+    @staticmethod
+    def _default_watchparty() -> dict:
+        return {"active": False, "media": {}, "progress_ms": 0, "duration_ms": 0,
+                "playing": False, "member": {}, "partner": {}, "danmaku": [], "reactions": [],
+                "updated_at_ms": 0, "round": 0}
+
+    # ---- watch party ----
+    def watchparty_state(self) -> dict:
+        with self.lock:
+            return dict(self.watchparty)
+
+    def watchparty_update(self, patch: dict) -> dict:
+        with self.lock:
+            wp = dict(self.watchparty)
+            for k, v in (patch or {}).items():
+                if k in ("device_id", "action", "wait_seconds"):
+                    continue
+                wp[k] = v
+            wp["round"] = int(wp.get("round", 0) or 0) + 1
+            wp["updated_at_ms"] = int(time.time() * 1000)
+            self.watchparty = wp
+            self._save(self.watchparty_path, wp)
+            return dict(wp)
+
+    def watchparty_add_danmaku(self, entry: dict) -> dict:
+        with self.lock:
+            wp = dict(self.watchparty)
+            items = list(wp.get("danmaku") or [])
+            e = dict(entry or {})
+            e.setdefault("at_ms", int(time.time() * 1000))
+            e.setdefault("author", "我")
+            items.append(e)
+            if len(items) > 200:
+                items = items[-200:]
+            wp["danmaku"] = items
+            wp["round"] = int(wp.get("round", 0) or 0) + 1
+            wp["updated_at_ms"] = int(time.time() * 1000)
+            self.watchparty = wp
+            self._save(self.watchparty_path, wp)
+            return dict(wp)
+
+    def watchparty_add_reaction(self, entry: dict) -> dict:
+        with self.lock:
+            wp = dict(self.watchparty)
+            items = list(wp.get("reactions") or [])
+            e = dict(entry or {})
+            e.setdefault("at_ms", int(time.time() * 1000))
+            items.append(e)
+            if len(items) > 200:
+                items = items[-200:]
+            wp["reactions"] = items
+            wp["round"] = int(wp.get("round", 0) or 0) + 1
+            wp["updated_at_ms"] = int(time.time() * 1000)
+            self.watchparty = wp
+            self._save(self.watchparty_path, wp)
+            return dict(wp)
 
     @staticmethod
     def _load(path: Path, default: dict) -> dict:
@@ -856,6 +917,13 @@ class McpEngine:
         "write_emotion_tag": "_t_emotion_tag",
         "write_companion_emotion": "_t_companion_emotion_write",
         "companion_media_interact": "_t_media_interact",
+        # [WATCH-PARTY] 双人共同观看/吐槽
+        "watch_party_start": "_t_watch_party_start",
+        "get_watch_party": "_t_watch_party_get",
+        "watch_party_sync": "_t_watch_party_sync",
+        "watch_party_danmaku": "_t_watch_party_danmaku",
+        "watch_party_reaction": "_t_watch_party_reaction",
+        "watch_party_end": "_t_watch_party_end",
         "run_preset": "_t_run_preset",
         "get_screen_break_state": "_t_generic_gate_read",
         "get_lock_state": "_t_generic_gate_read",
@@ -983,7 +1051,34 @@ class McpEngine:
         return _text({"ok": True, "policy": self.local.care_policy()})
 
     def _t_set_care_policy(self, args: dict) -> dict:
-        return _text({"ok": True, "policy": self.local.set_care_policy(args)})
+        policy = self.local.set_care_policy(args)
+        # [SYNC-FIX] 服务端写入后下发 set_policy 到手机，保证“机器写入手机端可见”。
+        # 把 care.policy 的键映射成手机端 PolicyCommand 的稳定字段名（只下发手机认识的字段）。
+        field_map = {
+            "quiet_start": "quiet_start", "quiet_end": "quiet_end",
+            "check_in_interval_minutes": "random_upper_min",
+            "cooldown_minutes": "cooldown_min",
+            "force_back_miss_threshold": "force_back_threshold",
+            "checkin_enabled": "checkin_enabled",
+        }
+        fields = {}
+        for k, v in (policy or {}).items():
+            f = field_map.get(k)
+            if not f: continue
+            if isinstance(v, dict): continue
+            fields[f] = v
+        # 兼容安静时段的 {start,end} 结构
+        qh = (policy or {}).get("quiet_hours") or {}
+        if isinstance(qh, dict):
+            if qh.get("start"): fields["quiet_start"] = qh["start"]
+            if qh.get("end"): fields["quiet_end"] = qh["end"]
+        if fields:
+            try:
+                self.ctx.enqueue({"action": "set_policy", "device_id": self._device(args),
+                                  "payload": {"fields": fields}})
+            except Exception:
+                pass
+        return _text({"ok": True, "policy": policy, "device_command_queued": bool(fields)})
 
     def _t_record_care_event(self, args: dict) -> dict:
         return _text({"ok": True, "event": self.local.record_care_event(args)})
@@ -1128,7 +1223,31 @@ class McpEngine:
 
     def _t_tour_schedule(self, args: dict) -> dict:
         try:
-            return _text(self.ctx.tour_schedule_update(args))
+            res = self.ctx.tour_schedule_update(args)
+            # [SYNC-FIX] 巡回策略写入服务端后同步下发到手机（查岗开关 / 间隔 / 冷却 / 强拉阈值 / 安静时段），
+            # 修复“机器写入手机端不显示”。
+            sched = (res or {}).get("schedule") or {}
+            field_map = {
+                "enabled": "checkin_enabled",
+                "check_in_interval_minutes": "random_upper_min",
+                "cooldown_minutes": "cooldown_min",
+                "force_back_miss_threshold": "force_back_threshold",
+                "quiet_start": "quiet_start", "quiet_end": "quiet_end",
+            }
+            fields = {}
+            for k, v in sched.items():
+                f = field_map.get(k)
+                if not f or isinstance(v, dict): continue
+                fields[f] = v
+            if fields:
+                try:
+                    self.ctx.enqueue({"action": "set_policy", "device_id": self._device(args),
+                                      "payload": {"fields": fields}})
+                except Exception:
+                    pass
+            res = dict(res) if isinstance(res, dict) else {"ok": True}
+            res["device_command_queued"] = bool(fields)
+            return _text(res)
         except Exception as e:
             return _error({"ok": False, "error": "tour_schedule_failed", "message": str(e)})
 
@@ -1155,6 +1274,136 @@ class McpEngine:
 
     def _t_companion_emotion_write(self, args: dict) -> dict:
         return self._t_emotion_tag(args)
+
+    # ---------------- [WATCH-PARTY] 双人共同观看/吐槽 ----------------
+    def _wp_local(self) -> "LocalState":
+        return self.local
+
+    def _t_watch_party_start(self, args: dict) -> dict:
+        device_id = self._device(args)
+        media = {
+            "title": str(args.get("media_title") or args.get("title") or "").strip(),
+            "author": str(args.get("media_author") or args.get("author") or "").strip(),
+            "cover": str(args.get("media_cover") or args.get("cover") or "").strip(),
+            "duration_ms": int(args.get("duration_ms", 0) or 0),
+        }
+        member = {
+            "position": str(args.get("position") or "").strip(),
+            "avatar": str(args.get("avatar") or "").strip(),
+            "time": datetime.now(timezone(timedelta(hours=8))).strftime("%H:%M"),
+        }
+        partner = {
+            "position": str(args.get("partner_position") or "").strip(),
+            "avatar": str(args.get("partner_avatar") or "").strip(),
+        }
+        try:
+            wp = self._wp_local().watchparty_update({
+                "active": True, "media": media, "progress_ms": int(args.get("progress_ms", 0) or 0),
+                "duration_ms": media["duration_ms"], "playing": bool(args.get("playing", True)),
+                "member": member, "partner": partner, "danmaku": [], "reactions": [],
+            })
+        except Exception as e:
+            return _error({"ok": False, "error": "watch_party_start_failed", "message": str(e)})
+        try:
+            self.ctx.enqueue({"action": "watch_party_start", "device_id": device_id, "payload": dict(wp)})
+            queued = True
+        except Exception:
+            queued = False
+        return _text({"ok": True, "active": True, "media": media, "member": member, "partner": partner,
+                      "device_command_queued": queued,
+                      "readable": "已开启一起看：%s%s" % (media["title"] or "新影片", (" · " + media["author"]) if media["author"] else "")})
+
+    def _t_watch_party_get(self, args: dict) -> dict:
+        try:
+            wp = self._wp_local().watchparty_state()
+        except Exception:
+            wp = {}
+        # 实时补齐我方时间
+        mem = dict(wp.get("member") or {})
+        mem["time"] = datetime.now(timezone(timedelta(hours=8))).strftime("%H:%M")
+        wp["member"] = mem
+        prog = int(wp.get("progress_ms", 0) or 0); dur = int(wp.get("duration_ms", 0) or 0)
+        pct = round(prog * 100.0 / dur, 1) if dur > 0 else 0
+        danmaku = list(wp.get("danmaku") or [])[-20:]
+        reactions = list(wp.get("reactions") or [])[-20:]
+        wp["progress_percent"] = pct
+        wp["danmaku"] = danmaku
+        wp["reactions"] = reactions
+        readable = ("未开启一起看。可先调用 watch_party_start。" if not wp.get("active") else
+                    "一起看《%s》进度 %s%%（%d/%d ms），弹幕 %d 条，表情 %d 个；我方 %s，对方 %s。" % (
+                        (wp.get("media") or {}).get("title", ""), pct, prog, dur,
+                        len(danmaku), len(reactions), mem.get("position") or "本机",
+                        (wp.get("partner") or {}).get("position") or "对方"))
+        return _text({"ok": True, "watch_party": wp, "readable": readable})
+
+    def _t_watch_party_sync(self, args: dict) -> dict:
+        device_id = self._device(args)
+        patch = {}
+        if "progress_ms" in args and args.get("progress_ms") is not None:
+            patch["progress_ms"] = int(args.get("progress_ms", 0) or 0)
+        if "playing" in args and args.get("playing") is not None:
+            patch["playing"] = bool(args.get("playing"))
+        try:
+            wp = self._wp_local().watchparty_update(patch)
+        except Exception as e:
+            return _error({"ok": False, "error": "watch_party_sync_failed", "message": str(e)})
+        try:
+            self.ctx.enqueue({"action": "watch_party_sync", "device_id": device_id,
+                              "payload": {"progress_ms": wp.get("progress_ms", 0), "playing": wp.get("playing", False)}})
+            queued = True
+        except Exception:
+            queued = False
+        return _text({"ok": True, "queued": queued, "progress_ms": wp.get("progress_ms", 0),
+                      "playing": wp.get("playing", False), "round": wp.get("round", 0)})
+
+    def _t_watch_party_danmaku(self, args: dict) -> dict:
+        device_id = self._device(args)
+        text = str(args.get("text") or args.get("message") or "").strip()
+        if not text:
+            return _error({"ok": False, "error": "empty_text"})
+        author = str(args.get("author") or "我").strip()
+        try:
+            wp = self._wp_local().watchparty_add_danmaku({"text": text[:240], "author": author})
+        except Exception as e:
+            return _error({"ok": False, "error": "danmaku_failed", "message": str(e)})
+        try:
+            self.ctx.enqueue({"action": "watch_party_danmaku", "device_id": device_id,
+                              "payload": {"text": text[:240], "author": author}})
+            queued = True
+        except Exception:
+            queued = False
+        return _text({"ok": True, "queued": queued, "text": text[:240], "author": author,
+                      "danmaku_count": len(wp.get("danmaku") or [])})
+
+    def _t_watch_party_reaction(self, args: dict) -> dict:
+        device_id = self._device(args)
+        emoji = str(args.get("emoji") or args.get("reaction") or "❤️").strip()
+        author = str(args.get("author") or "我").strip()
+        try:
+            wp = self._wp_local().watchparty_add_reaction({"emoji": emoji[:8], "author": author})
+        except Exception as e:
+            return _error({"ok": False, "error": "reaction_failed", "message": str(e)})
+        try:
+            self.ctx.enqueue({"action": "watch_party_reaction", "device_id": device_id,
+                              "payload": {"emoji": emoji[:8], "author": author}})
+            queued = True
+        except Exception:
+            queued = False
+        return _text({"ok": True, "queued": queued, "emoji": emoji[:8], "author": author,
+                      "reaction_count": len(wp.get("reactions") or [])})
+
+    def _t_watch_party_end(self, args: dict) -> dict:
+        device_id = self._device(args)
+        try:
+            wp = self._wp_local().watchparty_update({"active": False, "playing": False})
+        except Exception as e:
+            return _error({"ok": False, "error": "watch_party_end_failed", "message": str(e)})
+        try:
+            self.ctx.enqueue({"action": "watch_party_end", "device_id": device_id, "payload": {}})
+            queued = True
+        except Exception:
+            queued = False
+        return _text({"ok": True, "active": False, "device_command_queued": queued, "readable": "已结束一起看。"})
 
     def _t_media_interact(self, args: dict) -> dict:
         # 工具 schema 的必填参数是 interaction；同时兼容旧的 op / mode / action。

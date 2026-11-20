@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>掌心窗 · 一起看 + 修复交付预览</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,"PingFang SC",sans-serif}
+body{background:radial-gradient(circle at 30% 10%,#eef4ef,#f7f6f2 60%);min-height:100vh;padding:28px;color:#4a4a4a}
+.wrap{max-width:1080px;margin:0 auto}
+h1{font-size:24px;font-weight:600;margin-bottom:6px}
+.sub{color:#8a8a8a;font-size:13px;margin-bottom:24px}
+.grid{display:grid;grid-template-columns:320px 1fr;gap:24px}
+.phone{background:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.9);border-radius:36px;padding:16px;box-shadow:0 18px 48px rgba(90,110,95,.12)}
+.screen{background:linear-gradient(160deg,#f2f6f2,#fbfaf6);border-radius:26px;padding:20px 16px;min-height:620px}
+.back{color:#6a8a72;font-size:13px;margin-bottom:12px}
+.tt{font-size:20px;font-weight:600;margin-bottom:4px}
+.hint{font-size:11px;color:#98a09a;margin-bottom:14px}
+.hero{background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.9);border-radius:18px;padding:14px}
+.cover{height:130px;border-radius:12px;background:linear-gradient(135deg,#dce8dc,#eef0e6);display:flex;align-items:center;justify-content:center;font-size:52px;color:#7a9a82}
+.mtitle{font-size:16px;font-weight:600;margin:10px 2px 2px}
+.mauthor{font-size:11px;color:#9aa09b;margin:0 2px 8px}
+.bar{height:5px;background:#e4e9e4;border-radius:3px;overflow:hidden;margin:6px 2px}
+.bar>i{display:block;width:36%;height:100%;background:#8fb197}
+.meta{display:flex;justify-content:space-between;font-size:10px;color:#9aa09b;margin:2px 2px 8px}
+.ctrls{display:flex;gap:8px}.btn{flex:1;text-align:center;font-size:12px;padding:8px;border-radius:14px;background:#fff;border:1px solid #e6ece6;color:#5a6f5e}.btn.p{background:#8fb197;color:#fff;border:none}
+.duo{display:flex;gap:8px;margin:12px 0}
+.duo>div{flex:1;background:rgba(255,255,255,.7);border-radius:12px;padding:10px;font-size:11px;line-height:1.7;text-align:center}
+.dm{background:rgba(255,255,255,.7);border-radius:12px;padding:10px;min-height:120px;font-size:12px;line-height:2}
+.dm .a{color:#7a9a82}
+.emoji{display:flex;justify-content:space-between;font-size:20px;margin:12px 2px}
+.inp{display:flex;gap:6px;margin-top:10px}.inp .box{flex:1;background:#fff;border:1px solid #e6ece6;border-radius:12px;padding:9px;font-size:12px;color:#b0b0b0}.inp .send{background:#8fb197;color:#fff;border-radius:12px;padding:9px 14px;font-size:12px}
+.panel h2{font-size:17px;margin-bottom:14px;font-weight:600}
+.card{background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.9);border-radius:16px;padding:16px;margin-bottom:14px}
+.card h3{font-size:14px;margin-bottom:8px;color:#5a6f5e}
+.row{display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px dashed #e8ece8}.row:last-child{border:none}
+.tag{display:inline-block;background:#eaf2ea;color:#5a7a62;font-size:11px;padding:2px 8px;border-radius:10px;margin:2px}
+.ok{color:#4a8a5a}.chip{font-family:monospace;background:#f0f3f0;padding:2px 6px;border-radius:6px;font-size:11px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>掌心窗 · 一起看角标 + 三项 Bug 修复</h1>
+<div class="sub">v2026-11-21 · 双人共同观看/吐槽 + 应用锁/双端同步/强度修复 · 全部数据为掌心窗真实能力，MCP 可实际操作</div>
+<div class="grid">
+  <div class="phone"><div class="screen">
+    <div class="back">‹ 返回掌心窗</div>
+    <div class="tt">一起看 · 双人同步</div>
+    <div class="hint">● 正在同步观看，进度与吐槽实时对齐</div>
+    <div class="hero">
+      <div class="cover">▣</div>
+      <div class="mtitle">星际穿越</div>
+      <div class="mauthor">博主 / 来源：诺兰</div>
+      <div class="bar"><i></i></div>
+      <div class="meta"><span>01:00</span><span>36%</span><span>02:49</span></div>
+      <div class="ctrls"><div class="btn p">▶ 播放</div><div class="btn">❚❚ 暂停</div></div>
+    </div>
+    <div class="duo">
+      <div>我<br>😀 客厅<br>00:28</div>
+      <div>TA<br>🥰 卧室<br>00:28</div>
+    </div>
+    <div style="font-size:13px;font-weight:600;margin-bottom:6px">弹幕 · 吐槽</div>
+    <div class="dm">
+      <div><span class="a">我：</span>这一幕配乐太神了</div>
+      <div><span class="a">TA：</span>泪目了❤️</div>
+      <div><span class="a">我：</span>一起看真开心</div>
+    </div>
+    <div class="emoji"><span>❤️</span><span>👍</span><span>👏</span><span>😂</span><span>😮</span><span>😢</span><span>🔥</span><span>🌹</span></div>
+    <div class="inp"><div class="box">发条弹幕吐槽…</div><div class="send">发送</div></div>
+  </div></div>
+
+  <div class="panel">
+    <h2>本轮改动一览</h2>
+    <div class="card">
+      <h3>① 新增「一起看」角标 + 6 个 MCP 工具</h3>
+      <div class="row"><span>桌面角标</span><span class="ok">watchparty · 可点开/长按改名换图标排序</span></div>
+      <div class="row"><span>手机界面</span><span>WatchPartyActivity（封卡/进度/弹幕/表情/双方信息）</span></div>
+      <div class="row"><span>MCP 工具</span><span>start / get / sync / danmaku / reaction / end</span></div>
+      <div class="row"><span>工具总数</span><span>123 → <b>129</b>（端到端实调全通过）</span></div>
+      <div style="margin-top:8px"><span class="chip">watch_party_start</span><span class="chip">get_watch_party</span><span class="chip">watch_party_sync</span><span class="chip">watch_party_danmaku</span><span class="chip">watch_party_reaction</span><span class="chip">watch_party_end</span></div>
+    </div>
+    <div class="card">
+      <h3>② 修复应用锁计时重复刷新</h3>
+      <div class="row"><span>根因</span><span>lock_app 重复下发，每次 now+minutes 后推 deadline</span></div>
+      <div class="row"><span>手机端</span><span class="ok">AppGate 幂等保留原截止时间</span></div>
+      <div class="row"><span>服务端</span><span class="ok">auto_lock 下发绝对 locked_until_ms</span></div>
+    </div>
+    <div class="card">
+      <h3>③ 加强查岗 / 训诫 / 想你强度</h3>
+      <div class="row"><span>查岗间隔</span><span>60/8 → <b>35/5</b> 分钟</span></div>
+      <div class="row"><span>想你增长/回落</span><span>2~5/4 → <b>4~8/2</b></span></div>
+      <div class="row"><span>训诫</span><span>关/0/gentle → <b>开/3/strict</b></span></div>
+      <div class="row"><span>老用户升级</span><span class="ok">一次性迁移，不覆盖自定义</span></div>
+    </div>
+    <div class="card">
+      <h3>④ 修复双端同步</h3>
+      <div class="row"><span>机器写入不显示</span><span class="ok">策略写入后下发 set_policy 到手机</span></div>
+      <div class="row"><span>手机更改不覆盖</span><span class="ok">device/state 改字段级合并</span></div>
+      <div class="row"><span>情绪旧盖新</span><span class="ok">上报加单调时间戳校验</span></div>
+    </div>
+    <div class="card">
+      <h3>验证结果</h3>
+      <div class="row"><span>编译/签名</span><span class="ok">通过 · v1/v2/v3 验签</span></div>
+      <div class="row"><span>MCP schema</span><span class="ok">ZERO_ERRORS_ALL_RESOLVED</span></div>
+      <div class="row"><span>APK sha256</span><span class="chip">00e1e388…4774ac491</span></div>
+    </div>
+  </div>
+</div>
+</div>
+</body>
+</html>

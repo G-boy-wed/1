@@ -57,6 +57,8 @@ public class CompanionService extends Service {
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && "STOP".equals(intent.getAction())) { stopSelf(); return START_NOT_STICKY; }
+        // [STRENGTH+] 一次性使用强度升级：查岗/想你/训诫达到新基线，不覆盖用户自定义配置。
+        PolicyStore.applyStrengthUpgrade(this);
         createNotificationChannel();
         NowState.start(this);
         // Bug#3：常驻前台服务里注册真实解锁广播，保证 unlock_count_today 不再常年为 0。
@@ -357,7 +359,14 @@ public class CompanionService extends Service {
             }
 
             if ("start_tour".equals(action) || "stop_tour".equals(action)) {
-                try { reportCommand(ctx, serverUrl, token, id, true, action + "_ack"); } catch (Exception ignored) { }
+                // [SYNC-FIX] 巡回开关此前只回 ack、不落地本地状态，导致机器端下发后手机端查岗开关不变、
+                // 界面不显示。现在真正写入 checkin_enabled（守护调度器每次 tick 实时读取，立即生效）。
+                boolean enable = "start_tour".equals(action);
+                try {
+                    PolicyStore.setCheckinEnabled(ctx, enable);
+                    PolicySync.pushAll(ctx);
+                } catch (Exception ignored) { }
+                try { reportCommand(ctx, serverUrl, token, id, true, action + "_applied"); } catch (Exception ignored) { }
                 return;
             }
 
@@ -368,6 +377,18 @@ public class CompanionService extends Service {
                 boolean ok = rr.optBoolean("ok", false);
                 String result = rr.optString("result", rr.toString());
                 DebugState.append(ctx, "执行策略配置命令 " + action + "：" + result);
+                try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, true); } catch (Exception ignored) { }
+                return;
+            }
+
+            // [WATCH-PARTY] 双人共同观看/吐槽：服务端 MCP 下发的房间/进度/弹幕/表情命令落地本地状态。
+            if ("watch_party_start".equals(action) || "watch_party_sync".equals(action)
+                    || "watch_party_danmaku".equals(action) || "watch_party_reaction".equals(action)
+                    || "watch_party_end".equals(action)) {
+                JSONObject rr = WatchPartyState.handleCommand(ctx, cmd);
+                boolean ok = rr != null && rr.optBoolean("ok", false);
+                String result = rr != null ? rr.toString() : "watch_party_unhandled";
+                DebugState.append(ctx, "执行一起看命令 " + action + "：" + (ok ? "成功" : result));
                 try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, true); } catch (Exception ignored) { }
                 return;
             }
@@ -903,6 +924,8 @@ public class CompanionService extends Service {
         // 共同记忆以手机本机存储为唯一数据源：每次状态上报把记忆镜像到服务端，
         // 保证 /api/shared_memory 读取、网页与 MCP 检索看到的是手机上的最新记忆（可改可查）。
         try { state.put("shared_memory", SharedMemoryState.getItems(ctx)); } catch (Exception ignored) { }
+        // [WATCH-PARTY] 手机端一起看房间状态（含本机吐槽/表情）镜像到服务端，MCP 侧 get_watch_party 可读到。
+        try { state.put("watch_party", WatchPartyState.snapshot(ctx)); } catch (Exception ignored) { }
         postJson(serverUrl + "/api/device/state", token, state);
         ActiveReminder.evaluate(ctx, state);
         HomeMode.evaluate(ctx, state);
@@ -912,6 +935,23 @@ public class CompanionService extends Service {
         if (id == null || id.length() == 0) return;
         JSONObject report = new JSONObject(); report.put("device_id", AppPrefs.device(ctx)); report.put("command_id", id); report.put("ok", ok); report.put("result", result);
         postJson(serverUrl + "/api/device/report", token, report);
+    }
+
+    /**
+     * [WATCH-PARTY] 一起看界面本机操作（吐槽/表情/进度）即时上报房间状态。
+     * 房间状态已在 uploadStateThrottled 周期镜像；这里做一次即时推送，保证 MCP 侧 get_watch_party
+     * 立刻读到最新吐槽/表情，不必等下一个上报周期。
+     */
+    public static void handleWatchPartyLocal(final Context ctx, final String serverUrl, final String token,
+                                             final JSONObject actionPayload) {
+        new Thread(() -> {
+            try {
+                JSONObject state = new JSONObject();
+                state.put("device_id", AppPrefs.device(ctx));
+                state.put("watch_party", WatchPartyState.snapshot(ctx));
+                postJson(serverUrl + "/api/device/state", token, state);
+            } catch (Exception ignored) { }
+        }, "watchparty-report").start();
     }
 
     private static String postJson(String urlStr, String token, JSONObject obj) throws Exception {

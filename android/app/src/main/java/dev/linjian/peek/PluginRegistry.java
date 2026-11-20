@@ -54,6 +54,7 @@ public final class PluginRegistry {
         list.add(new Plugin("companion_emotion", CAT_EMOTION, "情绪感知", "你（陪伴对象）依据用户状态自动产生的情绪与想你程度，由底层代码触发。", true, true));
         list.add(new Plugin("initiative", CAT_EMOTION, "主动找用户", "沉默超阈值主动发起消息。", true, true));
         list.add(new Plugin("discipline", CAT_EMOTION, "训诫", "小圈管束设定与话语，温柔 / 严厉两种语气。", true, true));
+        list.add(new Plugin("watch_party", CAT_EMOTION, "一起看", "双人同步观看视频/电影，弹幕吐槽、表情互动、位置头像时间同屏。", true, true));
         // 日程作息类
         list.add(new Plugin("class_schedule", CAT_SCHEDULE, "课表作息", "录入课表，到点判定上课、静默守护与提醒。", true, true));
         list.add(new Plugin("guard_calendar", CAT_SCHEDULE, "守护日历", "纪念日、节日与倒数日。", true, true));

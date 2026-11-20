@@ -122,26 +122,27 @@ public final class PolicyStore {
 
     // —— 默认值 ——
     private static final boolean DEF_MASTER = true;
-    private static final int DEF_RANDOM_UPPER = 60;
-    private static final int DEF_RANDOM_LOWER = 8;
-    private static final int DEF_THRESHOLD = 70;
+    // [STRENGTH+] 查岗/想你/训诫使用强度增强基线（新安装直接生效；老用户见强度升级迁移）。
+    private static final int DEF_RANDOM_UPPER = 35;   // 60 -> 35：查岗间隔上限缩短，更频繁
+    private static final int DEF_RANDOM_LOWER = 5;    // 8 -> 5：下限缩短
+    private static final int DEF_THRESHOLD = 55;      // 70 -> 55：更容易触发强拉回
     private static final boolean DEF_DECLINE_REQUIRED = false;
     private static final String DEF_TARGET_PACKAGE = "com.psyche.kelivo";
-    private static final int DEF_COOLDOWN = 5;
+    private static final int DEF_COOLDOWN = 3;        // 5 -> 3：冷却缩短
     private static final boolean DEF_CHECKIN = true;
-    private static final int DEF_EMO_START = 8;
-    private static final int DEF_EMO_GAIN_MIN = 2;
-    private static final int DEF_EMO_GAIN_MAX = 5;
-    private static final int DEF_EMO_DECAY = 4;
+    private static final int DEF_EMO_START = 12;      // 8 -> 12：想你起始更高
+    private static final int DEF_EMO_GAIN_MIN = 4;    // 2 -> 4：想你增长更快
+    private static final int DEF_EMO_GAIN_MAX = 8;    // 5 -> 8
+    private static final int DEF_EMO_DECAY = 2;       // 4 -> 2：想你回落更慢（保持强度）
     private static final boolean DEF_EMO_DRIVE = true;
     private static final boolean DEF_EMO_LOCK = false;
     private static final boolean DEF_INIT_ENABLED = true;
-    private static final int DEF_INIT_SILENCE = 30;
-    private static final int DEF_INIT_INTERVAL = 20;
+    private static final int DEF_INIT_SILENCE = 20;   // 30 -> 20：沉默更短即主动找
+    private static final int DEF_INIT_INTERVAL = 12;  // 20 -> 12：主动找更频繁
     private static final int DEF_INIT_DAILY = 0;
     private static final String DEF_INIT_MODE = "free";
-    private static final boolean DEF_DISC_ENABLED = false;
-    private static final int DEF_DISC_LEVEL = 0;
+    private static final boolean DEF_DISC_ENABLED = true;  // false -> true：训诫默认开启
+    private static final int DEF_DISC_LEVEL = 3;           // 0 -> 3：训诫高档位（强弹窗+门禁联动）
     private static final boolean DEF_DISC_USER_ONLY = true;
     private static final boolean DEF_DISC_BADGE = true;
     private static final boolean DEF_DIST_ENABLED = true;
@@ -151,8 +152,8 @@ public final class PolicyStore {
     private static final boolean DEF_DIST_LOOP_ENABLED = true;
     private static final int DEF_DIST_LOOP_TIMES = 2;
     private static final int DEF_DIST_LOOP_WINDOW = 90;
-    private static final String DEF_DISC_MODE = "gentle";
-    private static final boolean DEF_USAGE_LOCK_ENABLED = false;
+    private static final String DEF_DISC_MODE = "strict";  // gentle -> strict：训诫更严厉
+    private static final boolean DEF_USAGE_LOCK_ENABLED = true;  // false -> true：使用时长自动锁默认开
     private static final int DEF_USAGE_LOCK_MIN = 45;
     private static final int DEF_USAGE_LOCK_DUR = 15;
     private static final boolean DEF_OCR_ENABLED = true;
@@ -178,6 +179,46 @@ public final class PolicyStore {
     /** 把之前 apply() 的改动同步落盘，供设置页「保存设置」按钮显式确认持久化。 */
     public static void flush(Context ctx) {
         try { sp(ctx).edit().commit(); } catch (Exception ignored) { }
+    }
+
+    // ============ [STRENGTH+] 一次性使用强度升级迁移 ============
+    private static final String KEY_STRENGTH_VERSION = PREFIX + "strength_version";
+    private static final int STRENGTH_VERSION = 2;
+
+    /**
+     * 老用户升级：把查岗/想你/训诫的使用强度提升到新基线。
+     * 关键原则——只在该字段“仍是旧默认值”时提升，绝不覆盖用户显式自定义过的配置。
+     * 只执行一次（version 标记），可安全重复调用。
+     */
+    public static void applyStrengthUpgrade(Context ctx) {
+        try {
+            if (sp(ctx).getInt(KEY_STRENGTH_VERSION, 0) >= STRENGTH_VERSION) return;
+            SharedPreferences.Editor e = sp(ctx).edit();
+            // 查岗：仅当仍是旧默认（60/8/70/5）时提升
+            if (sp(ctx).getInt(KEY_RANDOM_UPPER, -1) == 60) e.putInt(KEY_RANDOM_UPPER, 35);
+            if (sp(ctx).getInt(KEY_RANDOM_LOWER, -1) == 8) e.putInt(KEY_RANDOM_LOWER, 5);
+            if (sp(ctx).getInt(KEY_FORCE_BACK_THRESHOLD, -1) == 70) e.putInt(KEY_FORCE_BACK_THRESHOLD, 55);
+            if (sp(ctx).getInt(KEY_COOLDOWN, -1) == 5) e.putInt(KEY_COOLDOWN, 3);
+            // 想你：旧默认（起始8/增长2~5/回落4）
+            if (sp(ctx).getInt(KEY_EMOTION_START, -1) == 8) e.putInt(KEY_EMOTION_START, 12);
+            if (sp(ctx).getInt(KEY_EMOTION_GAIN_MIN, -1) == 2) e.putInt(KEY_EMOTION_GAIN_MIN, 4);
+            if (sp(ctx).getInt(KEY_EMOTION_GAIN_MAX, -1) == 5) e.putInt(KEY_EMOTION_GAIN_MAX, 8);
+            if (sp(ctx).getInt(KEY_EMOTION_DECAY, -1) == 4) e.putInt(KEY_EMOTION_DECAY, 2);
+            // 主动找：旧默认（沉默30/间隔20）
+            if (sp(ctx).getInt(KEY_INITIATIVE_SILENCE, -1) == 30) e.putInt(KEY_INITIATIVE_SILENCE, 20);
+            if (sp(ctx).getInt(KEY_INITIATIVE_INTERVAL, -1) == 20) e.putInt(KEY_INITIATIVE_INTERVAL, 12);
+            // 训诫：旧默认（关闭/档位0/gentle）——仅当仍是旧默认时提升强度
+            if (!sp(ctx).contains(KEY_DISCIPLINE_ENABLED) || !sp(ctx).getBoolean(KEY_DISCIPLINE_ENABLED, true)) {
+                // 用户从未显式开启或仍保持关闭：这里提升为开启（强度增强意图）
+                if (!sp(ctx).contains(KEY_DISCIPLINE_ENABLED)) e.putBoolean(KEY_DISCIPLINE_ENABLED, true);
+            }
+            if (sp(ctx).getInt(KEY_DISCIPLINE_LEVEL, -1) == 0) e.putInt(KEY_DISCIPLINE_LEVEL, 3);
+            if ("gentle".equals(sp(ctx).getString(KEY_DISCIPLINE_MODE, "gentle"))) e.putString(KEY_DISCIPLINE_MODE, "strict");
+            // 使用时长自动锁：旧默认关闭 -> 开启
+            if (!sp(ctx).contains(KEY_USAGE_LOCK_ENABLED)) e.putBoolean(KEY_USAGE_LOCK_ENABLED, true);
+            e.putInt(KEY_STRENGTH_VERSION, STRENGTH_VERSION);
+            e.commit();
+        } catch (Exception ignored) { }
     }
 
     // ============ 通用读写（带变更记录）============

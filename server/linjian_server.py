@@ -1044,6 +1044,15 @@ class Handler(BaseHTTPRequestHandler):
             device_id = qs.get("device_id", [DEFAULT_DEVICE])[0] or DEFAULT_DEVICE
             # BE-11/12/13：与 get_live_media_context 共用同一读取函数（含 last_events / 超时兜底）。
             self._json(200, build_media_context(self.state, device_id)); return
+        if path == "/api/watch_party":
+            # [WATCH-PARTY] 双人共同观看房间状态读取（手机端一起看页可主动拉取/对齐）。
+            if not self._require_token(): return
+            try:
+                engine = getattr(self.state, "mcp_engine", None)
+                wp = engine.local.watchparty_state() if engine else {}
+                self._json(200, {"ok": True, "watch_party": wp}); return
+            except Exception as e:
+                self._json(200, {"ok": False, "error": str(e)}); return
         if path == "/api/companion/state":
             if not self._require_token(): return
             limit = max(1, min(50, int(qs.get("limit", ["20"])[0] or 20)))
@@ -1308,8 +1317,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/device/state":
             if not self._require_token(): return
             data = self._read_json(); device_id = data.get("device_id") or DEFAULT_DEVICE
-            data["updated_at"] = now_iso(); self.state.device_states[device_id] = data
-            update_usage_sessions(self.state, device_id, data)
+            # [SYNC-FIX] 字段级合并而非整体覆盖：手机端局部上报（如仅 watch_party / 仅某设置项）
+            # 不再把服务端已有的其它状态清空，修复“手机端更改软件不进行更改覆盖 / 互相覆盖丢失”。
+            prev = dict(self.state.device_states.get(device_id) or {})
+            prev.update(data)                      # 上报字段覆盖同名字段，未上报字段保留
+            prev["updated_at"] = now_iso()
+            self.state.device_states[device_id] = prev
+            update_usage_sessions(self.state, device_id, prev)
             # 手机上报的陪伴对象情绪 → 更新服务端镜像（与用户侧情绪数据互不覆盖）。
             companion_emotion = data.get("companion_emotion")
             if isinstance(companion_emotion, dict):
@@ -1320,6 +1334,15 @@ class Handler(BaseHTTPRequestHandler):
                 with self.state.shared_memory_lock:
                     self.state.shared_memory = [it for it in shared_memory if isinstance(it, dict)][-200:]
                     self.state.save_shared_memory()
+            # [WATCH-PARTY] 手机端即时推送的一起看状态 → 同步到 MCP 引擎的房间状态（MCP 可读到手机侧吐槽）。
+            watch_party = data.get("watch_party")
+            if isinstance(watch_party, dict):
+                engine = getattr(self.state, "mcp_engine", None)
+                try:
+                    if engine and hasattr(engine, "local"):
+                        engine.local.watchparty_update(watch_party)
+                except Exception:
+                    pass
             self._json(200, {"ok": True, "device_id": device_id}); return
         if path == "/api/device/report":
             if not self._require_token(): return
@@ -1997,10 +2020,20 @@ def write_companion_emotion(state: "State", payload: dict, device_id: str = DEFA
 
 
 def update_companion_emotion_from_phone(state: "State", device_id: str, payload: dict) -> None:
-    """手机上报的陪伴对象情绪作为权威值更新服务端镜像（不覆盖用户侧情绪数据）。"""
+    """手机上报的陪伴对象情绪更新服务端镜像（不覆盖用户侧情绪数据）。
+    [SYNC-FIX] 加单调时间戳校验：仅当手机快照比服务端当前值更新时才覆盖，
+    防止手机端周期性全量上报把 MCP / 机器端刚写入的新情绪用旧值盖回去。"""
     if not isinstance(payload, dict) or not payload: return
     try:
-        emo = dict(state.companion_emotion_state or {})
+        cur = dict(state.companion_emotion_state or {})
+        cur_ms = int(cur.get("updated_at_ms", 0) or 0)
+        phone_ms = int(payload.get("updated_at_ms", 0) or 0)
+        # 手机快照缺时间戳时按其 source 判断：只有在服务端来源不是 phone 且手机未带时间戳时保守拒绝覆盖。
+        if phone_ms > 0 and cur_ms > 0 and phone_ms < cur_ms:
+            return
+        if phone_ms <= 0 and cur_ms > 0 and str(cur.get("source", "")) != "phone":
+            return
+        emo = cur
         emo["emotion_tag"] = str(payload.get("emotion_tag") or emo.get("emotion_tag") or "平静")
         emo["intensity"] = max(0, min(100, int(payload.get("intensity", emo.get("intensity", 0)) or 0)))
         emo["miss_percent"] = max(0, min(100, int(payload.get("miss_percent", emo.get("miss_percent", 0)) or 0)))
@@ -2051,7 +2084,11 @@ def tour_step_check_in(state: "State", sched: dict, device_id: str = DEFAULT_DEV
             lock_dur = max(1, int(sched.get("single_app_lock_duration_minutes", 5)))
             cooldown = max(60, int(sched.get("cooldown_minutes", 5)) * 60)
             if not _recent_event(state, "auto_lock:", cooldown, device_id):
-                _enqueue(state, "lock_app", {"package": pkg, "minutes": lock_dur}, device_id)
+                # [LOCK-REFRESH-FIX] 下发绝对截止时间：poll 30s 未回执重投时携带的就是同一截止时间，
+                # 手机端 AppGate 幂等护栏据此保留原 deadline，避免“重复下发 = 计时重置、永不锁应用”。
+                locked_until_ms = int(time.time() * 1000) + lock_dur * 60_000
+                _enqueue(state, "lock_app", {"package": pkg, "minutes": lock_dur,
+                                             "locked_until_ms": locked_until_ms}, device_id)
                 add_tour_event(state, "auto_lock:" + pkg, "单 App 连续 %d 分钟，锁 %d 分钟" % (int(dwell), lock_dur), device_id)
                 locked = True
     # 情绪感知闭环：建议提醒/拉回且非安静时段时，自动下发居中弹窗（文案/语气由情绪决定）。

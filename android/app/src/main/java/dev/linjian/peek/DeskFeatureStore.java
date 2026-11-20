@@ -62,6 +62,8 @@ public final class DeskFeatureStore {
         DEFS.add(new Feature("permissions", "权限",   "☻", "policy:permissions"));
         DEFS.add(new Feature("debug",       "调试",   "✎", "policy:debug"));
         DEFS.add(new Feature("theme",       "主题",   "❀", "theme:next"));
+        // [WATCH-PARTY] 双人共同观看/吐槽角标（可点开使用、可长按改名换图标排序，与其它角标一致）
+        DEFS.add(new Feature("watchparty",  "一起看", "▶", "watch:open"));
     }
 
     private DeskFeatureStore() { }

@@ -214,9 +214,21 @@ public class AppGate {
         if (isProtectedPackage(ctx, pkg)) return put(new JSONObject(), false, "protected_package:" + pkg);
         String appName = cmd.optString("appName", cmd.optString("app_name", cmd.optString("app", labelOf(ctx, pkg))));
         long until = cmd.optLong("locked_until_ms", 0);
+        boolean hasExplicitUntil = until > 0;
+        long nowMs = System.currentTimeMillis();
+        // [LOCK-REFRESH-FIX] 幂等护栏：服务端会在巡回查岗 / poll 30s 未回执重投 / 情绪联动处重复下发
+        // lock_app。若每次都按 now+minutes 重算，deadline 会被不断后推，导致锁“到不了点、永不生效”。
+        // 对同包“仍处于 active 且未到期”的锁，且本次命令未显式指定截止时间时，沿用原截止时间。
+        JSONObject s = state(ctx);
+        JSONObject existing = locks(s).optJSONObject(pkg);
+        boolean reused = false;
+        if (!hasExplicitUntil && existing != null && existing.optBoolean("active", false)) {
+            long oldUntil = existing.optLong("locked_until_ms", 0);
+            if (oldUntil > nowMs) { until = oldUntil; reused = true; }
+        }
         if (until <= 0) {
             double minutes = commandMinutes(cmd, 30);
-            until = System.currentTimeMillis() + Math.round(minutes * 60000.0);
+            until = nowMs + Math.round(minutes * 60000.0);
         }
         JSONObject lock = new JSONObject();
         lock.put("package", pkg);
@@ -227,16 +239,18 @@ public class AppGate {
         lock.put("mode", normalizeMode(cmd.optString("mode", "medium")));
         lock.put("reason", cmd.optString("reason", "").trim());
         lock.put("message", cmd.optString("message", "").trim());
-        lock.put("created_at_ms", System.currentTimeMillis());
+        // [LOCK-REFRESH-FIX] 复用未到期锁时，保留原创建时间与应急密码，避免重复下发把它清空。
+        lock.put("created_at_ms", reused && existing != null ? existing.optLong("created_at_ms", nowMs) : nowMs);
         lock.put("emergency_unlock_minutes", Math.max(1, cmd.optInt("emergencyUnlockMinutes", cmd.optInt("emergency_unlock_minutes", 5))));
         String pass = cmd.optString("emergencyPassphrase", cmd.optString("emergency_passphrase", ""));
         if (pass.length() > 0) lock.put("emergency_hash", hash(pass));
+        else if (reused && existing != null && existing.has("emergency_hash")) lock.put("emergency_hash", existing.optString("emergency_hash"));
         clearTemp(lock);
-        JSONObject s = state(ctx); locks(s).put(pkg, lock); save(ctx, s);
+        locks(s).put(pkg, lock); save(ctx, s);
         addGateApp(ctx, lock.optString("app_name", labelOf(ctx, pkg)), pkg);
-        log(ctx, "锁定 " + lock.optString("app_name") + " 到 " + lock.optString("locked_until_local") + "：" + lock.optString("reason"));
+        log(ctx, (reused ? "锁定期顺延拦截（保持原截止） " : "锁定 ") + lock.optString("app_name") + " 到 " + lock.optString("locked_until_local") + "：" + lock.optString("reason"));
         triggerCurrentForegroundIfNeeded(ctx, pkg);
-        return put(new JSONObject(), true, "locked_app:" + pkg + " until " + lock.optString("locked_until_local"));
+        return put(new JSONObject(), true, "locked_app:" + pkg + " until " + lock.optString("locked_until_local") + (reused ? " (kept)" : ""));
     }
 
     private static JSONObject unlockApp(Context ctx, JSONObject cmd, String why) throws Exception {

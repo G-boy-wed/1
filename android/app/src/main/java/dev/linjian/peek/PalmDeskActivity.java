@@ -646,6 +646,8 @@ public class PalmDeskActivity extends Activity {
                 cycleTheme();
             } else if (a.startsWith("policy:")) {
                 openSection(a.substring(7));
+            } else if ("watch:open".equals(a)) {
+                startActivity(new Intent(this, WatchPartyActivity.class));
             } else toast(label);
         } catch (Exception e) {
             toast("打开失败：" + ScreenshotService.shortMsg(e));

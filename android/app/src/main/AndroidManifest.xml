@@ -127,6 +127,13 @@
             android:label="查岗与管束"
             android:theme="@style/Theme.PeerPolicySettings" />
 
+        <!-- 双人共同观看/吐槽：一起看（MCP watch_party_* 工具对应界面）。 -->
+        <activity
+            android:name=".WatchPartyActivity"
+            android:exported="false"
+            android:label="一起看"
+            android:theme="@style/Theme.PeerPolicySettings" />
+
         <!-- 分级拉回弹窗：锁屏时由系统挡住悬浮窗，用透明 Activity 承载同一张卡片。 -->
         <activity
             android:name=".PullBackActivity"
