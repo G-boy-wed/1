@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitHub PAT 生成教程 · 掌心窗推送授权</title>
+<style>
+  :root{ --bg:#0d1117; --card:#161b22; --line:#30363d; --blue:#2f81f7; --green:#238636; --txt:#e6edf3; --dim:#8b949e; --amber:#d29922; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.7;padding:32px 16px}
+  .wrap{max-width:820px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 4px}
+  .sub{color:var(--dim);margin:0 0 24px;font-size:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin:16px 0}
+  .step{display:flex;gap:14px;align-items:flex-start;margin:18px 0}
+  .num{flex:0 0 30px;height:30px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}
+  .step h3{margin:2px 0 6px;font-size:16px}
+  .step p{margin:0;color:#c9d1d9;font-size:14px}
+  .btn{display:inline-block;background:#21262d;border:1px solid var(--line);border-radius:6px;padding:4px 12px;font-size:13px;color:var(--txt);margin:3px 0}
+  .btn.primary{background:var(--green);border-color:var(--green);color:#fff;font-weight:600}
+  .btn.warn{background:#3d2e00;border-color:var(--amber);color:var(--amber)}
+  .kbd{background:#010409;border:1px solid var(--line);border-radius:4px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:13px}
+  .code{background:#010409;border:1px solid var(--line);border-radius:8px;padding:14px 16px;font-family:ui-monospace,monospace;font-size:13px;color:#a5d6ff;overflow-x:auto;white-space:pre}
+  .warnbox{background:#3d2e00;border:1px solid var(--amber);border-radius:8px;padding:12px 16px;color:#f0d58c;font-size:14px}
+  .okbox{background:#0f2e16;border:1px solid var(--green);border-radius:8px;padding:12px 16px;color:#9be3a8;font-size:14px}
+  .scope{list-style:none;padding:0;margin:8px 0}
+  .scope li{padding:6px 10px;border:1px solid var(--line);border-radius:6px;margin:6px 0;font-size:14px}
+  .scope .y{color:var(--green);font-weight:700}
+  .scope .n{color:var(--dim)}
+  .path{color:#7ee787;font-family:ui-monospace,monospace;font-size:13px}
+  img{width:100%;border:1px solid var(--line);border-radius:8px;margin:8px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📘 GitHub PAT 生成教程</h1>
+  <p class="sub">目的：生成一个能推送代码到 <span class="path">https://github.com/G-boy-wed/1.git</span> 的令牌，发给我完成「上传 github」</p>
+
+  <div class="warnbox">
+    ⚠️ <b>重要提醒</b>：令牌只会显示<b>这一次</b>，关掉页面就再也看不到了。复制后直接发给我即可，我不会在回复里打印明文，推送完会立刻清理本地的 token 配置。
+  </div>
+
+  <div class="card">
+    <div class="step"><div class="num">1</div><div>
+      <h3>打开令牌设置页</h3>
+      <p>在浏览器登录你的 GitHub 账号，然后访问：<br>
+      <span class="path">https://github.com/settings/tokens</span><br>
+      （或：右上角头像 ▸ <b>Settings</b> ▸ 左侧最下方 <b>Developer settings</b> ▸ <b>Personal access tokens</b> ▸ <b>Tokens (classic)</b>）</p>
+    </div></div>
+
+    <div class="step"><div class="num">2</div><div>
+      <h3>新建令牌</h3>
+      <p>点右上角绿色按钮 <span class="btn primary">Generate new token</span>，在下拉里选 <span class="btn">Generate new token (classic)</span>。<br>
+      如果只看到 <i>Fine-grained tokens</i>，也先选 classic（兼容性最好）。</p>
+    </div></div>
+
+    <div class="step"><div class="num">3</div><div>
+      <h3>填写基本信息</h3>
+      <p>
+        • <b>Note（备注）</b>：随便填，如 <span class="kbd">zhangxinchuang-push</span><br>
+        • <b>Expiration（有效期）</b>：建议选 <span class="kbd">7 days</span> 或 <span class="kbd">30 days</span>（用完可删，最安全）<br>
+        • 其余可留空
+      </p>
+    </div></div>
+
+    <div class="step"><div class="num">4</div><div>
+      <h3>勾选权限（最关键一步）</h3>
+      <p>在 <b>Select scopes</b> 区域，找到并勾选：</p>
+      <ul class="scope">
+        <li><span class="y">✅ repo</span> — 整组勾上（包含对公开/私有仓库的读写，推送必须用它）</li>
+        <li><span class="n">⬜ workflow / admin / delete_repo</span> — 都不用勾，不需要</li>
+      </ul>
+      <p style="color:var(--dim);font-size:13px">如果你用的是 <b>Fine-grained</b> 令牌：在 Repository access 里指定 <span class="kbd">G-boy-wed/1</span>，并在 Permissions ▸ Repository permissions ▸ <b>Contents</b> 设为 <b>Read and write</b>。</p>
+    </div></div>
+
+    <div class="step"><div class="num">5</div><div>
+      <h3>生成并复制</h3>
+      <p>拉到页面最底部，点绿色按钮 <span class="btn primary">Generate token</span>。<br>
+      新页面顶部会显示一行：<span class="kbd" style="color:#7ee787">github_pat_xxxxxxxxxxxx</span> 或 <span class="kbd" style="color:#7ee787">ghp_xxxxxxxxxxxx</span>。<br>
+      点右边的复制图标，或直接全选复制这整串字符。</p>
+    </div></div>
+
+    <div class="step"><div class="num">6</div><div>
+      <h3>把令牌发给我</h3>
+      <p>把复制到的那串 <span class="kbd" style="color:#7ee787">github_pat_... / ghp_...</span> 直接粘贴到对话里发给我。<br>
+      我收到后会执行下面的命令（你无需自己敲）：</p>
+      <div class="code">git -c "url.https://x-access-token:<你的PAT>@github.com/.insteadOf=https://github.com/" \
+    push origin main</div>
+      <p style="font-size:13px;color:var(--dim)">这是 fast-forward 推送，不会 force push、不会覆盖任何历史，只把 Commit M（<span class="kbd">5d804c7</span>）接在你远端 <span class="kbd">a34dd6f</span> 之后。</p>
+    </div></div>
+
+    <div class="step"><div class="num">7</div><div>
+      <h3>完成后清理（可选但推荐）</h3>
+      <p>推送成功后，回到 <span class="path">https://github.com/settings/tokens</span>，找到刚生成的令牌，点 <span class="btn warn">Delete</span> 删除即可，安全无忧。</p>
+    </div></div>
+  </div>
+
+  <div class="okbox">
+    ✅ 准备好后，把 <b>github_pat_...</b> 那串令牌发我，我会立即推送并回报远端新的 HEAD 提交号。整个过程不会在对话里显示明文。
+  </div>
+
+  <div class="card" style="margin-top:20px">
+    <h3 style="margin-top:0">❓ 常见问题</h3>
+    <p><b>Q：必须公开仓库才能用 PAT 吗？</b><br>A：不用。无论公开还是私有仓库，只要有 <span class="kbd">repo</span> 权限就能推送。</p>
+    <p><b>Q：不想给 PAT 行不行？</b><br>A：可以。你在自己有凭据的电脑上执行 <span class="kbd">git push origin main</span> 即可，我这边本地 Commit M 已经是完整状态。</p>
+    <p><b>Q：令牌泄露了怎么办？</b><br>A：立刻去 tokens 页面 Delete 删掉，旧令牌立即失效，重新生成一个新的发我就行。</p>
+  </div>
+</div>
+</body>
+</html>

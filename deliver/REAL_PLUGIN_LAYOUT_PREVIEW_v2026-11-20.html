@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>掌心窗 · 只用真实插件的图一两屏排列</title>
+<style>
+  :root{
+    --page:#EDEDEA; --card:rgba(255,255,255,.66); --card-solid:#FBFCFB;
+    --stroke:rgba(255,255,255,.9); --ink:#3A3A3A; --sub:#8E8E8E; --weak:#B9B9B9;
+    --accent:#4A5A4E; --accent-soft:#E4EBE3; --danger:#C98A8A;
+    --radius:20px; --shadow:0 10px 30px rgba(0,0,0,.08);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+  body{background:#0d0d0f;color:var(--ink);padding:28px 16px 60px;min-height:100vh}
+  .stage{max-width:1180px;margin:0 auto}
+  .album-bar{display:flex;align-items:center;justify-content:space-between;color:#fff;padding:6px 4px 20px;font-size:15px}
+  .album-bar .idx{font-size:16px;letter-spacing:1px;opacity:.9}
+  .album-bar .sp{width:30px}
+  .note{text-align:center;color:#9a9aa0;font-size:12px;line-height:1.8;margin-bottom:24px}
+  .note b{color:#d8d8de}
+  .screens{display:flex;gap:24px;justify-content:center;flex-wrap:wrap;align-items:flex-start}
+  .phone{
+    width:352px;min-height:720px;border-radius:42px;position:relative;overflow:hidden;
+    background:linear-gradient(160deg,#E9EDE6 0%,#EEEEEC 45%,#E5EAE3 100%);
+    border:3px solid rgba(255,255,255,.5);box-shadow:0 24px 60px rgba(0,0,0,.35);
+    padding:26px 18px 92px;
+  }
+  .cap{background:var(--card);border:1px solid var(--stroke);border-radius:var(--radius);
+    padding:12px 14px;display:flex;align-items:center;gap:12px;box-shadow:var(--shadow);cursor:pointer}
+  .cap .ic{font-size:24px;color:var(--accent)}
+  .cap .t{font-size:14px;font-weight:700}
+  .cap .s{font-size:10px;color:var(--sub);margin-top:3px}
+  .cap .go{margin-left:auto;font-size:22px;color:var(--weak)}
+  .lbl{font-size:13px;color:var(--sub);font-weight:700;margin:18px 2px 10px;letter-spacing:.3px}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .cell{background:var(--card);border:1px solid var(--stroke);border-radius:16px;box-shadow:var(--shadow);
+    padding:12px 6px 10px;text-align:center}
+  .cell .i{height:46px;display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--accent);
+    background:rgba(255,255,255,.5);border-radius:12px}
+  .cell .n{font-size:11px;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+  .clock{font-size:64px;font-weight:200;letter-spacing:-3px}
+  .wx{text-align:right}
+  .wx .t{font-size:22px}
+  .wx .s{font-size:10px;color:var(--sub)}
+  .week{background:var(--card);border:1px solid var(--stroke);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 12px;cursor:pointer}
+  .week .m{font-size:11px;color:var(--sub);margin-bottom:10px}
+  .week .days{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;gap:3px}
+  .week .d{font-size:9px;color:var(--sub)}
+  .week .num{font-size:15px;margin-top:5px;padding:4px 0;border-radius:12px}
+  .week .num.on{background:var(--accent);color:#fff;font-weight:700}
+  .dock{position:absolute;left:16px;right:16px;bottom:16px;display:grid;grid-template-columns:repeat(5,1fr);gap:4px;
+    background:rgba(255,255,255,.55);border:1px solid var(--stroke);border-radius:24px;padding:8px 6px;backdrop-filter:blur(20px)}
+  .dock button{border:0;background:transparent;font-size:11px;color:var(--sub);padding:8px 0;border-radius:16px;cursor:pointer}
+  .dock button.on{background:var(--accent-soft);color:var(--accent);font-weight:700}
+  .gtitle{font-size:20px;font-weight:600}
+  .gsub{font-size:11px;color:var(--sub);margin:4px 0 16px}
+  .avatar{float:right;width:42px;height:42px;border-radius:50%;background:var(--accent-soft);color:var(--accent);
+    display:flex;align-items:center;justify-content:center;font-size:20px;cursor:pointer}
+  .gcell{position:relative}
+  .gcell .sw{display:inline-block;width:26px;height:15px;border-radius:8px;background:var(--accent);position:relative;margin-top:7px}
+  .gcell .sw:after{content:"";position:absolute;right:2px;top:2px;width:11px;height:11px;border-radius:50%;background:#fff}
+  .gcell .sw.off{background:#cfcfcf}
+  .gcell .sw.off:after{right:auto;left:2px}
+  .tag{display:inline-block;font-size:10px;padding:2px 8px;border-radius:10px;background:var(--accent-soft);color:var(--accent);margin-bottom:14px}
+  .legend{max-width:1180px;margin:26px auto 0;color:#8a8a90;font-size:12px;line-height:1.9;background:#171719;border:1px solid #26262a;border-radius:16px;padding:16px 20px}
+  .legend b{color:#d0d0d6}
+  .legend code{color:#9fd0a8}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="album-bar"><span class="sp"></span><span class="idx">图1 · 两张独立手机屏幕（不排在一起）</span><span class="sp"></span></div>
+  <div class="note">每一个格子都是<b>掌心窗真实存在的插件</b>：左屏取自 <code>DeskPluginStore</code>，右屏取自 <code>PluginRegistry</code>，守护页取自图2 守护功能项。<b>无任何图一假应用/假文案。</b></div>
+
+  <div class="screens">
+    <!-- 左屏：世界页 -->
+    <div class="phone">
+      <div class="cap" onclick="void(0)">
+        <div class="ic">♫</div>
+        <div><div class="t">一起听 · 网易云同款</div><div class="s">◉ 当前位置　⏱ 23:43</div></div>
+        <div class="go">›</div>
+      </div>
+      <div class="lbl">✦ 掌心窗 · 全部插件（长按图标编辑）</div>
+      <div class="grid" id="worldGrid"></div>
+      <div class="dock">
+        <button class="on">世界</button><button>终端</button><button>守护</button><button>主题</button><button>设置</button>
+      </div>
+    </div>
+
+    <!-- 右屏：终端页 -->
+    <div class="phone">
+      <div class="head">
+        <div class="clock">23:43</div>
+        <div class="wx"><div class="t">☁ 24°</div><div class="s">当前位置</div></div>
+      </div>
+      <div class="week">
+        <div class="m">2026年11月</div>
+        <div class="days" id="weekDays"></div>
+      </div>
+      <div class="lbl">✦ 掌心窗 · 能力插件</div>
+      <div class="grid" id="capGrid"></div>
+      <div class="dock">
+        <button>世界</button><button class="on">终端</button><button>守护</button><button>主题</button><button>设置</button>
+      </div>
+    </div>
+
+    <!-- 守护页 -->
+    <div class="phone">
+      <div class="avatar">♡</div>
+      <div class="gtitle">Toujours à tes côtés</div>
+      <div class="gsub">守护功能 · 每项点开即可更改并保存</div>
+      <span class="tag">图2 功能项 · 按图1 宫格排列 · 按 prefKey 去重</span>
+      <div class="grid" id="guardGrid"></div>
+      <div class="dock">
+        <button>世界</button><button>终端</button><button class="on">守护</button><button>主题</button><button>设置</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <b>本次修正：</b>删除照抄图一的假内容（CosmicLove、拍立得照片卡、无限象限便签、"影像之外"、假 4 图标行、黑胶唱片、硬编码假周历）；
+  <b>修复 bug：</b>守护项深链分区白名单（focus/calendar/plugins/profile 等不存在的 key 不再跳空白）、删除 polaroidCard 重复 addView 废逻辑；
+  <b>编辑能力：</b>长按进编辑，换图标 / ✎改名 / ◀▶移动 / ✕删除 / ＋新增 / ✓保存 / ↺恢复默认，全部持久化。
+</div>
+
+<script>
+  // 与 DeskPluginStore.defaults() 一致的 20 个真实插件
+  const world = [
+    ["✉","消息"],["▦","日历"],["❀","图片"],["☻","联系人"],
+    ["✎","便签"],["♡","心动"],["◎","查岗"],["⚑","门禁"],
+    ["◷","专注"],["♫","一起听"],["☁","天气"],["⚡","归电"],
+    ["▤","课表"],["★","记忆"],["✂","训诫"],["⏰","提醒"],
+    ["☾","夜间"],["☷","识图"],["⌂","回家"],["⚙","更多"]
+  ];
+  // 与 PluginRegistry.all() 一致的 16 项真实能力
+  const caps = [
+    ["◎","查岗拉回"],["⚑","应用门禁"],["⏰","时长自动锁"],["◷","专注模式"],
+    ["♡","情绪感知"],["❀","主动找用户"],["✂","训诫"],["▤","课表作息"],
+    ["▦","守护日历"],["⏰","周期提醒"],["⚡","归电设置"],["☾","夜间息屏"],
+    ["⏰","通知提醒"],["★","共同记忆"],["☷","识图感知"],["✦","守护视觉"]
+  ];
+  // 图2 守护功能项（去重后）
+  const guard = [
+    ["◎","查岗拉回",1],["⊘","分心强拉回",1],["✂","训诫",1],["♡","情绪感知",1],
+    ["❀","主动找用户",1],["⚑","应用门禁",1],["⏰","主动提醒",1],["◷","专注模式",0],
+    ["▦","守护日历",1],["▤","上课作息",1],["★","共同记忆",1],["☷","识图感知",1],
+    ["✦","插件分类",1],["☁","天气地区",1],["⌂","回家模式",0],["⚡","归电设置",1],
+    ["▧","屏幕日记",1],["☻","自拍记录",1],["⚙","保密模式",1],["▥","备份相册",1]
+  ];
+  function fill(id, arr, guardMode){
+    const g = document.getElementById(id);
+    arr.forEach(x=>{
+      const c=document.createElement('div'); c.className='cell'+(guardMode?' gcell':'');
+      let html='<div class="i">'+x[0]+'</div><div class="n">'+x[1]+'</div>';
+      if(guardMode) html+='<span class="sw'+(x[2]?'':' off')+'"></span>';
+      c.innerHTML=html; g.appendChild(c);
+    });
+  }
+  fill('worldGrid', world, false);
+  fill('capGrid', caps, false);
+  fill('guardGrid', guard, true);
+  // 真实周历（今天 20 号高亮）
+  const days=[['SUN',16],['MON',17],['TUE',18],['WED',19],['THU',20],['FRI',21],['SAT',22]];
+  const wd=document.getElementById('weekDays');
+  days.forEach((d,i)=>{
+    const a=document.createElement('div');a.innerHTML='<div class="d">'+d[0]+'</div><div class="num'+(d[1]===20?' on':'')+'">'+d[1]+'</div>';wd.appendChild(a);
+  });
+</script>
+</body>
+</html>

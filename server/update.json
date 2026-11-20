@@ -2,7 +2,7 @@
   "latest_version_name": "0.3.9.0",
   "latest_version_code": 30900,
   "apk_url": "https://github.com/G-boy-wed/1/releases/download/v0.3.9.0/Zhangxinchuang-public-v0.3.9.0.apk",
-  "sha256": "6111888ad73013e761f0db3c7b2680b93326d5ad2de527e6c1c8876da427045f",
+  "sha256": "9cf8c5558a0bab87323d9f8720deef84be091e7eac0856ad9531507f91fea50a",
   "required": false,
   "notes": [
     "修复 sta1n/OpenAI 兼容通道接入掌心窗 MCP 报 HTTP 400：服务端 tools/list 出口 Schema 强制合规化（array 补 items.type、object 补 properties）。",
@@ -16,7 +16,8 @@
     "新建 Flutter 客户端 MCP 工具调用链路：解除 20s 超时截断、Schema 清洗裁剪、串行队列锁、截屏落盘。",
     "新建 sta1n 聊天层：工具压缩注入 + 流式/非流式 tool_calls 解析 + role:tool 回写。",
     "服务端 v0.4.x：单进程 Python(8513) 闭环、共同记忆 SQLite、悬浮窗/Heads-up、天气坐标优先。",
-    "部署提示：MCP 服务与 server 需重新部署；地址 :8513/mcp。"
+    "部署提示：MCP 服务与 server 需重新部署；地址 :8513/mcp。",
+    "v2026-11-20 修正：桌面/守护页只使用掌心窗真实插件（DeskPluginStore+PluginRegistry）按图一两屏宫格组合排列，删除全部照抄图一的假应用与假文案（CosmicLove/拍立得/无限象限便签/影像之外句子/假4图标/黑胶唱片/假周历）；修复守护项深链到不存在分区导致跳空白的 bug；清除 polaroidCard 重复 addView 废逻辑。"
   ],
   "release_notes": [
     "修复 sta1n/OpenAI 兼容通道接入掌心窗 MCP 报 HTTP 400：服务端 tools/list 出口 Schema 强制合规化（array 补 items.type、object 补 properties）。",
