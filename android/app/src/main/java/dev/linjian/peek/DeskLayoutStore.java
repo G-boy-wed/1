@@ -14,6 +14,7 @@ import org.json.JSONObject;
 public final class DeskLayoutStore {
     private static final String PREF = "desk_layout_v1";
     private static final String K_POS = "pos";
+    private static final String K_PAGE = "item_page"; // "kind:id" -> page，支持跨页移动
 
     private DeskLayoutStore() { }
 
@@ -80,6 +81,38 @@ public final class DeskLayoutStore {
     }
 
     public static void resetAll(Context c) {
-        sp(c).edit().remove(K_POS).apply();
+        sp(c).edit().remove(K_POS).remove(K_PAGE).apply();
+    }
+
+    // ---- 元素所属页（支持角标/贴图/展示卡长按跨页移动） ----
+    private static String idKey(String kind, String id) { return kind + ":" + id; }
+
+    /** 元素当前所在页；未设置返回 def（默认页）。 */
+    public static int pageOf(Context c, String kind, String id, int def) {
+        try { return obj(c, K_PAGE).optInt(idKey(kind, id), def); }
+        catch (Exception e) { return def; }
+    }
+
+    /** 把元素移动到目标页（位置尺寸沿用，坐标按新页重新落位由调用方处理）。 */
+    public static void setPage(Context c, String kind, String id, int page) {
+        try {
+            JSONObject o = obj(c, K_PAGE);
+            o.put(idKey(kind, id), page);
+            sp(c).edit().putString(K_PAGE, o.toString()).apply();
+        } catch (Exception ignored) { }
+    }
+
+    /** 恢复元素到默认页（删除归属记录）。 */
+    public static void clearPage(Context c, String kind, String id) {
+        try {
+            JSONObject o = obj(c, K_PAGE);
+            o.remove(idKey(kind, id));
+            sp(c).edit().putString(K_PAGE, o.toString()).apply();
+        } catch (Exception ignored) { }
+    }
+
+    private static JSONObject obj(Context c, String key) {
+        try { return new JSONObject(sp(c).getString(key, "{}")); }
+        catch (Exception e) { return new JSONObject(); }
     }
 }

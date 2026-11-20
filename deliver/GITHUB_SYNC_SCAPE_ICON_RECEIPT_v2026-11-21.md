@@ -14,7 +14,7 @@
 - 远端 main 原先停在 `e951bbac`（tree `83f00d17`，与本地 `16695c9` 内容一致）。
 - 以该 tree 为 base，增量上传 `16695c9..bd54dda` 的 48 个文件（41 新增 + 7 修改）blob，创建新 tree `776afaa0`（与本地 HEAD tree 完全一致）。
 - 新 commit：`b68de1ae`，parent=`e951bbac`，message=本地最新提交。
-- main ref 已更新：`b68de1aea43a8b3935b763a07226baf00770d7c3`。
+- main ref 已更新：`b68de1aea43a8b3935b763a07226baf00770d7c3`；随后补推本回执文档，最终 main = `67a8688fc02ea502cb2300843ddb0a4ab19e4279`（tree `78e217e4` 与本地完全一致）。
 
 ## Release APK 覆盖
 

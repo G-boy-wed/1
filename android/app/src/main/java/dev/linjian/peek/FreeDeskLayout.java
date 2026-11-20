@@ -27,12 +27,16 @@ public class FreeDeskLayout extends FrameLayout {
     public static final String KIND_FEATURE = "feature";
     public static final String KIND_STICKER = "sticker";
     public static final String KIND_TEXT = "text";
+    /** 陪伴展示卡：贴图形式直接展现真实状态（窗边/此刻/轨迹/倒计日/行动），非可点开角标。 */
+    public static final String KIND_CARD = "card";
 
     public interface Actions {
         void onClick(String kind, String id);
         void onDelete(String kind, String id);
         /** 编辑态下点左上角编辑按钮：角标/旧入口弹功能菜单（改名/换图标等）。 */
         void onEdit(String kind, String id);
+        /** 编辑态下点右上角移动按钮：把元素移动到指定页（附当前位置尺寸）。 */
+        void onMoveToPage(String kind, String id, int page, DeskLayoutStore.Pos pos);
         void onChanged();
     }
 
@@ -52,6 +56,9 @@ public class FreeDeskLayout extends FrameLayout {
     }
 
     public int px(float dp) { return Math.round(dp * density); }
+
+    /** 本容器代表的页号（用于元素归属页判断）。 */
+    public int getPage() { return page; }
 
     public void addItem(final View content, final String kind, final String id,
                         DeskLayoutStore.Pos def, boolean deletable) {
@@ -99,7 +106,8 @@ public class FreeDeskLayout extends FrameLayout {
         final boolean deletable;
         DeskLayoutStore.Pos def;
         LayoutParams params;
-        View handle, delBtn, editBtn;
+        View handle, delBtn, editBtn, moveBtn;
+        int pageCount = 4;
         float startRawX, startRawY;
         int startL, startT, startW, startH;
         boolean longPressed, moved, resizing;
@@ -169,18 +177,34 @@ public class FreeDeskLayout extends FrameLayout {
                 });
             }
             addView(topBtn);
+
+            // 右上角移动按钮：所有元素（角标/贴图/展示卡）长按后都能跨页移动
+            moveBtn = new View(getContext());
+            moveBtn.setBackgroundColor(0xCC7B8FB0);
+            LayoutParams mp = new LayoutParams(px(20), px(20), Gravity.TOP | Gravity.END);
+            mp.rightMargin = px(2); mp.topMargin = px(2);
+            moveBtn.setLayoutParams(mp);
+            moveBtn.setVisibility(GONE);
+            moveBtn.setOnClickListener(x -> {
+                if (actions != null) actions.onMoveToPage(kind, id, page,
+                        new DeskLayoutStore.Pos(params.leftMargin / density, params.topMargin / density,
+                                params.width / density, params.height / density));
+            });
+            addView(moveBtn);
         }
 
         void enterEdit() {
             handle.setVisibility(VISIBLE);
             if (delBtn != null) delBtn.setVisibility(VISIBLE);
             if (editBtn != null) editBtn.setVisibility(VISIBLE);
+            if (moveBtn != null) moveBtn.setVisibility(VISIBLE);
             if (actions != null) actions.onChanged();
         }
         void leaveEdit() {
             handle.setVisibility(GONE);
             if (delBtn != null) delBtn.setVisibility(GONE);
             if (editBtn != null) editBtn.setVisibility(GONE);
+            if (moveBtn != null) moveBtn.setVisibility(GONE);
             longPressed = false;
         }
 

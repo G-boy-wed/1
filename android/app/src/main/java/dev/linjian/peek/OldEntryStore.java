@@ -34,17 +34,19 @@ public final class OldEntryStore {
         }
     }
 
+    /**
+     * 第四页只保留两个真正的「设置 + 日记本」入口。
+     * 陪伴/守护/生活/日历/归电等已作为主界面功能角标或陪伴展示卡直接呈现，
+     * 不再在此重复；连接设置并入「设置」页内。
+     */
     private static final List<Entry> DEFS = new ArrayList<>();
     static {
-        DEFS.add(new Entry("companion", "陪伴",   "♡", "old:see"));
-        DEFS.add(new Entry("diary",      "TA的日记", "✎", "old:diary"));
-        DEFS.add(new Entry("connection", "连接设置", "⚙", "old:connection"));
-        DEFS.add(new Entry("settings",   "设置",   "☻", "old:settings"));
-        DEFS.add(new Entry("life",       "生活",   "☀", "old:life"));
-        DEFS.add(new Entry("guard",      "守护",   "⚑", "old:gate"));
-        DEFS.add(new Entry("calendar",   "守护日历", "▦", "old:calendar"));
-        DEFS.add(new Entry("guidian",    "归电",   "✦", "old:guidian"));
+        DEFS.add(new Entry("settings", "设置",   "☻", "old:settings"));
+        DEFS.add(new Entry("diary",    "日记本", "✎", "old:diary"));
     }
+
+    /** 默认页：两个入口都在第四页。 */
+    public static int defaultPage() { return 3; }
 
     private OldEntryStore() { }
 
