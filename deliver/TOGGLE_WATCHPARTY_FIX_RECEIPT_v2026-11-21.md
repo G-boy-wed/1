@@ -58,7 +58,13 @@
 - `verify_mcp_schema.py --static`：MISSING_ITEMS_COUNT=0，ZERO_ERRORS
 - MCP E2E：弹幕合并 + 开关工具入队，全部通过
 
+## GitHub 同步（2026-11-21）
+
+- main ref：`014806c42a62ec6049876b4e68c5dc11251eff07`（tree `b6d796ce`，与本地 HEAD 完全一致；经 REST Git Data API 增量推送，git 协议超时）
+- Release `v0.3.9.0` APK 已覆盖，asset id `772982821`，三方 SHA-256 一致
+- 下载：https://github.com/G-boy-wed/1/releases/download/v0.3.9.0/Zhangxinchuang-public-v0.3.9.0.apk
+
 ## APK
 
-`android/Zhangxinchuang-public-v0.3.9.0.apk`
-SHA-256 见下方 GitHub 同步补记。
+`android/Zhangxinchuang-public-v0.3.9.0.apk`（2,441,047 字节）
+SHA-256：`c05e29b9112fe962bf19d74d79142bb224cee8cb66917a6d1c8ac839910bbf89`
