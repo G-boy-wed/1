@@ -41,3 +41,11 @@
 - DEX 命中：DeskCompanionCards/card_window/card_countdown/showMoveToPageDialog/onMoveToPage/移动到哪一页/日记本；`old:gate`/`old:guidian` 已清除。
 - APK：`android/Zhangxinchuang-public-v0.3.9.0.apk`（约 1.2M）
 - SHA-256：`8faabf36b12b5243f2782e2a17fa0e7e38ce847ae9875ea812fe69dcced07de9`
+
+## GitHub 同步
+
+- main 已更新：`6c26c6b60d61ba3ee23a650322c7d17938cff8b2`（tree `fd972736`，与本地一致，REST API 增量推送）。
+- Release `v0.3.9.0` APK 已覆盖（asset 772932214，2,436,951 字节）。
+- 三方 SHA-256 一致（本地 / 上传 / Release 下载回读）：`8faabf36…ed07de9`。
+- 下载：https://github.com/G-boy-wed/1/releases/download/v0.3.9.0/Zhangxinchuang-public-v0.3.9.0.apk
+- Token 用完即清理，未写入仓库。
