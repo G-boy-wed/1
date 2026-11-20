@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>掌心窗 · 三页横滑美化预览</title>
+<style>
+  :root{ --bg:#e8eee7; --card:#ffffffcc; --stroke:#ffffff; --text:#3a3a3a; --sub:#9a9a9a; --accent:#4a6b57; }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{ font-family:-apple-system,"PingFang SC",sans-serif; background:linear-gradient(135deg,#dfe9dd,#f2ece4); color:var(--text); padding:24px; }
+  h1{ font-size:22px; font-weight:600; margin-bottom:6px; }
+  .lead{ color:var(--sub); font-size:13px; margin-bottom:22px; }
+  .hint{ background:#fff9; border:1px solid #fff; border-radius:14px; padding:12px 16px; font-size:13px; line-height:1.9; margin-bottom:24px; }
+  .hint b{ color:var(--accent); }
+  .screens{ display:flex; gap:24px; flex-wrap:wrap; justify-content:center; }
+  .phone{ width:300px; height:620px; background:radial-gradient(circle at 42% 26%,#eef4ea,#dce6da); border-radius:36px; border:8px solid #fff; box-shadow:0 18px 40px #0002; padding:18px 14px; position:relative; overflow:hidden; }
+  .status{ font-size:10px; color:#888; display:flex; justify-content:space-between; margin-bottom:10px; }
+  .card{ background:var(--card); border:1px solid var(--stroke); border-radius:20px; padding:14px; margin-bottom:12px; box-shadow:0 6px 16px #0001; }
+  .cover{ height:96px; background:linear-gradient(135deg,#dfe3df,#cdd3cd); border-radius:18px; position:relative; }
+  .avatar{ width:64px; height:64px; border-radius:50%; background:#e6e6e6; border:3px solid #fff; position:absolute; left:50%; top:58px; transform:translateX(-50%); }
+  .avatar-sm{ width:40px; height:40px; border-radius:50%; background:#e6e6e6; border:2px solid #fff; }
+  .name{ text-align:center; font-weight:600; font-size:17px; margin-top:44px; }
+  .acct,.bio,.region{ text-align:center; color:var(--sub); font-size:11px; margin-top:4px; }
+  .region{ color:var(--accent); }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .grid4{ display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  .ic{ text-align:center; }
+  .ic .box{ width:48px; height:48px; margin:0 auto; background:#ffffffb0; border:1px solid #fff; border-radius:14px; display:flex; align-items:center; justify-content:center; font-size:20px; }
+  .ic .lb{ font-size:10px; color:var(--sub); margin-top:4px; }
+  .about{ height:60px; background:linear-gradient(135deg,#f0f2ef,#e4e8e3); border-radius:16px; display:flex; align-items:flex-end; padding:10px; font-size:11px; color:var(--sub); }
+  .wall{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .photo{ height:80px; background:#e2e6e1; border-radius:12px; }
+  .friends{ display:flex; justify-content:space-around; margin:10px 0; }
+  .friends .f{ text-align:center; font-size:9px; color:var(--sub); }
+  .newlist{ font-size:12px; }
+  .hero{ height:120px; background:radial-gradient(circle at 80% 20%,#f4eef0,#eceae6); border-radius:18px; padding:14px; display:flex; gap:10px; align-items:center; }
+  .hero .clock{ font-size:26px; font-weight:300; }
+  .bubble{ background:#ffffffb0; border-radius:14px; padding:10px 12px; font-size:11px; margin-bottom:8px; }
+  .input{ background:#fff; border-radius:14px; padding:9px 12px; font-size:11px; color:var(--sub); display:flex; justify-content:space-between; }
+  .search{ width:120px; margin:6px auto 0; background:#ffffffb0; border-radius:14px; text-align:center; padding:7px; font-size:11px; color:var(--sub); }
+  .dock{ position:absolute; left:14px; right:14px; bottom:12px; background:#ffffffcc; border-radius:20px; padding:8px 10px; display:flex; justify-content:space-around; border:1px solid #fff; }
+  .dock .d{ text-align:center; font-size:9px; color:var(--sub); }
+  .dock .d .b{ font-size:18px; }
+  .tag{ position:absolute; top:14px; right:14px; font-size:10px; color:#7a8c7f; background:#ffffffaa; padding:4px 10px; border-radius:10px; }
+</style>
+</head>
+<body>
+  <h1>掌心窗 · 三页横滑美化方案</h1>
+  <div class="lead">布局严格照参考图三屏，内容全部替换为掌心窗真实插件（不照抄图中假软件名）· 2026-11-21</div>
+  <div class="hint">
+    <b>横滑</b>三页切换，滑动结束自动吸附 · <b>贴图位</b>（封面/头像/照片墙/好友头像/动态背景/动态头像）点击换图、长按清除 ·
+    <b>每页背景</b>可换图/选纯色/恢复默认 · <b>图标</b>长按可改名/换图标/移动/删除，可新增、恢复默认 ·
+    <b>文案</b>（名字/账号/简介/地区/标题）点击即改 · 底部 <b>4 图标 Dock</b> 也是真实插件，可点可改。
+  </div>
+  <div class="screens">
+    <!-- 屏1 个人页 -->
+    <div class="phone">
+      <div class="status"><span>11:28</span><span>▮▮▮ ᯤ 56</span></div>
+      <span class="tag">① 个人页</span>
+      <div class="cover"><div class="avatar"></div></div>
+      <div class="card" style="margin-top:-4px">
+        <div class="name">掌心窗</div>
+        <div class="acct">@我的掌心窗</div>
+        <div class="bio">在这里，记录我们的一天</div>
+        <div class="region">⌖ 当前位置 · 21°</div>
+      </div>
+      <div class="grid2" style="margin-bottom:12px">
+        <div class="ic"><div class="box">✉</div><div class="lb">消息</div></div>
+        <div class="ic"><div class="box">▦</div><div class="lb">日历</div></div>
+        <div class="ic"><div class="box">♡</div><div class="lb">心动</div></div>
+        <div class="ic"><div class="box">◎</div><div class="lb">查岗</div></div>
+      </div>
+      <div class="about">About me · 长按可换图</div>
+      <div class="search">⌕ 搜索</div>
+      <div class="dock">
+        <div class="d"><div class="b">✉</div>消息</div>
+        <div class="d"><div class="b">▦</div>日历</div>
+        <div class="d"><div class="b">❀</div>图片</div>
+        <div class="d"><div class="b">☻</div>联系人</div>
+      </div>
+    </div>
+
+    <!-- 屏2 相册页 -->
+    <div class="phone">
+      <div class="status"><span>11:28</span><span>▮▮▮ ᯤ 56</span></div>
+      <span class="tag">② 相册页</span>
+      <div style="display:flex;justify-content:space-between;margin-bottom:10px"><span style="font-size:22px">‹</span><span style="font-size:18px">···</span></div>
+      <div class="card">
+        <div style="font-size:13px;font-weight:600">3 Photo Selected</div>
+        <div style="font-size:11px;color:var(--sub);margin:2px 0 10px">点照片或头像可更换贴图 ›</div>
+        <div class="wall"><div class="photo"></div><div class="photo"></div><div class="photo"></div></div>
+        <div class="friends">
+          <div class="f"><div class="avatar-sm" style="margin:0 auto"></div>自己</div>
+          <div class="f"><div class="avatar-sm" style="margin:0 auto"></div>伴侣</div>
+          <div class="f"><div class="avatar-sm" style="margin:0 auto"></div>家人</div>
+          <div class="f"><div class="avatar-sm" style="margin:0 auto"></div>好友</div>
+        </div>
+      </div>
+      <div class="grid2" style="margin-bottom:12px">
+        <div class="ic"><div class="box">♫</div><div class="lb">一起听</div></div>
+        <div class="ic"><div class="box">☁</div><div class="lb">天气</div></div>
+        <div class="ic"><div class="box">⚡</div><div class="lb">归电</div></div>
+        <div class="ic"><div class="box">▤</div><div class="lb">课表</div></div>
+      </div>
+      <div class="card newlist">
+        <div style="font-weight:600">New List</div>
+        <div style="color:var(--sub);font-size:11px;margin-top:3px">Templates · 课表 / 守护日历</div>
+      </div>
+      <div class="search">⌕ 搜索</div>
+      <div class="dock">
+        <div class="d"><div class="b">✉</div>消息</div>
+        <div class="d"><div class="b">▦</div>日历</div>
+        <div class="d"><div class="b">❀</div>图片</div>
+        <div class="d"><div class="b">☻</div>联系人</div>
+      </div>
+    </div>
+
+    <!-- 屏3 动态页 -->
+    <div class="phone">
+      <div class="status"><span>11:28</span><span>▮▮▮ ᯤ 56</span></div>
+      <span class="tag">③ 动态页</span>
+      <div class="hero">
+        <div class="avatar-sm"></div>
+        <div>
+          <div style="font-size:13px;font-weight:600">掌心窗 · 我们的世界</div>
+          <div style="font-size:10px;color:var(--sub)">2026年11月21日 周六</div>
+          <div class="clock">23:57</div>
+        </div>
+      </div>
+      <div style="height:12px"></div>
+      <div class="bubble">♡ 此刻 21° · 当前位置</div>
+      <div class="input"><span>记一句此刻…</span><span>↑</span></div>
+      <div style="height:14px"></div>
+      <div class="grid4">
+        <div class="ic"><div class="box">⚑</div><div class="lb">门禁</div></div>
+        <div class="ic"><div class="box">◷</div><div class="lb">专注</div></div>
+        <div class="ic"><div class="box">★</div><div class="lb">记忆</div></div>
+        <div class="ic"><div class="box">✂</div><div class="lb">训诫</div></div>
+        <div class="ic"><div class="box">⏰</div><div class="lb">提醒</div></div>
+        <div class="ic"><div class="box">☾</div><div class="lb">夜间</div></div>
+        <div class="ic"><div class="box">☷</div><div class="lb">识图</div></div>
+        <div class="ic"><div class="box">⌂</div><div class="lb">回家</div></div>
+      </div>
+      <div class="search">⌕ 搜索</div>
+      <div class="dock">
+        <div class="d"><div class="b">✉</div>消息</div>
+        <div class="d"><div class="b">▦</div>日历</div>
+        <div class="d"><div class="b">❀</div>图片</div>
+        <div class="d"><div class="b">☻</div>联系人</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

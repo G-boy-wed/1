@@ -2,7 +2,7 @@
   "latest_version_name": "0.3.9.0",
   "latest_version_code": 30900,
   "apk_url": "https://github.com/G-boy-wed/1/releases/download/v0.3.9.0/Zhangxinchuang-public-v0.3.9.0.apk",
-  "sha256": "66e4c3a81356dce50d6cbdfe048aad839b5c57c72c765cc8eaad84c9cf527f0b",
+  "sha256": "06443d438715971c2a5c272d5d3ff1d164ffbf618768aafb57498695d3a67f91",
   "required": false,
   "notes": [
     "修复 sta1n/OpenAI 兼容通道接入掌心窗 MCP 报 HTTP 400：服务端 tools/list 出口 Schema 强制合规化（array 补 items.type、object 补 properties）。",
@@ -18,7 +18,8 @@
     "服务端 v0.4.x：单进程 Python(8513) 闭环、共同记忆 SQLite、悬浮窗/Heads-up、天气坐标优先。",
     "部署提示：MCP 服务与 server 需重新部署；地址 :8513/mcp。",
     "v2026-11-20 修正：桌面/守护页只使用掌心窗真实插件（DeskPluginStore+PluginRegistry）按图一两屏宫格组合排列，删除全部照抄图一的假应用与假文案（CosmicLove/拍立得/无限象限便签/影像之外句子/假4图标/黑胶唱片/假周历）；修复守护项深链到不存在分区导致跳空白的 bug；清除 polaroidCard 重复 addView 废逻辑。",
-    "v2026-11-20 视觉统一：整套掌心窗 UI 统一为图一小手机美化（柔绿径向渐变+星点背景+毛玻璃白描边圆角卡片+细体大字），所有页面共用同一套视觉；界面去重：删除重复的能力宫格，世界页=真实插件宫格、终端页=时间天气周历+此刻真实状态、守护页=守护功能项宫格，各司其职不重复；移除旧 MainActivity 入口，Dock 收敛为图一 4 项（世界/终端/守护/主题）。"
+    "v2026-11-20 视觉统一：整套掌心窗 UI 统一为图一小手机美化（柔绿径向渐变+星点背景+毛玻璃白描边圆角卡片+细体大字），所有页面共用同一套视觉；界面去重：删除重复的能力宫格，世界页=真实插件宫格、终端页=时间天气周历+此刻真实状态、守护页=守护功能项宫格，各司其职不重复；移除旧 MainActivity 入口，Dock 收敛为图一 4 项（世界/终端/守护/主题）。",
+    "v2026-11-21 三页横滑美化重构：界面严格按参考图三屏（个人页/相册页/动态页）左右横滑布局，去掉底部世界/终端/守护/主题四项；所有图标位/软件位不照抄图中假名称，全部填充掌心窗真实插件(DeskPluginStore，去重无重复铺满三页+Dock)，每个可点开使用、长按改名/换图标/改动作/移动/删除/新增/恢复默认；封面/头像/照片墙/好友头像/动态头像等贴图位可点换图可清除；每页背景可换图或选纯色；名字/账号/简介/地区/标题可编辑；Dock 四项也为真实插件可点可改。"
   ],
   "release_notes": [
     "修复 sta1n/OpenAI 兼容通道接入掌心窗 MCP 报 HTTP 400：服务端 tools/list 出口 Schema 强制合规化（array 补 items.type、object 补 properties）。",

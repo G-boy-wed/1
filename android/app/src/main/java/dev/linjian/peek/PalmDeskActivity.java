@@ -1,9 +1,11 @@
 package dev.linjian.peek;
 
-import android.animation.ObjectAnimator;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -11,68 +13,71 @@ import android.graphics.RadialGradient;
 import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.text.TextUtils;
+import android.text.InputType;
+import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
-import android.widget.ProgressBar;
 import android.widget.ScrollView;
-import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import org.json.JSONObject;
 
+import java.io.InputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
 /**
- * 掌心窗主入口 —— 图一「小手机」UI 美化的统一实现。
+ * 掌心窗主入口 —— 参考图「三页横滑」美化布局，内容全部来自掌心窗真实插件。
  *
- * 【统一视觉】所有页面共用 StarryBg（柔绿径向渐变 + 星点）+ 毛玻璃白圆角卡片 +
- * 细体大字时间，切换主题即时生效；没有第二套视觉语言。
+ * 【布局严格照图，内容不用图里的假软件名】
+ *  - 个人页：封面大卡(可贴图) + 圆头像(可贴图) + 名字/@账号/简介/地区(可改) +
+ *            2×2 真实插件宫格 + About me 卡(可贴图) + 搜索栏。
+ *  - 相册页：返回/更多 + N Photo Selected + 3 张照片墙(可贴图) + 4 好友头像(可贴图) +
+ *            2×2 真实插件宫格 + New List 卡 + 搜索栏。
+ *  - 动态页：点状背景卡 + 头像(可贴图) + 标题/日期 + 对话气泡 + 输入框 +
+ *            真实插件宫格 + 搜索栏。
+ *  三页共性：每页可自定义背景(图/纯色)，底部 4 图标 Dock（真实插件，可点开/可改）。
  *
- * 【界面不重复】三屏内容各司其职，杜绝三套雷同宫格：
- *  - 世界页（图1左屏）：一起听入口 + 掌心窗真实插件宫格（DeskPluginStore，可增删改换图标）。
- *  - 终端页（图1右屏）：大字时间 + 真实天气 + 真实周历 + 「此刻」真实状态卡（不放宫格）。
- *  - 守护页：图2 守护功能项宫格（去重、开关即存、点开进设置）。
- *  - 一起听页：网易云同款，位置/头像/时间。
- * Dock 只保留图一 4 项：世界 / 终端 / 守护 / 主题。
+ * 【数据唯一来源】DeskPluginStore（20 个真实插件，去重后按顺序无重复铺满三页 + Dock）。
+ * 每个图标：点按=打开使用；长按=改名/换图标/改动作/移动/删除。皮肤存 DeskSkinStore。
  *
- * 【不保留旧 UI】不再从主链路跳转旧 MainActivity；所有设置走统一风格的 PolicySettingsActivity。
+ * 【无旧 UI / 无假数据】不跳旧 MainActivity；天气/时间/位置取真实状态；深链走白名单。
  */
 public class PalmDeskActivity extends Activity {
-    private static final int PAGE_WORLD = 0;      // 图1左屏「世界」
-    private static final int PAGE_TERMINAL = 1;   // 图1右屏「终端」
-    private static final int PAGE_GUARD = 2;      // 守护页
-    private static final int PAGE_MUSIC = 3;      // 一起听
-    private int currentPage = PAGE_WORLD;
-    private boolean editMode = false;
+    private static final int PAGE_PROFILE = 0;
+    private static final int PAGE_ALBUM = 1;
+    private static final int PAGE_FEED = 2;
+    private static final int PAGE_COUNT = 3;
+    private int currentPage = PAGE_PROFILE;
 
-    /** 设置页真实存在的分区（与 PolicySettingsActivity 的 card() 一致）。 */
     private static final Set<String> VALID_SECTIONS = new HashSet<>(Arrays.asList(
             "checkin", "distraction", "discipline", "emotion", "initiative",
             "appgate", "reminder", "schedule", "memory", "ocr", "weather",
-            "homemode", "global", "permissions", "debug"));
+            "homemode", "global", "permissions", "debug", "calendar", "focus", "guidian"));
 
     private UITheme t;
+    private int screenW;
+    private HorizontalScrollView hsv;
+    private LinearLayout track;
+    private final View[] pages = new View[PAGE_COUNT];
     private LinearLayout dock;
-    private FrameLayout pages;
-    private View musicViewRef;
-    private TextView terminalClock, terminalWeather;
+    private TextView feedClock, feedDate;
     private final Handler clock = new Handler(Looper.getMainLooper());
     private final Runnable clockTick = new Runnable() {
         @Override public void run() {
@@ -84,18 +89,44 @@ public class PalmDeskActivity extends Activity {
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         t = UITheme.current(this);
+        DisplayMetrics dm = new DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getMetrics(dm);
+        screenW = dm.widthPixels;
+
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(t.bgTop);
-        pages = new FrameLayout(this);
-        pages.setLayoutParams(new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        root.addView(pages);
+
+        hsv = new HorizontalScrollView(this);
+        hsv.setHorizontalScrollBarEnabled(false);
+        hsv.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        track = new LinearLayout(this);
+        track.setOrientation(LinearLayout.HORIZONTAL);
+        for (int i = 0; i < PAGE_COUNT; i++) {
+            View page = buildPage(i);
+            LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(screenW, ViewGroup.LayoutParams.MATCH_PARENT);
+            page.setLayoutParams(pp);
+            pages[i] = page;
+            track.addView(page);
+        }
+        hsv.addView(track, new HorizontalScrollView.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        hsv.setOnTouchListener((v, e) -> {
+            if (e.getAction() == android.view.MotionEvent.ACTION_UP
+                    || e.getAction() == android.view.MotionEvent.ACTION_CANCEL) snapPage();
+            return false;
+        });
+        root.addView(hsv, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
         dock = buildDock();
-        FrameLayout.LayoutParams dp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        FrameLayout.LayoutParams dp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         dp.gravity = Gravity.BOTTOM;
         root.addView(dock, dp);
+
         setContentView(root);
-        switchPage(PAGE_WORLD);
         clock.post(clockTick);
+        refreshDeskWeather();
     }
 
     @Override protected void onDestroy() {
@@ -103,366 +134,673 @@ public class PalmDeskActivity extends Activity {
         super.onDestroy();
     }
 
-    /** 统一背景：柔绿径向渐变 + 星点，所有页面共用这一套。 */
-    private class StarryBg extends View {
+    /** 横滑结束吸附到最近一页。 */
+    private void snapPage() {
+        int page = Math.round(hsv.getScrollX() / (float) Math.max(1, screenW));
+        page = Math.max(0, Math.min(PAGE_COUNT - 1, page));
+        currentPage = page;
+        hsv.smoothScrollTo(page * screenW, 0);
+    }
+
+    private void goPage(int page) {
+        page = Math.max(0, Math.min(PAGE_COUNT - 1, page));
+        currentPage = page;
+        hsv.smoothScrollTo(page * screenW, 0);
+    }
+
+    private View buildPage(int index) {
+        FrameLayout shell = new FrameLayout(this);
+        shell.addView(new SkinBg(this, index), new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        ScrollView sv = new ScrollView(this);
+        sv.setBackgroundColor(Color.TRANSPARENT);
+        sv.setFillViewport(true);
+        LinearLayout content;
+        if (index == PAGE_PROFILE) content = buildProfilePage();
+        else if (index == PAGE_ALBUM) content = buildAlbumPage();
+        else content = buildFeedPage();
+        sv.addView(content, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        shell.addView(sv, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        return shell;
+    }
+
+    /** 重建某一页（编辑/换图后调用）。 */
+    private void rebuildPage(int index) {
+        if (index < 0 || index >= PAGE_COUNT) return;
+        View fresh = buildPage(index);
+        fresh.setLayoutParams(new LinearLayout.LayoutParams(screenW, ViewGroup.LayoutParams.MATCH_PARENT));
+        track.removeViewAt(index);
+        track.addView(fresh, index);
+        pages[index] = fresh;
+    }
+
+    private void rebuildAll() {
+        for (int i = 0; i < PAGE_COUNT; i++) rebuildPage(i);
+        rebuildDock();
+        hsv.scrollTo(currentPage * screenW, 0);
+    }
+
+    // ============================================================
+    // 背景：默认柔绿渐变 + 星点；可被用户自定义为图片或纯色
+    // ============================================================
+    private class SkinBg extends View {
+        private final int page;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        // 归一化坐标 {x, y, 半径dp}，固定分布，像图一那样散落的微光
+        private Bitmap bgBitmap;
         private final float[][] stars = {
                 {0.08f,0.11f,3},{0.21f,0.19f,2},{0.34f,0.08f,2.4f},{0.49f,0.15f,2},
                 {0.63f,0.09f,3},{0.78f,0.21f,2},{0.91f,0.13f,2.4f},{0.14f,0.38f,2},
                 {0.44f,0.31f,2.2f},{0.58f,0.44f,2.6f},{0.87f,0.36f,2},{0.29f,0.56f,2.4f},
                 {0.71f,0.60f,2},{0.10f,0.68f,2},{0.94f,0.66f,2.4f},{0.52f,0.72f,2}
         };
-        StarryBg(Context c) { super(c); }
+        SkinBg(Context c, int page) {
+            super(c);
+            this.page = page;
+            String uri = DeskSkinStore.pageBgUri(c, page);
+            if (!uri.isEmpty()) {
+                try (InputStream in = c.getContentResolver().openInputStream(Uri.parse(uri))) {
+                    bgBitmap = BitmapFactory.decodeStream(in);
+                } catch (Exception ignored) { bgBitmap = null; }
+            }
+        }
         @Override protected void onDraw(Canvas cv) {
             int w = getWidth(), h = getHeight();
             if (w <= 0 || h <= 0) return;
-            int center = UiTokens.blend(t.bgTop, t.dark ? 0xFF2C352E : 0xFFE3EFDE, t.dark ? 0.30f : 0.60f);
-            RadialGradient rg = new RadialGradient(w * 0.42f, h * 0.28f, Math.max(w, h) * 0.92f,
-                    center, t.bgTop, Shader.TileMode.CLAMP);
-            paint.setShader(rg);
-            cv.drawRect(0, 0, w, h, paint);
-            paint.setShader(null);
-            paint.setColor(t.dark ? 0x44FFFFFF : 0x99FFFFFF);
-            for (float[] s : stars) cv.drawCircle(s[0] * w, s[1] * h, dp(s[2]), paint);
+            int custom = DeskSkinStore.pageBgColor(PalmDeskActivity.this, page);
+            if (custom != 0) {
+                cv.drawColor(custom);
+            } else {
+                int center = UiTokens.blend(t.bgTop, t.dark ? 0xFF2C352E : 0xFFE3EFDE, t.dark ? 0.30f : 0.60f);
+                RadialGradient rg = new RadialGradient(w * 0.42f, h * 0.26f, Math.max(w, h) * 0.95f,
+                        center, t.bgTop, Shader.TileMode.CLAMP);
+                paint.setShader(rg);
+                cv.drawRect(0, 0, w, h, paint);
+                paint.setShader(null);
+                paint.setColor(t.dark ? 0x44FFFFFF : 0x99FFFFFF);
+                for (float[] s : stars) cv.drawCircle(s[0] * w, s[1] * h, dp(s[2]), paint);
+            }
+            if (bgBitmap != null && !bgBitmap.isRecycled()) {
+                float scale = Math.max((float) w / bgBitmap.getWidth(), (float) h / bgBitmap.getHeight());
+                float bw = bgBitmap.getWidth() * scale, bh = bgBitmap.getHeight() * scale;
+                cv.drawBitmap(bgBitmap, null,
+                        new android.graphics.RectF((w - bw) / 2, (h - bh) / 2, (w + bw) / 2, (h + bh) / 2), paint);
+                paint.setColor(t.dark ? 0x99000000 : 0x59FFFFFF);
+                cv.drawRect(0, 0, w, h, paint);
+            }
         }
     }
 
-    /** 给每个页面套上统一背景，content 背景透明。 */
-    private View pageFrame(ScrollView content) {
-        FrameLayout f = new FrameLayout(this);
-        f.addView(new StarryBg(this), new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        content.setBackgroundColor(Color.TRANSPARENT);
-        f.addView(content, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        return f;
+    // ============================================================
+    // 屏 1：个人页
+    // ============================================================
+    private LinearLayout buildProfilePage() {
+        LinearLayout col = column();
+        // 封面大卡（可贴图）
+        FrameLayout cover = new FrameLayout(this);
+        cover.setLayoutParams(matchWrap());
+        SoftAvatarView coverImg = sticker(DeskSkinStore.S_COVER, false, UiTokens.RADIUS_CARD, t.cardSoft, t.line);
+        cover.addView(coverImg, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpI(180)));
+        // 圆形头像（可贴图），压在封面下沿
+        SoftAvatarView avatar = sticker(DeskSkinStore.S_AVATAR, true, 0, t.card, t.line);
+        FrameLayout.LayoutParams avp = new FrameLayout.LayoutParams(dpI(84), dpI(84));
+        avp.gravity = Gravity.CENTER_HORIZONTAL;
+        avp.topMargin = dpI(138);
+        cover.addView(avatar, avp);
+        col.addView(cover, marginB(14));
+
+        // 信息卡：名字 / @账号 / 简介 / 地区
+        LinearLayout info = cardCol(t.card, dpI(18));
+        info.setGravity(Gravity.CENTER_HORIZONTAL);
+        String name = DeskSkinStore.text(this, "name", "掌心窗");
+        String account = DeskSkinStore.text(this, "account", "@" + "我的掌心窗");
+        String bio = DeskSkinStore.text(this, "bio", "在这里，记录我们的一天");
+        info.addView(editTextRow(name, 20, t.text, "name", "编辑名字"));
+        info.addView(editTextRow(account, 13, t.subtext, "account", "编辑账号"), matchWrapTop(3));
+        info.addView(editTextRow(bio, 12, t.subtext, "bio", "编辑简介"), matchWrapTop(6));
+        info.addView(editTextRow("⌖ " + currentPlaceLabel() + "  ·  " + weatherShort(),
+                12, t.subtext, "region", "编辑地区"), matchWrapTop(6));
+        col.addView(info, marginB(14));
+
+        // 2×2 真实插件宫格
+        col.addView(pluginGrid(4, 8, 2), marginB(14));
+
+        // About me 卡（可贴图）
+        FrameLayout about = new FrameLayout(this);
+        about.setLayoutParams(matchWrap());
+        SoftAvatarView aboutImg = sticker(DeskSkinStore.S_ABOUT, false, UiTokens.RADIUS_CARD, t.cardSoft, t.line);
+        about.addView(aboutImg, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpI(110)));
+        TextView aboutLb = tv("About me  ·  长按可换图", 12, t.text);
+        FrameLayout.LayoutParams alp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        alp.gravity = Gravity.BOTTOM | Gravity.START;
+        alp.leftMargin = dpI(16); alp.bottomMargin = dpI(12);
+        about.addView(aboutLb, alp);
+        col.addView(about, marginB(10));
+
+        col.addView(searchBar());
+        col.addView(spacer(96));
+        return col;
     }
 
     // ============================================================
-    // 图1 左屏：世界页 —— 一起听入口 + 掌心窗真实插件宫格
+    // 屏 2：相册页
     // ============================================================
-    private View buildWorldPage() {
-        ScrollView sv = new ScrollView(this);
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(dpI(16), dpI(28), dpI(16), dpI(96));
+    private LinearLayout buildAlbumPage() {
+        LinearLayout col = column();
+        // 顶部返回 / 更多
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView back = tv("‹", 26, t.text);
+        back.setPadding(dpI(4), 0, dpI(14), 0);
+        back.setOnClickListener(v -> goPage(PAGE_PROFILE));
+        TextView more = tv("···", 20, t.text);
+        more.setOnClickListener(v -> showPageMenu(PAGE_ALBUM));
+        LinearLayout.LayoutParams mrp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        mrp.weight = 1; mrp.gravity = Gravity.END;
+        top.addView(back);
+        top.addView(more, mrp);
+        col.addView(top, marginB(10));
 
-        col.addView(buildMusicEntry(), matchWrap());
-        col.addView(spacer(16));
+        // 1 Photo Selected 卡
+        LinearLayout sel = cardCol(t.card, dpI(16));
+        LinearLayout selRow = new LinearLayout(this);
+        selRow.setOrientation(LinearLayout.HORIZONTAL);
+        selRow.setGravity(Gravity.CENTER_VERTICAL);
+        SoftAvatarView selThumb = sticker(DeskSkinStore.S_PHOTO0, false, UiTokens.RADIUS_SM, t.cardSoft, t.line);
+        selRow.addView(selThumb, new LinearLayout.LayoutParams(dpI(40), dpI(40)));
+        LinearLayout selText = new LinearLayout(this);
+        selText.setOrientation(LinearLayout.VERTICAL);
+        selText.addView(tv(countPhotos() + " Photo Selected", 13, t.text));
+        selText.addView(tv("点照片或头像可更换贴图  ›", 11, t.subtext));
+        selRow.addView(selText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView close = tv("×", 18, t.subtext);
+        close.setOnClickListener(v -> clearPhotos());
+        selRow.addView(close);
+        sel.addView(selRow);
+        col.addView(sel, marginB(12));
 
-        TextView gl = tv("✦  掌心窗 · 全部插件" + (editMode ? "  · 编辑中" : "  （长按图标编辑）"),
-                UiTokens.FONT_VALUE, t.subtext);
-        gl.setTypeface(Typeface.DEFAULT_BOLD);
-        col.addView(gl, marginB(10));
+        // 3 张照片墙（可贴图）
+        LinearLayout wall = new LinearLayout(this);
+        wall.setOrientation(LinearLayout.HORIZONTAL);
+        wall.setWeightSum(3);
+        String[] photoSlots = {DeskSkinStore.S_PHOTO0, DeskSkinStore.S_PHOTO1, DeskSkinStore.S_PHOTO2};
+        for (int i = 0; i < 3; i++) {
+            SoftAvatarView ph = sticker(photoSlots[i], false, UiTokens.RADIUS_ROW, t.cardSoft, t.line);
+            LinearLayout.LayoutParams lp = weight1();
+            lp.height = dpI(120);
+            lp.rightMargin = i < 2 ? dpI(8) : 0;
+            wall.addView(ph, lp);
+        }
+        col.addView(wall, marginB(14));
 
-        col.addView(buildPluginGrid(), matchWrap());
-        col.addView(spacer(14));
-        col.addView(buildEditBar(), matchWrapTop(6));
+        // 4 好友头像（可贴图）
+        LinearLayout friends = new LinearLayout(this);
+        friends.setOrientation(LinearLayout.HORIZONTAL);
+        friends.setWeightSum(4);
+        String[] friendSlots = {DeskSkinStore.S_FRIEND0, DeskSkinStore.S_FRIEND1,
+                DeskSkinStore.S_FRIEND2, DeskSkinStore.S_FRIEND3};
+        String[] friendNames = {"自己", "伴侣", "家人", "好友"};
+        for (int i = 0; i < 4; i++) {
+            LinearLayout f = new LinearLayout(this);
+            f.setOrientation(LinearLayout.VERTICAL);
+            f.setGravity(Gravity.CENTER_HORIZONTAL);
+            SoftAvatarView av = sticker(friendSlots[i], true, 0, t.card, t.line);
+            f.addView(av, new LinearLayout.LayoutParams(dpI(52), dpI(52)));
+            f.addView(tv(friendNames[i], 10, t.subtext), matchWrapTop(4));
+            LinearLayout.LayoutParams fp = weight1();
+            friends.addView(f, fp);
+        }
+        col.addView(friends, marginB(14));
 
-        sv.addView(col, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        return pageFrame(sv);
+        // 2×2 真实插件宫格
+        col.addView(pluginGrid(8, 12, 2), marginB(14));
+
+        // New List 卡（课表/守护日历真实入口）
+        LinearLayout nl = cardCol(t.card, dpI(16));
+        nl.addView(tv("New List", 13, t.text));
+        nl.addView(tv("Templates  ·  课表 / 守护日历", 11, t.subtext), matchWrapTop(3));
+        nl.setOnClickListener(v -> openSection("schedule"));
+        col.addView(nl, marginB(10));
+
+        col.addView(searchBar());
+        col.addView(spacer(96));
+        return col;
     }
 
-    /** 一起听入口：显示真实功能名 + 当前位置/时间，点击进入一起听页。 */
-    private View buildMusicEntry() {
-        LinearLayout cap = cardRow(t.card, dp(12));
-        TextView ic = tv("♫", 22, t.primary);
-        cap.addView(ic);
-        LinearLayout meta = new LinearLayout(this);
-        meta.setOrientation(LinearLayout.VERTICAL);
-        TextView title = tv("一起听 · 网易云同款", 14, t.text);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        TextView sub = tv("◉ " + currentPlaceLabel() + "   ⏱ " +
-                new SimpleDateFormat("HH:mm", Locale.CHINA).format(new Date()), 10, t.subtext);
-        meta.addView(title);
-        meta.addView(sub, matchWrapTop(2));
-        cap.addView(meta, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        cap.addView(tv("›", 22, t.subtext));
-        cap.setOnClickListener(v -> switchPage(PAGE_MUSIC));
-        return cap;
+    // ============================================================
+    // 屏 3：动态页
+    // ============================================================
+    private LinearLayout buildFeedPage() {
+        LinearLayout col = column();
+        // 点状背景卡（可贴图 / 可换背景）
+        FrameLayout hero = new FrameLayout(this);
+        hero.setLayoutParams(matchWrap());
+        SoftAvatarView heroBg = sticker(DeskSkinStore.S_FEEDBG, false, UiTokens.RADIUS_CARD, t.cardSoft, t.line);
+        hero.addView(heroBg, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpI(150)));
+        LinearLayout heroInner = new LinearLayout(this);
+        heroInner.setOrientation(LinearLayout.HORIZONTAL);
+        heroInner.setGravity(Gravity.CENTER_VERTICAL);
+        heroInner.setPadding(dpI(14), dpI(18), dpI(14), dpI(14));
+        SoftAvatarView heroAv = sticker(DeskSkinStore.S_FEEDAVATAR, false, UiTokens.RADIUS_SM, t.card, t.line);
+        heroInner.addView(heroAv, new LinearLayout.LayoutParams(dpI(44), dpI(44)));
+        LinearLayout heroTxt = new LinearLayout(this);
+        heroTxt.setOrientation(LinearLayout.VERTICAL);
+        String title = DeskSkinStore.text(this, "feedtitle", "掌心窗 · 我们的世界");
+        heroTxt.addView(editTextRow(title, 14, t.text, "feedtitle", "编辑标题"));
+        feedDate = tv(new SimpleDateFormat("yyyy年MM月dd日 E", Locale.CHINA).format(new Date()), 10, t.subtext);
+        heroTxt.addView(feedDate, matchWrapTop(2));
+        feedClock = tv("", 30, t.text);
+        feedClock.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
+        heroTxt.addView(feedClock, matchWrapTop(6));
+        heroInner.addView(heroTxt, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        hero.addView(heroInner, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        col.addView(hero, marginB(12));
+
+        // 对话气泡（真实状态，不用假情话）
+        LinearLayout bubbles = new LinearLayout(this);
+        bubbles.setOrientation(LinearLayout.VERTICAL);
+        bubbles.addView(bubble("♡  " + statusLine()));
+        LinearLayout inp = new LinearLayout(this);
+        inp.setOrientation(LinearLayout.HORIZONTAL);
+        inp.setGravity(Gravity.CENTER_VERTICAL);
+        inp.setBackground(t.soft(UiTokens.RADIUS_ROW));
+        inp.setPadding(dpI(12), dpI(8), dpI(12), dpI(8));
+        final EditText input = new EditText(this);
+        input.setHint("记一句此刻…");
+        input.setTextSize(12);
+        input.setTextColor(t.text);
+        input.setBackground(null);
+        input.setSingleLine(true);
+        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        inp.addView(input, ip);
+        TextView send = tv("↑", 18, t.primary);
+        send.setOnClickListener(v -> {
+            String s = input.getText().toString().trim();
+            if (s.isEmpty()) { toast("先写点什么"); return; }
+            DeskSkinStore.setText(this, "feednote", s);
+            input.setText("");
+            rebuildPage(PAGE_FEED);
+            toast("已记下");
+        });
+        inp.addView(send);
+        bubbles.addView(inp, matchWrapTop(10));
+        String note = DeskSkinStore.text(this, "feednote", "");
+        if (!note.isEmpty()) bubbles.addView(bubble("✎  " + note));
+        col.addView(bubbles, marginB(14));
+
+        // 真实插件宫格（剩余全部插件）
+        col.addView(pluginGrid(12, 99, 4), marginB(14));
+
+        col.addView(searchBar());
+        col.addView(spacer(96));
+        return col;
     }
 
-    /** 全部桌面插件宫格：数据唯一来源 DeskPluginStore，4 列，按 id 去重。 */
-    private View buildPluginGrid() {
+    /** 第 3 页可编辑文案点击行（名字/账号/简介/地区/标题）。 */
+    private TextView editTextRow(String value, float size, int color, final String key, final String title) {
+        TextView v = tv(value, size, color);
+        v.setGravity(Gravity.CENTER_HORIZONTAL);
+        v.setOnClickListener(x -> showTextDialog(key, title, DeskSkinStore.text(this, key, value)));
+        return v;
+    }
+
+    private View bubble(String text) {
+        TextView v = tv(text, 12, t.text);
+        v.setBackground(t.soft(UiTokens.RADIUS_ROW));
+        v.setPadding(dpI(14), dpI(10), dpI(14), dpI(10));
+        return v;
+    }
+
+    private String statusLine() {
+        String n = DeskSkinStore.text(this, "feednote", "");
+        return n.isEmpty() ? ("此刻 " + weatherShort() + " · " + currentPlaceLabel()) : n;
+    }
+
+    // ============================================================
+    // 真实插件宫格：从 DeskPluginStore 按区间取，无重复
+    // ============================================================
+    private View pluginGrid(int from, int to, int columns) {
+        List<DeskPluginStore.Plugin> all = DeskPluginStore.all(this);
+        List<DeskPluginStore.Plugin> slice = new ArrayList<>();
+        for (int i = from; i < to && i < all.size(); i++) slice.add(all.get(i));
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
-        List<DeskPluginStore.Plugin> plugins = DeskPluginStore.all(this);
-        final int cols = 4;
+        if (slice.isEmpty()) {
+            grid.addView(tv("（暂无插件，长按底部图标可新增）", 12, t.subtext));
+            return grid;
+        }
+        int rows = (slice.size() + columns - 1) / columns;
         int idx = 0;
-        while (idx < plugins.size()) {
+        for (int r = 0; r < rows; r++) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
-            for (int c = 0; c < cols && idx < plugins.size(); c++, idx++)
-                row.addView(pluginCell(plugins.get(idx), idx), weight1());
-            grid.addView(row, marginB(10));
+            row.setWeightSum(columns);
+            for (int c = 0; c < columns && idx < slice.size(); c++, idx++) {
+                row.addView(pluginCell(slice.get(idx)), weight1());
+            }
+            grid.addView(row, matchWrapTop(r == 0 ? 0 : 12));
         }
         return grid;
     }
 
-    /** 真实插件格：图标 + 名称；点击打开；长按进入编辑；编辑态可换图标/移动/删除/改名。 */
-    private View pluginCell(final DeskPluginStore.Plugin p, final int pos) {
-        LinearLayout cell = cardCol(t.card, dp(10));
+    private View pluginCell(final DeskPluginStore.Plugin p) {
+        LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
         cell.setGravity(Gravity.CENTER_HORIZONTAL);
-        TextView icon = tv(p.icon, 24, t.primary);
-        icon.setGravity(Gravity.CENTER);
-        icon.setBackground(shape(t.cardSoft, UiTokens.RADIUS_SM));
-        icon.setPadding(0, dpI(8), 0, dpI(8));
-        cell.addView(icon, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpI(46)));
-        TextView name = tv(p.label, 11, t.text);
-        name.setGravity(Gravity.CENTER);
-        name.setMaxLines(1); name.setEllipsize(TextUtils.TruncateAt.END);
-        cell.addView(name, matchWrapTop(6));
-
-        if (!editMode) {
-            cell.setOnClickListener(v -> openPlugin(p));
-            cell.setOnLongClickListener(v -> { editMode = true; refreshCurrentPage(); return true; });
-        } else {
-            icon.setOnClickListener(v -> cycleIcon(p));
-            LinearLayout ops = new LinearLayout(this);
-            ops.setOrientation(LinearLayout.HORIZONTAL);
-            ops.setGravity(Gravity.CENTER);
-            TextView left = tv("◀", 12, t.subtext);
-            TextView rename = tv("✎", 12, t.primary);
-            TextView del = tv("✕", 12, t.danger);
-            TextView right = tv("▶", 12, t.subtext);
-            left.setPadding(dpI(4), 0, dpI(4), 0);
-            right.setPadding(dpI(4), 0, dpI(4), 0);
-            rename.setPadding(dpI(4), 0, dpI(4), 0);
-            del.setPadding(dpI(4), 0, dpI(4), 0);
-            left.setOnClickListener(v -> { DeskPluginStore.move(this, pos, pos - 1); refreshCurrentPage(); });
-            right.setOnClickListener(v -> { DeskPluginStore.move(this, pos, pos + 1); refreshCurrentPage(); });
-            rename.setOnClickListener(v -> showRenameDialog(p));
-            del.setOnClickListener(v -> { DeskPluginStore.remove(this, p.id); refreshCurrentPage(); toast("已删除 " + p.label); });
-            ops.addView(left); ops.addView(rename); ops.addView(del); ops.addView(right);
-            cell.addView(ops, matchWrapTop(2));
-        }
+        LinearLayout box = new LinearLayout(this);
+        box.setGravity(Gravity.CENTER);
+        box.setBackground(t.soft(UiTokens.RADIUS_ROW));
+        box.setLayoutParams(new LinearLayout.LayoutParams(dpI(54), dpI(54)));
+        box.addView(tv(p.icon, 22, t.text));
+        TextView lb = tv(p.label, 11, t.subtext);
+        lb.setSingleLine(true);
+        lb.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        cell.addView(box);
+        cell.addView(lb, matchWrapTop(4));
+        cell.setOnClickListener(v -> openPlugin(p));
+        cell.setOnLongClickListener(v -> { editPluginDialog(p); return true; });
+        UiKit.pressScale(cell);
         return cell;
     }
 
-    /** 编辑操作条：进入编辑 / 新增 / 保存 / 恢复默认。 */
-    private View buildEditBar() {
+    // ============================================================
+    // 底部 Dock：真实插件（前 4 个），可点开 / 长按编辑
+    // ============================================================
+    private LinearLayout buildDock() {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
-        if (!editMode) {
-            Button manage = new Button(this);
-            manage.setText("✎ 管理插件（长按任意图标）");
-            manage.setTextSize(11); manage.setAllCaps(false);
-            manage.setBackground(shape(t.cardSoft, UiTokens.RADIUS_ROW));
-            manage.setTextColor(t.subtext);
-            manage.setOnClickListener(v -> {
-                editMode = true; refreshCurrentPage();
-                toast("点图标换图、✎改名、◀▶移动、✕删除");
-            });
-            bar.addView(manage, weight1());
-            return bar;
-        }
-        Button add = new Button(this);
-        add.setText("＋ 新增"); add.setTextSize(11); add.setAllCaps(false);
-        add.setBackground(shape(t.primary, UiTokens.RADIUS_ROW));
-        add.setTextColor(t.dark ? t.text : Color.WHITE);
-        add.setOnClickListener(v -> showAddPluginDialog());
-        Button save = new Button(this);
-        save.setText("✓ 保存"); save.setTextSize(11); save.setAllCaps(false);
-        save.setBackground(shape(t.primarySoft, UiTokens.RADIUS_ROW)); save.setTextColor(t.text);
-        save.setOnClickListener(v -> { editMode = false; refreshCurrentPage(); toast("已保存"); });
-        Button reset = new Button(this);
-        reset.setText("↺ 默认"); reset.setTextSize(11); reset.setAllCaps(false);
-        reset.setBackground(shape(t.cardSoft, UiTokens.RADIUS_ROW)); reset.setTextColor(t.subtext);
-        reset.setOnClickListener(v -> { DeskPluginStore.reset(this); editMode = false; refreshCurrentPage(); toast("已恢复默认排列"); });
-        bar.addView(add, weight1()); bar.addView(save, weight1()); bar.addView(reset, weight1());
+        bar.setGravity(Gravity.CENTER);
+        bar.setBackground(t.navBar());
+        int pad = dpI(12);
+        bar.setPadding(pad, dpI(8), pad, dpI(8));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(dpI(14), 0, dpI(14), dpI(12));
+        bar.setLayoutParams(lp);
+        fillDock(bar);
         return bar;
     }
 
-    // ============================================================
-    // 图1 右屏：终端页 —— 大字时间 + 真实天气 + 真实周历 + 此刻状态（不放宫格，避免重复）
-    // ============================================================
-    private View buildTerminalPage() {
-        ScrollView sv = new ScrollView(this);
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(dpI(16), dpI(28), dpI(16), dpI(96));
-
-        // 大字时间（左）+ 真实天气（右）
-        LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(Gravity.CENTER_VERTICAL);
-        terminalClock = tv("", UiTokens.FONT_DISPLAY, t.text);
-        terminalClock.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
-        head.addView(terminalClock, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        LinearLayout wx = new LinearLayout(this);
-        wx.setOrientation(LinearLayout.VERTICAL); wx.setGravity(Gravity.END);
-        terminalWeather = tv("☁ --°", 22, t.text); terminalWeather.setGravity(Gravity.END);
-        TextView wxSub = tv("当前位置", 10, t.subtext); wxSub.setGravity(Gravity.END);
-        wx.addView(terminalWeather); wx.addView(wxSub, matchWrapTop(2));
-        wx.setOnClickListener(v -> openSection("weather"));
-        head.addView(wx, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        col.addView(head, marginB(16));
-
-        // 真实周历（系统日历，今天高亮），点击进守护日历
-        col.addView(buildWeekStrip(), matchWrap());
-        col.addView(spacer(16));
-
-        // 「此刻」真实状态卡：全部取真实数据，不重复摆宫格
-        LinearLayout now = cardCol(t.card, dp(16));
-        now.addView(tv("此刻", 13, t.text));
-        now.addView(infoLine("◉  位置", currentPlaceLabel()), matchWrapTop(10));
-        now.addView(infoLine("☁  天气", weatherShort()), matchWrapTop(8));
-        int onCount = 0;
-        for (GuardItem g : guardItems()) if (AppPrefs.get(this).getBoolean(g.prefKey, g.on)) onCount++;
-        now.addView(infoLine("♡  守护开启", onCount + " / " + dedupGuard(guardItems()).size() + " 项"), matchWrapTop(8));
-        now.addView(infoLine("⏱  此刻", new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(new Date())), matchWrapTop(8));
-        col.addView(now, matchWrap());
-
-        sv.addView(col, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        refreshClock();
-        refreshDeskWeather();
-        return pageFrame(sv);
-    }
-
-    private View infoLine(String label, String value) {
-        LinearLayout r = new LinearLayout(this);
-        r.setOrientation(LinearLayout.HORIZONTAL);
-        r.addView(tv(label, 12, t.subtext), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView v = tv(value, 12, t.text);
-        v.setMaxLines(1); v.setEllipsize(TextUtils.TruncateAt.END);
-        r.addView(v, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.4f));
-        return r;
-    }
-
-    /** 真实周历卡：日期来自系统日历，今天高亮；点击进守护日历分区。 */
-    private View buildWeekStrip() {
-        LinearLayout box = cardCol(t.card, dp(16));
-        box.addView(tv(new SimpleDateFormat("yyyy年M月", Locale.CHINA).format(new Date()), 11, t.subtext));
-        LinearLayout week = new LinearLayout(this);
-        week.setOrientation(LinearLayout.HORIZONTAL);
-        String[] dayNames = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
-        java.util.Calendar cal = java.util.Calendar.getInstance(Locale.CHINA);
-        int dow = cal.get(java.util.Calendar.DAY_OF_WEEK) - 1;
-        cal.add(java.util.Calendar.DAY_OF_MONTH, -dow);
-        for (int i = 0; i < 7; i++) {
-            LinearLayout cell = new LinearLayout(this);
-            cell.setOrientation(LinearLayout.VERTICAL);
-            cell.setGravity(Gravity.CENTER);
-            TextView d = tv(dayNames[i], 9, t.subtext); d.setGravity(Gravity.CENTER);
-            int dayNum = cal.get(java.util.Calendar.DAY_OF_MONTH);
-            boolean selected = (i == dow);
-            TextView n = tv(String.valueOf(dayNum), 15, selected ? (t.dark ? t.text : Color.WHITE) : t.text);
-            n.setGravity(Gravity.CENTER);
-            if (selected) { n.setBackground(shape(t.primary, 40)); n.setTypeface(Typeface.DEFAULT_BOLD); }
-            cell.addView(d); cell.addView(n, matchWrapTop(4));
-            week.addView(cell, weight1());
-            cal.add(java.util.Calendar.DAY_OF_MONTH, 1);
-        }
-        box.addView(week, matchWrapTop(10));
-        box.setOnClickListener(v -> openSection("schedule"));
-        return box;
-    }
-
-    // ============================================================
-    // 守护页 —— 图2 守护功能项，按图1 宫格排列、去重、可点开更改
-    // ============================================================
-    private static class GuardItem {
-        String name, desc, icon, section, prefKey;
-        boolean on;
-        GuardItem(String n, String d, String ic, String sec, String pref, boolean defOn) {
-            name = n; desc = d; icon = ic; section = sec; prefKey = pref; on = defOn;
+    private void fillDock(LinearLayout bar) {
+        bar.removeAllViews();
+        List<DeskPluginStore.Plugin> all = DeskPluginStore.all(this);
+        int[] pick = {0, 1, 2, 3};
+        for (int i = 0; i < 4; i++) {
+            final DeskPluginStore.Plugin p = i < all.size() ? all.get(pick[i]) : null;
+            LinearLayout item = new LinearLayout(this);
+            item.setOrientation(LinearLayout.VERTICAL);
+            item.setGravity(Gravity.CENTER_HORIZONTAL);
+            LinearLayout island = new LinearLayout(this);
+            island.setGravity(Gravity.CENTER);
+            island.setBackground(t.navItem(p != null && p.id.equals(
+                    pluginIdAt(currentPage * 4))));
+            island.setLayoutParams(new LinearLayout.LayoutParams(dpI(56), dpI(40)));
+            island.addView(tv(p == null ? "✦" : p.icon, 18, t.text));
+            item.addView(island);
+            TextView lb = tv(p == null ? "插件" : p.label, 9, t.subtext);
+            item.addView(lb, matchWrapTop(2));
+            final LinearLayout finalBar = bar;
+            item.setOnClickListener(v -> {
+                if (p != null) openPlugin(p); else addPluginDialog();
+            });
+            item.setOnLongClickListener(v -> {
+                if (p != null) editPluginDialog(p); else showPageMenu(currentPage);
+                return true;
+            });
+            bar.addView(item, weight1());
         }
     }
 
-    private View buildGuardPage() {
-        ScrollView sv = new ScrollView(this);
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(dpI(16), dpI(28), dpI(16), dpI(96));
+    private void rebuildDock() { fillDock(dock); }
 
-        LinearLayout titleRow = new LinearLayout(this);
-        titleRow.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout tb = new LinearLayout(this);
-        tb.setOrientation(LinearLayout.VERTICAL);
-        tb.addView(tv("Toujours à tes côtés", 20, t.text));
-        tb.addView(tv("守护功能 · 每项点开即可更改并保存", 11, t.subtext), matchWrapTop(2));
-        titleRow.addView(tb, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView avatar = tv("♡", 20, t.dark ? t.text : Color.WHITE);
-        avatar.setBackground(shape(t.primarySoft, 40)); avatar.setGravity(Gravity.CENTER);
-        int av = dpI(42); avatar.setLayoutParams(new LinearLayout.LayoutParams(av, av));
-        avatar.setOnClickListener(v -> openSection(null));
-        titleRow.addView(avatar);
-        col.addView(titleRow, marginB(16));
-
-        List<GuardItem> items = dedupGuard(guardItems());
-        final int columns = 4;
-        int idx = 0;
-        while (idx < items.size()) {
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            for (int c = 0; c < columns && idx < items.size(); c++, idx++)
-                row.addView(guardCell(items.get(idx)), weight1());
-            col.addView(row, marginB(10));
-        }
-
-        sv.addView(col, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        return pageFrame(sv);
+    private String pluginIdAt(int index) {
+        List<DeskPluginStore.Plugin> all = DeskPluginStore.all(this);
+        return index < all.size() ? all.get(index).id : "";
     }
 
-    private View guardCell(final GuardItem it) {
-        LinearLayout cell = cardCol(t.card, dp(10));
-        cell.setGravity(Gravity.CENTER_HORIZONTAL);
-        TextView ic = tv(it.icon, 22, t.primary);
-        ic.setGravity(Gravity.CENTER);
-        ic.setBackground(shape(t.cardSoft, UiTokens.RADIUS_SM));
-        ic.setPadding(0, dpI(8), 0, dpI(8));
-        cell.addView(ic, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpI(44)));
-        TextView nm = tv(it.name, 11, t.text);
-        nm.setGravity(Gravity.CENTER); nm.setMaxLines(1); nm.setEllipsize(TextUtils.TruncateAt.END);
-        cell.addView(nm, matchWrapTop(6));
-        Switch sw = new Switch(this);
-        it.on = AppPrefs.get(this).getBoolean(it.prefKey, it.on);
-        sw.setChecked(it.on);
-        sw.setOnCheckedChangeListener((b, on) -> {
-            AppPrefs.get(this).edit().putBoolean(it.prefKey, on).apply();
-            toast(it.name + (on ? " 已开启" : " 已关闭"));
+    // ============================================================
+    // 贴图：点击换图 / 长按清除
+    // ============================================================
+    private SoftAvatarView sticker(String slot, boolean circle, float corner, int fill, int stroke) {
+        SoftAvatarView v = new SoftAvatarView(this);
+        v.setCircle(circle);
+        if (!circle) v.setCornerDp(corner);
+        v.setColors(fill, stroke, t.primary);
+        String uri = DeskSkinStore.slotUri(this, slot);
+        if (!uri.isEmpty()) v.setImageUri(Uri.parse(uri));
+        bindSticker(v, slot);
+        return v;
+    }
+
+    private void bindSticker(SoftAvatarView v, final String slot) {
+        v.setOnClickListener(x -> pickImage(slot));
+        v.setOnLongClickListener(x -> {
+            new AlertDialog.Builder(this)
+                    .setTitle("这个贴图位")
+                    .setItems(new String[]{"从相册更换", "清除图片"}, (d, w) -> {
+                        if (w == 0) pickImage(slot);
+                        else { DeskSkinStore.setSlotUri(this, slot, ""); rebuildAll(); toast("已清除"); }
+                    }).show();
+            return true;
         });
-        cell.addView(sw, matchWrapTop(2));
-        cell.setOnClickListener(v -> openSection(it.section));
-        return cell;
     }
 
-    private List<GuardItem> dedupGuard(List<GuardItem> in) {
-        List<GuardItem> out = new ArrayList<>();
-        Set<String> seen = new LinkedHashSet<>();
-        for (GuardItem g : in) {
-            if (g == null || g.prefKey == null || seen.contains(g.prefKey)) continue;
-            seen.add(g.prefKey); out.add(g);
+    private void pickImage(String slot) {
+        int idx = Arrays.asList(DeskSkinStore.PICK_SLOTS).indexOf(slot);
+        if (idx < 0) idx = 0;
+        try {
+            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            i.setType("image/*");
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            startActivityForResult(i, DeskSkinStore.REQ_PICK_BASE + idx);
+        } catch (Exception e) {
+            toast("相册没有接住选图：" + ScreenshotService.shortMsg(e));
         }
-        return out;
     }
 
-    /** 守护功能项（与图2 一致），section 用设置页真实存在的 key。 */
-    private List<GuardItem> guardItems() {
-        List<GuardItem> l = new ArrayList<>();
-        l.add(new GuardItem("查岗拉回", "查岗周期与分级拉回", "◎", "checkin", "desk_guard_checkin", true));
-        l.add(new GuardItem("分心强拉回", "来回切 App 算分心与阈值分级", "⊘", "distraction", "desk_guard_distraction", true));
-        l.add(new GuardItem("训诫", "小圈管束，温柔 / 严厉两种语气", "✂", "discipline", "desk_guard_discipline", true));
-        l.add(new GuardItem("情绪感知", "依据状态产生情绪与想你程度", "♡", "emotion", "desk_guard_emotion", true));
-        l.add(new GuardItem("主动找用户", "太久没消息主动弹窗", "❀", "initiative", "desk_guard_initiative", true));
-        l.add(new GuardItem("应用门禁", "锁 App 时长，自主添加受限应用", "⚑", "appgate", "desk_guard_appgate", true));
-        l.add(new GuardItem("主动提醒", "电量/屏幕/喝水/休息/周期", "⏰", "reminder", "desk_guard_reminder", true));
-        l.add(new GuardItem("专注模式", "全机专注、应急放行与留言", "◷", "focus", "desk_guard_focus", false));
-        l.add(new GuardItem("守护日历", "纪念日、节日与倒数日", "▦", "calendar", "desk_guard_calendar", true));
-        l.add(new GuardItem("上课作息", "上课静默守护与停提醒", "▤", "schedule", "desk_guard_schedule", true));
-        l.add(new GuardItem("共同记忆", "双方可改的共享记忆", "★", "memory", "desk_guard_memory", true));
-        l.add(new GuardItem("识图感知", "从当前屏幕读取文字", "☷", "ocr", "desk_guard_ocr", true));
-        l.add(new GuardItem("插件分类", "全部扩展能力归类总览", "✦", "plugins", "desk_guard_plugins", true));
-        l.add(new GuardItem("天气地区", "家与常用地点，坐标优先", "☁", "weather", "desk_guard_weather", true));
-        l.add(new GuardItem("回家模式", "回来时打开熟悉应用", "⌂", "homemode", "desk_guard_homemode", false));
-        l.add(new GuardItem("归电设置", "间隔/冷却/安静时段", "⚡", "guidian", "desk_guard_guidian", true));
-        l.add(new GuardItem("屏幕日记", "记录屏幕使用与今日轨迹", "▧", "checkin", "desk_guard_screen_diary", true));
-        l.add(new GuardItem("自拍记录", "定时记录此刻的自己", "☻", "reminder", "desk_guard_selfie", true));
-        l.add(new GuardItem("保密模式", "隐私与记录的保护", "⚙", "global", "desk_guard_private", true));
-        l.add(new GuardItem("备份相册", "日记本与相册导出备份", "▥", "memory", "desk_guard_backup", true));
-        return l;
+    private void pickPageBg(int page) {
+        try {
+            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            i.setType("image/*");
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            startActivityForResult(i, DeskSkinStore.REQ_BG_BASE + page);
+        } catch (Exception e) {
+            toast("相册没有接住选图：" + ScreenshotService.shortMsg(e));
+        }
     }
 
-    /** 统一分区跳转：不存在的 section 一律打开「全部设置」，不再跳空白页。 */
+    @Override protected void onActivityResult(int req, int result, Intent data) {
+        super.onActivityResult(req, result, data);
+        Uri uri = DeskSkinStore.persistPick(this, result, data);
+        if (uri == null) return;
+        if (req >= DeskSkinStore.REQ_BG_BASE && req < DeskSkinStore.REQ_BG_BASE + PAGE_COUNT) {
+            int page = req - DeskSkinStore.REQ_BG_BASE;
+            DeskSkinStore.setPageBgUri(this, page, uri.toString());
+            rebuildPage(page);
+            toast("第 " + (page + 1) + " 页背景已更换");
+            return;
+        }
+        if (req >= DeskSkinStore.REQ_PICK_BASE
+                && req < DeskSkinStore.REQ_PICK_BASE + DeskSkinStore.PICK_SLOTS.length) {
+            String slot = DeskSkinStore.PICK_SLOTS[req - DeskSkinStore.REQ_PICK_BASE];
+            DeskSkinStore.setSlotUri(this, slot, uri.toString());
+            rebuildAll();
+            toast("贴图已更换");
+        }
+    }
+
+    private int countPhotos() {
+        int n = 0;
+        for (String s : new String[]{DeskSkinStore.S_PHOTO0, DeskSkinStore.S_PHOTO1, DeskSkinStore.S_PHOTO2})
+            if (!DeskSkinStore.slotUri(this, s).isEmpty()) n++;
+        return n;
+    }
+
+    private void clearPhotos() {
+        DeskSkinStore.setSlotUri(this, DeskSkinStore.S_PHOTO0, "");
+        DeskSkinStore.setSlotUri(this, DeskSkinStore.S_PHOTO1, "");
+        DeskSkinStore.setSlotUri(this, DeskSkinStore.S_PHOTO2, "");
+        rebuildPage(PAGE_ALBUM);
+        toast("照片墙已清空");
+    }
+
+    // ============================================================
+    // 菜单 / 编辑
+    // ============================================================
+    private void showPageMenu(final int page) {
+        new AlertDialog.Builder(this).setTitle("第 " + (page + 1) + " 页设置")
+                .setItems(new String[]{"更换本页背景图", "选纯色背景", "恢复默认背景", "新增插件", "恢复默认插件"},
+                        (d, w) -> {
+                            if (w == 0) pickPageBg(page);
+                            else if (w == 1) showBgColorDialog(page);
+                            else if (w == 2) {
+                                DeskSkinStore.setPageBgUri(this, page, "");
+                                DeskSkinStore.setPageBgColor(this, page, 0);
+                                rebuildPage(page);
+                                toast("已恢复默认背景");
+                            } else if (w == 3) addPluginDialog();
+                            else if (w == 4) {
+                                DeskPluginStore.reset(this);
+                                rebuildAll();
+                                toast("插件已恢复默认");
+                            }
+                        }).show();
+    }
+
+    private void showBgColorDialog(final int page) {
+        final String[] names = {"米白", "柔绿", "淡蓝", "藕粉", "浅灰", "夜色"};
+        final int[] colors = {0xFFF6F4EE, 0xFFE6EFE4, 0xFFE5EEF4, 0xFFF3E7EC, 0xFFEDEDED, 0xFF232A26};
+        new AlertDialog.Builder(this).setTitle("选择背景纯色")
+                .setItems(names, (d, w) -> {
+                    DeskSkinStore.setPageBgUri(this, page, "");
+                    DeskSkinStore.setPageBgColor(this, page, colors[w]);
+                    rebuildPage(page);
+                    toast("背景已设为" + names[w]);
+                }).show();
+    }
+
+    private void showTextDialog(final String key, String title, String current) {
+        final EditText input = new EditText(this);
+        input.setText(current);
+        input.setSelection(input.getText().length());
+        input.setInputType(InputType.TYPE_CLASS_TEXT);
+        new AlertDialog.Builder(this).setTitle(title).setView(input)
+                .setPositiveButton("保存", (d, w) -> {
+                    DeskSkinStore.setText(this, key, input.getText().toString().trim());
+                    rebuildAll();
+                    toast("已保存");
+                })
+                .setNegativeButton("取消", null).show();
+    }
+
+    private void editPluginDialog(final DeskPluginStore.Plugin p) {
+        new AlertDialog.Builder(this).setTitle("插件：" + p.label)
+                .setItems(new String[]{"改名 / 动作", "换图标", "前移", "后移", "删除"}, (d, w) -> {
+                    if (w == 0) showRenameDialog(p);
+                    else if (w == 1) cycleIcon(p);
+                    else if (w == 2) movePlugin(p, -1);
+                    else if (w == 3) movePlugin(p, 1);
+                    else if (w == 4) {
+                        DeskPluginStore.remove(this, p.id);
+                        rebuildAll();
+                        toast("已删除 " + p.label);
+                    }
+                }).show();
+    }
+
+    private void movePlugin(DeskPluginStore.Plugin p, int delta) {
+        List<DeskPluginStore.Plugin> all = DeskPluginStore.all(this);
+        int from = -1;
+        for (int i = 0; i < all.size(); i++) if (all.get(i).id.equals(p.id)) { from = i; break; }
+        if (from < 0) return;
+        int to = from + delta;
+        if (to < 0 || to >= all.size()) { toast("已经到边了"); return; }
+        DeskPluginStore.move(this, from, to);
+        rebuildAll();
+    }
+
+    private void cycleIcon(final DeskPluginStore.Plugin p) {
+        String[] icons = DeskPluginStore.ICONS;
+        int cur = 0;
+        for (int i = 0; i < icons.length; i++) if (icons[i].equals(p.icon)) { cur = i; break; }
+        String next = icons[(cur + 1) % icons.length];
+        DeskPluginStore.update(this, p.id, p.label, next, p.action);
+        rebuildAll();
+        toast("图标已换为 " + next + "（继续点可循环）");
+    }
+
+    private void showRenameDialog(final DeskPluginStore.Plugin p) {
+        final EditText name = new EditText(this);
+        name.setText(p.label);
+        final EditText action = new EditText(this);
+        action.setText(p.action);
+        action.setHint("policy:calendar / page / app:包名 / none");
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dpI(20), dpI(12), dpI(20), dpI(4));
+        box.addView(name);
+        box.addView(action);
+        new AlertDialog.Builder(this).setTitle("编辑插件：" + p.label).setView(box)
+                .setPositiveButton("保存", (dd, ww) -> {
+                    DeskPluginStore.update(this, p.id, name.getText().toString(), p.icon,
+                            action.getText().toString());
+                    rebuildAll();
+                    toast("已保存");
+                })
+                .setNegativeButton("取消", null).show();
+    }
+
+    private void addPluginDialog() {
+        final EditText name = new EditText(this);
+        name.setHint("插件名称");
+        final EditText action = new EditText(this);
+        action.setHint("动作：policy:xxx / app:包名（可留空）");
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dpI(20), dpI(12), dpI(20), dpI(4));
+        box.addView(name);
+        box.addView(action);
+        new AlertDialog.Builder(this).setTitle("新增插件").setView(box)
+                .setPositiveButton("添加", (dd, ww) -> {
+                    DeskPluginStore.add(this, name.getText().toString(), "✦", action.getText().toString());
+                    rebuildAll();
+                    toast("已添加");
+                })
+                .setNegativeButton("取消", null).show();
+    }
+
+    private void openPlugin(DeskPluginStore.Plugin p) { openAction(p.action, p.label); }
+
+    private void openAction(String a, String label) {
+        try {
+            if (a == null || a.isEmpty() || "none".equals(a)) {
+                toast(label + " · 长按可编辑");
+            } else if (a.startsWith("page:")) {
+                String pg = a.substring(5);
+                if ("profile".equals(pg) || "world".equals(pg)) goPage(PAGE_PROFILE);
+                else if ("album".equals(pg)) goPage(PAGE_ALBUM);
+                else if ("feed".equals(pg) || "terminal".equals(pg)) goPage(PAGE_FEED);
+                else openSection(null);
+            } else if (a.startsWith("policy:")) {
+                openSection(a.substring(7));
+            } else if (a.startsWith("app:")) {
+                Intent i = getPackageManager().getLaunchIntentForPackage(a.substring(4));
+                if (i != null) startActivity(i); else toast("本机未安装该应用");
+            } else toast(label);
+        } catch (Exception e) {
+            toast("打开失败：" + ScreenshotService.shortMsg(e));
+        }
+    }
+
     private void openSection(String section) {
         Intent i = new Intent(this, PolicySettingsActivity.class);
         if (section != null && VALID_SECTIONS.contains(section)) i.putExtra("section", section);
@@ -470,94 +808,45 @@ public class PalmDeskActivity extends Activity {
         catch (Exception e) { toast("打开设置失败：" + ScreenshotService.shortMsg(e)); }
     }
 
-    // ============================================================
-    // 一起听（网易云同款）
-    // ============================================================
-    private void buildMusicPageAsync() {
-        ScrollView sv = new ScrollView(this);
-        final LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(dpI(20), dpI(30), dpI(20), dpI(96));
-        col.addView(tv("一起听", 22, t.text));
-        col.addView(tv("网易云同款 · 显示位置、头像与时间", 11, t.subtext), matchWrapTop(2));
-        TextView loading = tv("正在连接在线曲库…", 12, t.subtext);
-        col.addView(loading, matchWrapTop(16));
-        sv.addView(col, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        musicViewRef = pageFrame(sv);
-        new Thread(() -> {
-            FreeMusic.Result res = FreeMusic.hot(12);
-            runOnUiThread(() -> renderMusic(col, loading, res));
-        }).start();
+    private void showSearchDialog() {
+        List<DeskPluginStore.Plugin> all = DeskPluginStore.all(this);
+        String[] names = new String[all.size()];
+        for (int i = 0; i < all.size(); i++) names[i] = all.get(i).icon + "  " + all.get(i).label;
+        new AlertDialog.Builder(this).setTitle("打开插件")
+                .setItems(names, (d, w) -> openPlugin(all.get(w))).show();
     }
 
-    private void renderMusic(LinearLayout col, TextView loading, FreeMusic.Result res) {
-        if (loading.getParent() != null) col.removeView(loading);
-        JSONObject media = null;
-        try { media = MediaState.collect(this); } catch (Exception ignored) { }
-        FreeMusic.Song now = (media != null && media.optBoolean("available"))
-                ? FreeMusic.fromMediaState(media)
-                : (!res.songs.isEmpty() ? res.songs.get(0) : new FreeMusic.Song());
-
-        LinearLayout nowCard = cardCol(t.card, dp(20));
-        nowCard.setGravity(Gravity.CENTER_HORIZONTAL);
-        View disc = new View(this);
-        int ds = dpI(150);
-        disc.setLayoutParams(new LinearLayout.LayoutParams(ds, ds));
-        disc.setBackground(shape(t.primarySoft, ds / 2f));
-        ObjectAnimator.ofFloat(disc, View.ROTATION, 0f, 360f).setDuration(12000).start();
-        nowCard.addView(disc);
-        TextView songName = tv(now.name.isEmpty() ? "选一首歌开始一起听" : now.name, 18, t.text);
-        songName.setGravity(Gravity.CENTER); songName.setTypeface(Typeface.DEFAULT_BOLD);
-        nowCard.addView(songName, matchWrapTop(12));
-        TextView artist = tv(now.artist.isEmpty() ? "掌心窗 · 一起听" : now.artist, 12, t.subtext);
-        artist.setGravity(Gravity.CENTER);
-        nowCard.addView(artist, matchWrapTop(2));
-        ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        bar.setMax(100); bar.setProgress(media != null ? media.optInt("progress_percent", 0) : 18);
-        nowCard.addView(bar, matchWrapTop(12));
-        TextView meta = tv("◉ " + currentPlaceLabel() + "   ⏱ " +
-                new SimpleDateFormat("HH:mm", Locale.CHINA).format(new Date()) + " 起一起听", 11, t.subtext);
-        meta.setGravity(Gravity.CENTER);
-        nowCard.addView(meta, matchWrapTop(10));
-        nowCard.addView(buildAvatars(), matchWrapTop(12));
-        col.addView(nowCard, matchWrapTop(10));
-
-        if (!res.ok) {
-            col.addView(tv(res.error, 11, t.danger), matchWrapTop(10));
-        } else {
-            col.addView(tv("在线曲库 · " + res.source.replace("https://", ""), 10, t.subtext), matchWrapTop(10));
-            TextView lt = tv("热门歌曲（点选展示）", 13, t.text); lt.setTypeface(Typeface.DEFAULT_BOLD);
-            col.addView(lt, matchWrapTop(14));
-            for (int i = 0; i < res.songs.size(); i++) {
-                final FreeMusic.Song s = res.songs.get(i);
-                LinearLayout row = cardRow(t.cardSoft, dp(12));
-                row.setGravity(Gravity.CENTER_VERTICAL);
-                row.addView(tv(String.valueOf(i + 1), 12, t.subtext));
-                LinearLayout m = new LinearLayout(this); m.setOrientation(LinearLayout.VERTICAL);
-                m.addView(tv(s.name, 13, t.text));
-                m.addView(tv(s.artist.isEmpty() ? "未知歌手" : s.artist, 10, t.subtext));
-                row.addView(m, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-                row.addView(tv("♫", 16, t.primary));
-                row.setOnClickListener(v -> { songName.setText(s.name); artist.setText(s.artist.isEmpty() ? "未知歌手" : s.artist); bar.setProgress(0); toast("已选：" + s.name); });
-                col.addView(row, marginB(6));
-            }
-        }
+    // ============================================================
+    // 搜索栏 / 时钟 / 天气
+    // ============================================================
+    private View searchBar() {
+        TextView s = tv("⌕  搜索", 12, t.subtext);
+        s.setGravity(Gravity.CENTER);
+        s.setBackground(t.soft(UiTokens.RADIUS_ROW));
+        s.setPadding(dpI(16), dpI(8), dpI(16), dpI(8));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dpI(140),
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.gravity = Gravity.CENTER_HORIZONTAL;
+        s.setLayoutParams(lp);
+        s.setOnClickListener(v -> showSearchDialog());
+        return s;
     }
 
-    private View buildAvatars() {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL); row.setGravity(Gravity.CENTER);
-        String[] names = {AppPrefs.userName(this), AppPrefs.companionName(this), "我", "TA"};
-        int[] colors = {t.primary, t.primarySoft, t.cardSoft, t.primarySoft};
-        for (int i = 0; i < names.length; i++) {
-            TextView a = tv(names[i].isEmpty() ? "?" : names[i].substring(0, 1), 14, t.dark ? t.text : Color.WHITE);
-            a.setGravity(Gravity.CENTER); a.setBackground(shape(colors[i], 40));
-            int d = dpI(36);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(d, d);
-            lp.setMargins(i == 0 ? 0 : -dpI(8), 0, 0, 0);
-            row.addView(a, lp);
-        }
-        return row;
+    private void refreshClock() {
+        String time = new SimpleDateFormat("HH:mm", Locale.CHINA).format(new Date());
+        if (feedClock != null) feedClock.setText(time);
+    }
+
+    private String weatherShort() {
+        try {
+            JSONObject cur = WeatherState.currentLocation(this);
+            String city = cur == null ? "" : cur.optString("city", "");
+            String district = cur == null ? "" : cur.optString("district", "");
+            JSONObject live = WeatherLive.cached(this, city, district);
+            if (live != null && live.optBoolean("ok")) return live.optInt("temperature", 0) + "°";
+            return "--°";
+        } catch (Exception ignored) { }
+        return "--°";
     }
 
     private String currentPlaceLabel() {
@@ -573,174 +862,6 @@ public class PalmDeskActivity extends Activity {
         return "当前位置";
     }
 
-    // ============================================================
-    // 导航 / 工具 —— Dock 只保留图一的 4 项，不再跳旧 MainActivity
-    // ============================================================
-    private LinearLayout buildDock() {
-        LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setBackground(t.navBar());
-        bar.setGravity(Gravity.CENTER);
-        int h = dpI(UiTokens.DOCK_H);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, h);
-        int side = dpI(UiTokens.DOCK_SIDE), bottom = dpI(UiTokens.DOCK_BOTTOM);
-        lp.setMargins(side, 0, side, bottom);
-        bar.setLayoutParams(lp);
-        String[] labels = {"世界", "终端", "守护", "主题"};
-        final int[] pageOf = {PAGE_WORLD, PAGE_TERMINAL, PAGE_GUARD, -1};
-        for (int i = 0; i < labels.length; i++) {
-            Button b = new Button(this);
-            b.setText(labels[i]); b.setTextSize(11); b.setAllCaps(false);
-            b.setBackground(t.navItem(i == currentPage));
-            b.setTextColor(t.text);
-            final int pg = pageOf[i];
-            b.setOnClickListener(v -> { if (pg == -1) showThemeDialog(); else switchPage(pg); });
-            bar.addView(b, weight1());
-        }
-        return bar;
-    }
-
-    private void showThemeDialog() {
-        String[] names = UITheme.themeNames();
-        String cur = UITheme.currentBaseName(this) + (UITheme.isDarkMode(this) ? " · 暗" : " · 亮");
-        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
-        b.setTitle("主题：" + cur);
-        b.setItems(names, (d, which) -> {
-            UITheme.setTheme(this, names[which]);
-            t = UITheme.current(this);
-            dock.setBackground(t.navBar());
-            refreshCurrentPage();
-            toast("主题已切换为 " + names[which]);
-        });
-        b.setNeutralButton(UITheme.isDarkMode(this) ? "☀ 切到亮色" : "☾ 切到暗色", (d, w) -> {
-            UITheme.toggleDarkMode(this);
-            t = UITheme.current(this);
-            dock.setBackground(t.navBar());
-            refreshCurrentPage();
-            toast(UITheme.isDarkMode(this) ? "已切到暗色" : "已切到亮色");
-        });
-        b.show();
-    }
-
-    private void switchPage(int page) {
-        currentPage = page;
-        for (int i = pages.getChildCount() - 1; i >= 0; i--) pages.removeViewAt(i);
-        if (page == PAGE_WORLD) pages.addView(buildWorldPage());
-        else if (page == PAGE_TERMINAL) pages.addView(buildTerminalPage());
-        else if (page == PAGE_GUARD) pages.addView(buildGuardPage());
-        else if (page == PAGE_MUSIC) { buildMusicPageAsync(); pages.addView(musicViewRef); }
-        refreshDock();
-    }
-
-    private void refreshDock() {
-        for (int i = 0; i < dock.getChildCount(); i++) {
-            View v = dock.getChildAt(i);
-            if (v instanceof Button) {
-                boolean sel = (i == currentPage);
-                v.setBackground(t.navItem(sel));
-                ((Button) v).setTextColor(sel ? t.primary : t.subtext);
-            }
-        }
-    }
-
-    private void refreshCurrentPage() {
-        int p = currentPage;
-        for (int i = pages.getChildCount() - 1; i >= 0; i--) pages.removeViewAt(i);
-        if (p == PAGE_WORLD) pages.addView(buildWorldPage());
-        else if (p == PAGE_TERMINAL) pages.addView(buildTerminalPage());
-        else if (p == PAGE_GUARD) pages.addView(buildGuardPage());
-        else if (p == PAGE_MUSIC) { buildMusicPageAsync(); pages.addView(musicViewRef); }
-    }
-
-    private void cycleIcon(final DeskPluginStore.Plugin p) {
-        String[] icons = DeskPluginStore.ICONS;
-        int cur = 0;
-        for (int i = 0; i < icons.length; i++) if (icons[i].equals(p.icon)) { cur = i; break; }
-        String next = icons[(cur + 1) % icons.length];
-        DeskPluginStore.update(this, p.id, p.label, next, p.action);
-        refreshCurrentPage();
-        toast("图标已换为 " + next + "（继续点可循环）");
-    }
-
-    private void openPlugin(DeskPluginStore.Plugin p) {
-        openAction(p.action, p.label);
-    }
-
-    private void openAction(String a, String label) {
-        try {
-            if (a == null || a.isEmpty() || "none".equals(a)) {
-                toast(label + " · 长按可编辑");
-            } else if (a.startsWith("page:")) {
-                String pg = a.substring(5);
-                if ("music".equals(pg)) switchPage(PAGE_MUSIC);
-                else if ("guard".equals(pg)) switchPage(PAGE_GUARD);
-                else if ("world".equals(pg)) switchPage(PAGE_WORLD);
-                else if ("terminal".equals(pg)) switchPage(PAGE_TERMINAL);
-                else openSection(null); // classic 等旧入口统一收敛到新设置，不再跳旧 UI
-            } else if (a.startsWith("policy:")) {
-                openSection(a.substring(7));
-            } else if (a.startsWith("app:")) {
-                Intent i = getPackageManager().getLaunchIntentForPackage(a.substring(4));
-                if (i != null) startActivity(i); else toast("本机未安装该应用");
-            } else toast(label);
-        } catch (Exception e) {
-            toast("打开失败：" + ScreenshotService.shortMsg(e));
-        }
-    }
-
-    private void showAddPluginDialog() {
-        final android.widget.EditText name = new android.widget.EditText(this);
-        name.setHint("插件名称");
-        final android.widget.EditText action = new android.widget.EditText(this);
-        action.setHint("动作：policy:calendar / page:music / app:包名（可留空）");
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dpI(20), dpI(12), dpI(20), dpI(4));
-        box.addView(name); box.addView(action);
-        new android.app.AlertDialog.Builder(this).setTitle("新增插件").setView(box)
-                .setPositiveButton("添加", (d, w) -> {
-                    DeskPluginStore.add(this, name.getText().toString(), "✦", action.getText().toString());
-                    refreshCurrentPage(); toast("已添加");
-                })
-                .setNegativeButton("取消", null).show();
-    }
-
-    private void showRenameDialog(final DeskPluginStore.Plugin p) {
-        final android.widget.EditText name = new android.widget.EditText(this);
-        name.setText(p.label);
-        final android.widget.EditText action = new android.widget.EditText(this);
-        action.setText(p.action);
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dpI(20), dpI(12), dpI(20), dpI(4));
-        box.addView(name); box.addView(action);
-        new android.app.AlertDialog.Builder(this).setTitle("编辑插件：" + p.label).setView(box)
-                .setPositiveButton("保存", (d, w) -> {
-                    DeskPluginStore.update(this, p.id, name.getText().toString(), p.icon, action.getText().toString());
-                    refreshCurrentPage(); toast("已保存");
-                })
-                .setNegativeButton("取消", null).show();
-    }
-
-    // ---- 时钟与天气 ----
-    private void refreshClock() {
-        String time = new SimpleDateFormat("HH:mm", Locale.CHINA).format(new Date());
-        if (terminalClock != null) terminalClock.setText(time);
-        if (terminalWeather != null) terminalWeather.setText("☁ " + weatherShort());
-    }
-
-    private String weatherShort() {
-        try {
-            JSONObject cur = WeatherState.currentLocation(this);
-            String city = cur == null ? "" : cur.optString("city", "");
-            String district = cur == null ? "" : cur.optString("district", "");
-            JSONObject live = WeatherLive.cached(this, city, district);
-            if (live != null && live.optBoolean("ok")) return live.optInt("temperature", 0) + "°";
-            return "--°";
-        } catch (Exception ignored) { }
-        return "--°";
-    }
-
     private void refreshDeskWeather() {
         try {
             JSONObject cur = WeatherState.currentLocation(this);
@@ -748,61 +869,65 @@ public class PalmDeskActivity extends Activity {
             double lat = cur.optDouble("latitude", 0), lon = cur.optDouble("longitude", 0);
             String city = cur.optString("city", ""), district = cur.optString("district", "");
             if ((lat != 0 || lon != 0) && !WeatherLive.isFresh(this, city, district, 45L * 60L * 1000L))
-                WeatherLive.refreshAsync(this, city, district, lat, lon, w -> runOnUiThread(this::refreshClock));
+                WeatherLive.refreshAsync(this, city, district, lat, lon, w -> runOnUiThread(() -> rebuildPage(PAGE_PROFILE)));
         } catch (Exception ignored) { }
     }
 
-    // ---- UI 小工具 ----
+    // ============================================================
+    // UI 小工具
+    // ============================================================
+    private LinearLayout column() {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dpI(16), dpI(16), dpI(16), dpI(16));
+        return col;
+    }
+
     private TextView tv(String s, float size, int color) {
         TextView v = new TextView(this);
         v.setText(s == null ? "" : s);
-        v.setTextSize(size); v.setTextColor(color);
+        v.setTextSize(size);
+        v.setTextColor(color);
         return v;
     }
-    private int dpI(float v) { return UiTokens.dpI(v); }
-    private float dp(float v) { return UiTokens.dp(v); }
 
-    private GradientDrawable shape(int color, float radius) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(color); g.setCornerRadius(dp(radius));
-        return g;
-    }
-    private GradientDrawable glass(int color, float radius) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(color); g.setCornerRadius(dp(radius));
-        g.setStroke(dpI(1), t.line); // 图一毛玻璃白描边
-        return g;
-    }
     private LinearLayout cardCol(int color, float pad) {
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.VERTICAL);
-        l.setBackground(glass(color, UiTokens.RADIUS_CARD));
-        l.setPadding(dpI(pad), dpI(pad), dpI(pad), dpI(pad));
-        return l;
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackground(t.card(UiTokens.RADIUS_CARD, UiTokens.STROKE_DP));
+        c.setPadding((int) pad, (int) pad, (int) pad, (int) pad);
+        return c;
     }
-    private LinearLayout cardRow(int color, float pad) {
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.HORIZONTAL);
-        l.setBackground(glass(color, UiTokens.RADIUS_CARD));
-        l.setPadding(dpI(pad), dpI(pad), dpI(pad), dpI(pad));
-        return l;
-    }
+
     private View spacer(int dpV) {
         View v = new View(this);
         v.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpI(dpV)));
         return v;
     }
+
+    private int dpI(float v) { return UiTokens.dpI(v); }
+    private float dp(float v) { return UiTokens.dp(v); }
+
     private LinearLayout.LayoutParams weight1() {
-        return new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        return new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
     }
+
     private LinearLayout.LayoutParams matchWrap() {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
     }
+
     private LinearLayout.LayoutParams matchWrapTop(int dpTop) {
-        LinearLayout.LayoutParams lp = matchWrap(); lp.topMargin = dpI(dpTop); return lp;
+        LinearLayout.LayoutParams lp = matchWrap();
+        lp.topMargin = dpI(dpTop);
+        return lp;
     }
+
     private LinearLayout.LayoutParams marginB(int dpB) {
-        LinearLayout.LayoutParams lp = matchWrap(); lp.bottomMargin = dpI(dpB); return lp;
+        LinearLayout.LayoutParams lp = matchWrap();
+        lp.bottomMargin = dpI(dpB);
+        return lp;
     }
+
     private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_SHORT).show(); }
 }
