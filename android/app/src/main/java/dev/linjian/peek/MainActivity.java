@@ -2841,31 +2841,49 @@ public class MainActivity extends Activity {
      * 坐标优先路径完全跳过名称地理编码，从根上解决「北川羌族自治县」被错配到贵州遵义。
      */
     private void useCurrentLocationForWeather() {
-        double[] loc = NowState.lastKnownLocation(this);
-        if (loc == null) {
-            Toast.makeText(this, "未获取到当前位置，请检查系统定位权限", Toast.LENGTH_SHORT).show();
-            if (weatherGeoConfirmText != null) weatherGeoConfirmText.setText("定位未授权或暂不可用：请先点「打开定位权限」，再回来用当前定位；也可手填城市。");
-            requestLocationPermission();
-            return;
-        }
+        // 天气定位修复：先主动请求一次新鲜定位；超时/失败再回退到缓存，仍是错误才明确提示，绝不返回错误天气。
+        NowState.refreshLocation(this, fresh -> {
+            double[] loc = fresh;
+            boolean fromCache = false;
+            if (loc == null) { loc = NowState.lastKnownLocation(this); fromCache = loc != null; }
+            if (loc == null) {
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "未获取到当前位置，请检查系统定位权限", Toast.LENGTH_SHORT).show();
+                    if (weatherGeoConfirmText != null) weatherGeoConfirmText.setText("定位未授权或暂不可用：请先点「打开定位权限」，再回来用当前定位；也可手填城市。");
+                    requestLocationPermission();
+                });
+                return;
+            }
+            final double[] finalLoc = loc;
+            final boolean cache = fromCache;
+            runOnUiThread(() -> applyWeatherLocation(finalLoc[0], finalLoc[1], cache));
+        });
+    }
+
+    /** 用给定经纬度取当前位置天气（坐标优先，跳过地名地理编码）。 */
+    private void applyWeatherLocation(double lat, double lon, boolean fromCache) {
         String alias = weatherAliasInput == null ? "" : weatherAliasInput.getText().toString().trim();
-        WeatherState.saveLocationCoords(this, alias, loc[0], loc[1]);
-        String label = String.format(java.util.Locale.US, "%.4f, %.4f", loc[0], loc[1]);
-        DebugState.append(this, "天气已使用当前定位：" + label);
-        Toast.makeText(this, "已使用当前位置定位", Toast.LENGTH_SHORT).show();
+        WeatherState.saveLocationCoords(this, alias, lat, lon);
+        String label = String.format(java.util.Locale.US, "%.4f, %.4f", lat, lon);
+        DebugState.append(this, "天气已使用当前定位：" + label + (fromCache ? "（缓存定位）" : "（新鲜定位）"));
+        Toast.makeText(this, fromCache ? "使用最近一次定位（可再试刷新获取更新位置）" : "已使用当前位置定位", Toast.LENGTH_SHORT).show();
         if (weatherGeoConfirmText != null) weatherGeoConfirmText.setText("已用当前定位 " + label + " 取天气（坐标优先，不再按地名匹配）");
-        // 主动定位立刻生效：先让旧缓存失效，再按坐标刷新，不等 45 分钟新鲜度窗口。
         WeatherLive.invalidateCache(this);
         weatherFetching = true;
         lastWeatherFetchAt = System.currentTimeMillis();
         String city = weatherCityInput == null ? "" : weatherCityInput.getText().toString().trim();
         String district = weatherDistrictInput == null ? "" : weatherDistrictInput.getText().toString().trim();
-        WeatherLive.refreshAsync(this, city, district, loc[0], loc[1], weather -> runOnUiThread(() -> {
+        WeatherLive.refreshAsync(this, city, district, lat, lon, weather -> runOnUiThread(() -> {
             weatherFetching = false;
             if (weather != null && weather.optBoolean("ok")) {
                 if (overviewWeatherText != null) overviewWeatherText.setText(weather.optInt("temperature", 0) + "℃");
                 if (overviewWeatherDetail != null) overviewWeatherDetail.setText((alias.isEmpty() ? "当前位置" : alias) + " · " + weather.optString("condition", "天气"));
                 if (weatherGeoConfirmText != null) weatherGeoConfirmText.setText("天气解析：" + weather.optString("geo_display", label) + "（如有误可改城市或重新定位）");
+            } else {
+                // 明确错误返回：不显示错误的城市天气，只提示失败原因
+                String reason = weather == null ? "" : weather.optString("error", "");
+                if (weatherGeoConfirmText != null) weatherGeoConfirmText.setText("当前位置天气获取失败（" + (reason.isEmpty() ? "网络或接口异常" : reason) + "），请稍后重试或手填城市。");
+                if (overviewWeatherText != null) overviewWeatherText.setText("--°");
             }
             try { updateUI(); } catch (Exception ignored) { }
         }));
@@ -3470,7 +3488,9 @@ public class MainActivity extends Activity {
         if (location == null) return "天气 · 未设地区";
         String name = location.optString("name", "当前地区");
         String city = location.optString("city", "");
-        JSONObject live = WeatherLive.cached(this, city);
+        String district = location.optString("district", "");
+        // 天气定位修复：缓存 key 是 city|district，两处都必须传，否则设了区县后永远缓存未命中 → 显示「待设置」。
+        JSONObject live = WeatherLive.cached(this, city, district);
         if (live != null && live.optBoolean("ok")) return name + " · " + live.optInt("temperature", 0) + "℃ " + live.optString("condition", "");
         return name + " · " + (city.isEmpty() ? "待设置" : city);
     }
@@ -3508,7 +3528,8 @@ public class MainActivity extends Activity {
         JSONObject w = s.optJSONObject("current_weather_location");
         if (w != null) {
             String city = w.optString("city", "");
-            JSONObject live = WeatherLive.cached(this, city);
+            String district = w.optString("district", "");
+            JSONObject live = WeatherLive.cached(this, city, district);
             if (live != null && live.optBoolean("ok")) sb.append(WeatherLive.advice(live, w.optString("name", "当前地区"))).append("\n");
             else sb.append(WeatherState.localAdvice(w.optString("note", ""))).append("\n");
         }

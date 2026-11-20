@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>掌心窗 · 图1桌面 / 图2守护 排列预览</title>
+<style>
+  :root{--page:#f4f4f4;--card:#fff;--sub:#f7f7f7;--line:#ececec;--main:#3a3a3a;--weak:#9a9a9a;--accent:#4a4a4a;--danger:#c98a8a;--radius:24px}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#2a2a2a;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;display:flex;gap:32px;justify-content:center;align-items:flex-start;padding:32px;flex-wrap:wrap}
+  .phone{width:390px;height:844px;background:var(--page);border-radius:44px;overflow:hidden;position:relative;box-shadow:0 20px 60px rgba(0,0,0,.4);display:flex;flex-direction:column}
+  .status{height:44px;display:flex;justify-content:space-between;align-items:center;padding:0 26px;font-size:13px;font-weight:600;color:var(--main);flex:0 0 auto}
+  .status .icons{font-size:11px;color:var(--weak)}
+  .content{flex:1;overflow-y:auto;padding:8px 18px 90px}
+  .content::-webkit-scrollbar{display:none}
+  /* 图1 桌面 */
+  .top{display:flex;gap:12px;align-items:flex-start;margin-top:6px}
+  .music{flex:1;background:var(--card);border-radius:18px;padding:12px;display:flex;align-items:center;gap:10px;box-shadow:0 2px 10px rgba(0,0,0,.04)}
+  .cover{width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,#cfe0cf,#e8f0e8);display:flex;align-items:center;justify-content:center;font-size:22px;flex:0 0 auto}
+  .music .meta{flex:1;min-width:0}
+  .music .meta b{font-size:13px;display:block;color:var(--main)}
+  .music .meta span{font-size:10px;color:var(--weak)}
+  .ctrl{display:flex;gap:4px;font-size:13px;color:var(--main)}
+  .time-box{text-align:right;flex:0 0 auto}
+  .time-box .t{font-size:52px;font-weight:300;line-height:1;color:var(--main);letter-spacing:-2px}
+  .time-box .w{font-size:12px;color:var(--weak);margin-top:4px}
+  .week{background:var(--card);border-radius:18px;padding:12px;margin-top:16px;box-shadow:0 2px 10px rgba(0,0,0,.04)}
+  .week .m{font-size:11px;color:var(--weak)}
+  .week .days{display:flex;margin-top:8px}
+  .week .d{flex:1;text-align:center}
+  .week .d .n{font-size:9px;color:var(--weak)}
+  .week .d .v{font-size:15px;color:var(--main);margin-top:3px}
+  .week .d.on .v{font-weight:700;background:var(--accent);color:#fff;width:28px;height:28px;line-height:28px;border-radius:50%;margin:3px auto 0}
+  .photos{display:flex;gap:8px;margin-top:14px}
+  .photo{flex:1;background:var(--card);border-radius:16px;padding:8px;box-shadow:0 2px 10px rgba(0,0,0,.04)}
+  .photo .img{height:80px;border-radius:10px;background:linear-gradient(135deg,#e3ece3,#f2eef2)}
+  .photo .img.b{background:linear-gradient(135deg,#f2e8e8,#eef2f2)}
+  .photo .cap{font-size:11px;color:var(--main);margin-top:6px}
+  .gridtitle{font-size:12px;color:var(--weak);margin:16px 2px 10px;font-weight:600}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .plug{background:var(--card);border-radius:16px;padding:12px 6px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,.04)}
+  .plug .ic{width:48px;height:48px;line-height:48px;margin:0 auto;border-radius:12px;background:var(--sub);font-size:24px;color:var(--accent)}
+  .plug .nm{font-size:12px;color:var(--main);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .note{background:var(--card);border-radius:16px;padding:14px;margin-top:14px;box-shadow:0 2px 10px rgba(0,0,0,.04)}
+  .note .h{font-size:11px;color:var(--weak)}
+  .note .b{font-size:13px;color:var(--main);margin-top:6px;line-height:1.5}
+  /* 图2 守护 */
+  .ghead{display:flex;align-items:center;margin:6px 2px 14px}
+  .ghead .tx{flex:1}
+  .ghead .tx .a{font-size:16px;font-weight:600;color:var(--main)}
+  .ghead .tx .b{font-size:11px;color:var(--weak);margin-top:3px}
+  .avatar{width:40px;height:40px;border-radius:50%;background:var(--sub);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--accent)}
+  .gsec{font-size:11px;color:var(--weak);font-weight:600;margin:14px 2px 6px}
+  .grow{background:var(--card);border-radius:16px;padding:12px;display:flex;align-items:center;gap:10px;margin-bottom:6px;box-shadow:0 2px 8px rgba(0,0,0,.03)}
+  .grow .ic{width:38px;height:38px;line-height:38px;text-align:center;border-radius:11px;background:var(--sub);font-size:18px;color:var(--accent);flex:0 0 auto}
+  .grow .m{flex:1;min-width:0}
+  .grow .m b{font-size:14px;color:var(--main);display:block}
+  .grow .m span{font-size:10px;color:var(--weak);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sw{width:40px;height:23px;border-radius:12px;background:var(--accent);position:relative;flex:0 0 auto}
+  .sw:after{content:"";position:absolute;width:19px;height:19px;border-radius:50%;background:#fff;top:2px;right:2px}
+  .sw.off{background:#d5d5d5}
+  .sw.off:after{right:auto;left:2px}
+  .changebtn{width:100%;background:var(--sub);color:var(--main);border:none;border-radius:14px;padding:12px;font-size:12px;margin-top:14px}
+  /* 一起听 */
+  .mtitle{font-size:22px;font-weight:600;color:var(--main);margin-top:6px}
+  .msub{font-size:11px;color:var(--weak);margin-top:2px}
+  .nowcard{background:var(--card);border-radius:20px;padding:20px;margin-top:16px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,.04)}
+  .disc{width:150px;height:150px;border-radius:50%;margin:0 auto;background:conic-gradient(#d8e6d8,#eef2ee,#d8e6d8);display:flex;align-items:center;justify-content:center;font-size:50px;animation:spin 12s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .song{font-size:18px;font-weight:600;color:var(--main);margin-top:12px}
+  .artist{font-size:12px;color:var(--weak);margin-top:2px}
+  .bar{height:4px;background:var(--sub);border-radius:2px;margin-top:12px}
+  .bar i{display:block;width:18%;height:100%;background:var(--accent);border-radius:2px}
+  .meta{font-size:11px;color:var(--weak);margin-top:10px}
+  .avatars{display:flex;justify-content:center;margin-top:12px}
+  .avatars div{width:36px;height:36px;border-radius:50%;background:var(--sub);border:2px solid var(--card);margin-left:-8px;display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--main)}
+  .srow{background:var(--sub);border-radius:12px;padding:10px 12px;display:flex;gap:10px;align-items:center;margin-top:6px}
+  .srow .num{font-size:12px;color:var(--weak)}
+  .srow .m{flex:1}
+  .srow .m b{font-size:13px;color:var(--main);display:block}
+  .srow .m span{font-size:10px;color:var(--weak)}
+  /* Dock */
+  .dock{position:absolute;left:20px;right:20px;bottom:16px;height:64px;background:rgba(255,255,255,.6);backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,.8);border-radius:28px;display:flex;align-items:center;box-shadow:0 6px 20px rgba(0,0,0,.06)}
+  .dock .nav{flex:1;text-align:center;font-size:10px;color:var(--weak)}
+  .dock .nav .i{font-size:18px;color:var(--main);display:block;margin-bottom:2px}
+  .dock .nav.on{color:var(--accent);font-weight:600}
+  .dock .nav.on .i{color:var(--accent)}
+  .label{text-align:center;font-size:12px;color:#bbb;margin-top:10px;font-weight:600;letter-spacing:1px}
+  .hint{position:fixed;bottom:16px;left:0;right:0;text-align:center;color:#888;font-size:12px}
+</style>
+</head>
+<body>
+  <!-- 图1 桌面 -->
+  <div>
+    <div class="phone">
+      <div class="status"><span>19:27</span><span class="icons">◉ ▮▮▮ 5G 85%</span></div>
+      <div class="content">
+        <div class="top">
+          <div class="music"><div class="cover">🪴</div><div class="meta"><b>CosmicLove</b><span>掌心窗 · 一起听</span></div><div class="ctrl"><span>◀</span><span>▶</span><span>▶|</span></div></div>
+          <div class="time-box"><div class="t">19:27</div><div class="w">☁ 24°C</div></div>
+        </div>
+        <div class="week"><div class="m">2026年11月</div><div class="days">
+          <div class="d"><div class="n">SUN</div><div class="v">15</div></div><div class="d"><div class="n">MON</div><div class="v">16</div></div><div class="d"><div class="n">TUE</div><div class="v">17</div></div><div class="d"><div class="n">WED</div><div class="v">18</div></div><div class="d"><div class="n">THU</div><div class="v">19</div></div><div class="d"><div class="n">FRI</div><div class="v">20</div></div><div class="d on"><div class="n">SAT</div><div class="v">21</div></div>
+        </div></div>
+        <div class="photos"><div class="photo"><div class="img"></div><div class="cap">此刻的窗</div></div><div class="photo"><div class="img b"></div><div class="cap">想你的花</div></div></div>
+        <div class="gridtitle">✦ 我的插件（长按进入编辑）</div>
+        <div class="grid" id="grid"></div>
+        <div class="note"><div class="h">便签 · 今天想说的话</div><div class="b">把今天看见的你，轻轻写下来。点开守护与陪伴，慢慢说给我听。</div></div>
+      </div>
+      <div class="dock"><div class="nav on"><span class="i">⌂</span>桌面</div><div class="nav"><span class="i">⚑</span>守护</div><div class="nav"><span class="i">♫</span>一起听</div><div class="nav"><span class="i">⚙</span>我的</div></div>
+    </div>
+    <div class="label">图1 · 掌心窗桌面</div>
+  </div>
+
+  <!-- 图2 守护 -->
+  <div>
+    <div class="phone">
+      <div class="status"><span>23:02</span><span class="icons">◉ ▮▮▮ 5G 86%</span></div>
+      <div class="content">
+        <div class="ghead"><div class="tx"><div class="a">Toujours & jamais…</div><div class="b">守护设置页 · 每一项都能点开更改</div></div><div class="avatar">♡</div></div>
+        <div id="guard"></div>
+        <button class="changebtn">更改情感相册</button>
+      </div>
+      <div class="dock"><div class="nav"><span class="i">⌂</span>桌面</div><div class="nav on"><span class="i">⚑</span>守护</div><div class="nav"><span class="i">♫</span>一起听</div><div class="nav"><span class="i">⚙</span>我的</div></div>
+    </div>
+    <div class="label">图2 · 守护标签</div>
+  </div>
+
+  <!-- 一起听 -->
+  <div>
+    <div class="phone">
+      <div class="status"><span>19:27</span><span class="icons">◉ ▮▮▮ 5G 85%</span></div>
+      <div class="content">
+        <div class="mtitle">一起听</div><div class="msub">网易云同款 · 显示位置、头像与时间</div>
+        <div class="nowcard"><div class="disc">🪴</div><div class="song">CosmicLove</div><div class="artist">未知歌手 · 掌心窗</div><div class="bar"><i></i></div><div class="meta">◉ 绵阳 · 北川　⏱ 19:27 起一起听</div><div class="avatars"><div>你</div><div>T</div><div>我</div><div>A</div></div></div>
+        <div class="gridtitle">热门歌曲（点选展示）</div>
+        <div class="srow"><span class="num">1</span><div class="m"><b>起风了</b><span>买辣椒也用券</span></div><span>♫</span></div>
+        <div class="srow"><span class="num">2</span><div class="m"><b>晴天</b><span>周杰伦</span></div><span>♫</span></div>
+        <div class="srow"><span class="num">3</span><div class="m"><b>稻香</b><span>周杰伦</span></div><span>♫</span></div>
+      </div>
+      <div class="dock"><div class="nav"><span class="i">⌂</span>桌面</div><div class="nav"><span class="i">⚑</span>守护</div><div class="nav on"><span class="i">♫</span>一起听</div><div class="nav"><span class="i">⚙</span>我的</div></div>
+    </div>
+    <div class="label">网易云同款 · 一起听</div>
+  </div>
+
+  <div class="hint">按真实 APK 的排列结构还原 · 只还原排列，不参考配色</div>
+<script>
+  const plugs=[["✉","消息"],["▦","日历"],["❀","图片"],["☻","联系人"],["✎","便签"],["♡","心动"],["◎","查岗"],["⚑","门禁"],["◷","专注"],["♫","一起听"],["☁","天气"],["⚡","归电"],["▤","课表"],["★","记忆"],["✂","训诫"],["⏰","提醒"],["☾","夜间"],["☷","识图"],["⌂","回家"],["⚙","更多"]];
+  document.getElementById('grid').innerHTML=plugs.map(p=>`<div class="plug"><div class="ic">${p[0]}</div><div class="nm">${p[1]}</div></div>`).join('');
+  const groups=[
+    ["基础守护",[["▤","屏幕日记",1],["⚑","外勤报告",1],["✉","email",1]]],
+    ["情感守护",[["♡","情绪感知",1],["★","五星保护",1]]],
+    ["安全守护",[["⚑","应用门禁",1],["◷","专注模式",1]]],
+    ["设备行为",[["▦","数字日历",1],["☾","防止夜",1],["☻","自拍记录",1],["☷","抓取辅助",1],["❀","情感分类",1]]],
+    ["结束会话后",[["☁","天气模块",1],["⚙","保密模式",0],["▤","备份相册",1]]],
+  ];
+  document.getElementById('guard').innerHTML=groups.map(g=>`<div class="gsec">${g[0]}</div>`+g[1].map(it=>`<div class="grow"><div class="ic">${it[0]}</div><div class="m"><b>${it[1]}</b><span>点开可编辑 · 即时保存</span></div><div class="sw ${it[2]?'':'off'}"></div></div>`).join('')).join('');
+</script>
+</body>
+</html>

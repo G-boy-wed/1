@@ -8,6 +8,7 @@ import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.location.Location;
+import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Build;
 
@@ -180,6 +181,50 @@ public class NowState {
         o.put("time_local", formatLocal(best.getTime()));
         o.put("label", "已定位 · 约 " + Math.round(best.getAccuracy()) + "m");
         return o;
+    }
+
+    /** 天气定位修复：异步主动请求一次新鲜定位，避免只拿 getLastKnownLocation 的旧缓存导致定位不准。 */
+    public interface LocationCallback { void onLocation(double[] latLon); }
+
+    public static void refreshLocation(Context ctx, LocationCallback callback) {
+        boolean fine = ctx.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+        boolean coarse = ctx.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+        if (!fine && !coarse) { if (callback != null) callback.onLocation(null); return; }
+        final LocationManager lm = (LocationManager) ctx.getSystemService(Context.LOCATION_SERVICE);
+        if (lm == null) { if (callback != null) callback.onLocation(null); return; }
+        final String[] candidates = fine
+                ? new String[]{LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER}
+                : new String[]{LocationManager.NETWORK_PROVIDER};
+        final java.util.concurrent.atomic.AtomicBoolean done = new java.util.concurrent.atomic.AtomicBoolean(false);
+        final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+        final LocationListener listener = new LocationListener() {
+            @Override public void onLocationChanged(Location loc) {
+                if (done.compareAndSet(false, true)) {
+                    try { lm.removeUpdates(this); } catch (Exception ignored) { }
+                    final double[] out = new double[]{loc.getLatitude(), loc.getLongitude()};
+                    if (callback != null) h.post(() -> callback.onLocation(out));
+                }
+            }
+            @Override public void onStatusChanged(String p, int s, android.os.Bundle e) { }
+            @Override public void onProviderEnabled(String p) { }
+            @Override public void onProviderDisabled(String p) { }
+        };
+        try {
+            for (String provider : candidates) {
+                if (!lm.isProviderEnabled(provider)) continue;
+                lm.requestLocationUpdates(provider, 0L, 0f, listener, h.getLooper());
+            }
+        } catch (SecurityException e) {
+            if (done.compareAndSet(false, true) && callback != null) callback.onLocation(null);
+            return;
+        }
+        // 8 秒超时：拿不到新鲜 fix 就回退到缓存 / 通知失败，绝不返回假坐标
+        h.postDelayed(() -> {
+            if (done.compareAndSet(false, true)) {
+                try { lm.removeUpdates(listener); } catch (Exception ignored) { }
+                if (callback != null) callback.onLocation(null);
+            }
+        }, 8000L);
     }
 
     private static double round(double v, int scale) {

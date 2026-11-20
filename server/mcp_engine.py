@@ -1224,7 +1224,7 @@ class McpEngine:
             state = self.ctx.life_state(device_id) or {}
         except Exception:
             state = {}
-        key = "screen_break_state" if "screen_break" in str(args) or args.get("_tool") else "app_gate"
+        # 统一同时返回三类门禁状态，调用方按需要取用；不再计算未使用的 key。
         return _text({"ok": True, "device_id": device_id,
                       "app_gate": state.get("app_gate") or {},
                       "screen_break_state": state.get("screen_break_state") or {},

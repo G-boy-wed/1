@@ -755,12 +755,12 @@
     },
     "mode": {
      "type": "string",
-     "default": "manual\").describe(\"manual=只写草稿不发送；auto=注明作者后自动点击发送",
+     "default": "manual",
      "description": "manual=只写草稿不发送；auto=注明作者后自动点击发送"
     },
     "author_tag": {
      "type": "string",
-     "default": "（陪伴对象发）\").describe(\"自动发送时追加的署名/注明文本",
+     "default": "（陪伴对象发）",
      "description": "自动发送时追加的署名/注明文本"
     },
     "device_id": {
@@ -900,7 +900,7 @@
     },
     "message": {
      "type": "string",
-     "default": "\").describe(\"whisper 时的气泡文案；为空时用默认陪伴语",
+     "default": "",
      "description": "whisper 时的气泡文案；为空时用默认陪伴语"
     },
     "device_id": {
@@ -967,7 +967,7 @@
    "properties": {
     "reason": {
      "type": "string",
-     "default": "\").describe(\"训诫事由（如深夜不睡/单App沉迷/拒归电），会展示在弹窗上",
+     "default": "",
      "description": "训诫事由（如深夜不睡/单App沉迷/拒归电），会展示在弹窗上"
     },
     "device_id": {
@@ -1189,7 +1189,7 @@
     },
     "group": {
      "type": "string",
-     "default": "our_days\").describe(\"our_days/user/companion/festival/study/project/life，或中文分组",
+     "default": "our_days",
      "description": "our_days/user/companion/festival/study/project/life，或中文分组"
     },
     "note": {
@@ -2060,7 +2060,7 @@
     },
     "sensitive_apps_json": {
      "type": "string",
-     "default": "\").describe(\"可选：JSON 数组，例如 [{\\\"name\\\":\\\"小红书\\\",\\\"package\\\":\\\"com.xingin.xhs\\\",\\\"max_lock_minutes\\\":90}]",
+     "default": "",
      "description": "可选：JSON 数组，例如 [{\\\"name\\\":\\\"小红书\\\",\\\"package\\\":\\\"com.xingin.xhs\\\",\\\"max_lock_minutes\\\":90}]"
     },
     "quiet_start": {
@@ -2087,7 +2087,7 @@
     },
     "policy_json": {
      "type": "string",
-     "default": "\").describe(\"可选：完整 JSON，会与现有策略合并。",
+     "default": "",
      "description": "可选：完整 JSON，会与现有策略合并。"
     }
    },
@@ -2194,32 +2194,32 @@
    "properties": {
     "source": {
      "type": "string",
-     "default": "app\").describe(\"到访来源，默认 app；也可填 web、mcp、manual 等。",
+     "default": "app",
      "description": "到访来源，默认 app；也可填 web、mcp、manual 等。"
     },
     "event": {
      "type": "string",
-     "default": "visit\").describe(\"到访类型：visit 普通来找；return 离开后回来；conversation_start 新窗口/新对话开始；manual_note 手动补记。",
+     "default": "visit",
      "description": "到访类型：visit 普通来找；return 离开后回来；conversation_start 新窗口/新对话开始；manual_note 手动补记。"
     },
     "note": {
      "type": "string",
-     "default": "用户来找陪伴对象\").describe(\"这次到访的简短备注，默认“用户来找陪伴对象”。",
+     "default": "用户来找陪伴对象",
      "description": "这次到访的简短备注，默认“用户来找陪伴对象”。"
     },
     "mood": {
      "type": "string",
-     "default": "\").describe(\"可选：用户来时的大致情绪，例如 开心、想念、撒娇、低落；不知道就留空。",
+     "default": "",
      "description": "可选：用户来时的大致情绪，例如 开心、想念、撒娇、低落；不知道就留空。"
     },
     "conversation_hint": {
      "type": "string",
-     "default": "\").describe(\"可选：这次对话的简短线索，例如 掌心窗时间戳、异性容忍度测试、小红书帖子。只写一句，不要写隐私长文。",
+     "default": "",
      "description": "可选：这次对话的简短线索，例如 掌心窗时间戳、异性容忍度测试、小红书帖子。只写一句，不要写隐私长文。"
     },
     "timezone_offset": {
      "type": "string",
-     "default": "\").describe(\"本次显示使用的时区偏移，默认采用 visit_policy.timezone_offset，通常为 +08:00。",
+     "default": "",
      "description": "本次显示使用的时区偏移，默认采用 visit_policy.timezone_offset，通常为 +08:00。"
     },
     "duplicate_window_minutes": {
@@ -2251,12 +2251,12 @@
    "properties": {
     "source": {
      "type": "string",
-     "default": "\").describe(\"可选：只看某个来源的到访记录，例如 app；留空表示所有来源。",
+     "default": "",
      "description": "可选：只看某个来源的到访记录，例如 app；留空表示所有来源。"
     },
     "timezone_offset": {
      "type": "string",
-     "default": "\").describe(\"显示用时区偏移，默认 +08:00。",
+     "default": "",
      "description": "显示用时区偏移，默认 +08:00。"
     }
    },
@@ -2292,12 +2292,12 @@
     },
     "date": {
      "type": "string",
-     "default": "\").describe(\"可选：只读取某个本地日期的记录，格式 YYYY-MM-DD，例如 2026-07-31。",
+     "default": "",
      "description": "可选：只读取某个本地日期的记录，格式 YYYY-MM-DD，例如 2026-07-31。"
     },
     "source": {
      "type": "string",
-     "default": "\").describe(\"可选：只看某个来源，例如 app；留空表示所有来源。",
+     "default": "",
      "description": "可选：只看某个来源，例如 app；留空表示所有来源。"
     },
     "include_intervals": {
@@ -2306,7 +2306,7 @@
     },
     "timezone_offset": {
      "type": "string",
-     "default": "\").describe(\"显示用时区偏移，默认 +08:00。",
+     "default": "",
      "description": "显示用时区偏移，默认 +08:00。"
     }
    },
@@ -2342,12 +2342,12 @@
     },
     "source": {
      "type": "string",
-     "default": "\").describe(\"可选：只统计某个来源，例如 app；留空表示所有来源。",
+     "default": "",
      "description": "可选：只统计某个来源，例如 app；留空表示所有来源。"
     },
     "timezone_offset": {
      "type": "string",
-     "default": "\").describe(\"显示用时区偏移，默认 +08:00。",
+     "default": "",
      "description": "显示用时区偏移，默认 +08:00。"
     }
    },
@@ -3073,17 +3073,17 @@
    "properties": {
     "level": {
      "type": "string",
-     "default": "auto\").describe(\"auto=按情绪自动判定；soft=软级别可拒绝；strong=强级别强制",
+     "default": "auto",
      "description": "auto=按情绪自动判定；soft=软级别可拒绝；strong=强级别强制"
     },
     "title": {
      "type": "string",
-     "default": "\").describe(\"弹窗标题，留空则用默认文案",
+     "default": "",
      "description": "弹窗标题，留空则用默认文案"
     },
     "message": {
      "type": "string",
-     "default": "\").describe(\"弹窗正文，留空则按当前情绪生成",
+     "default": "",
      "description": "弹窗正文，留空则按当前情绪生成"
     },
     "device_id": {
@@ -3230,7 +3230,7 @@
     },
     "note": {
      "type": "string",
-     "default": "\").describe(\"备注，写清这次情绪的来由",
+     "default": "",
      "description": "备注，写清这次情绪的来由"
     },
     "device_id": {
@@ -3299,7 +3299,7 @@
     },
     "author": {
      "type": "string",
-     "default": "用户\").describe(\"记录者，默认 用户",
+     "default": "用户",
      "description": "记录者，默认 用户"
     }
    },
@@ -3897,12 +3897,12 @@
    "properties": {
     "app": {
      "type": "string",
-     "default": "\").describe(\"应用昵称，例如 小红书；也可留空直接传 package",
+     "default": "",
      "description": "应用昵称，例如 小红书；也可留空直接传 package"
     },
     "package": {
      "type": "string",
-     "default": "\").describe(\"App 包名，例如 com.xingin.xhs",
+     "default": "",
      "description": "App 包名，例如 com.xingin.xhs"
     },
     "duration_minutes": {
@@ -3911,7 +3911,7 @@
     },
     "mode": {
      "type": "string",
-     "default": "medium\").describe(\"light/medium/strict；strict 会先拉回桌面再显示锁定页",
+     "default": "medium",
      "description": "light/medium/strict；strict 会先拉回桌面再显示锁定页"
     },
     "reason": {
@@ -3924,7 +3924,7 @@
     },
     "emergency_passphrase": {
      "type": "string",
-     "default": "\").describe(\"紧急口令，由陪伴对象设置后告诉用户；手机端只存 hash",
+     "default": "",
      "description": "紧急口令，由陪伴对象设置后告诉用户；手机端只存 hash"
     },
     "emergency_unlock_minutes": {
@@ -3978,7 +3978,7 @@
     },
     "allow_type": {
      "type": "string",
-     "default": "real_time\").describe(\"real_time=从允许后连续倒计时；foreground_usage=只扣前台实际使用时长；one_time=只允许一次",
+     "default": "real_time",
      "description": "real_time=从允许后连续倒计时；foreground_usage=只扣前台实际使用时长；one_time=只允许一次"
     },
     "max_window_minutes": {
