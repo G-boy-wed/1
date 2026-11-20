@@ -43,6 +43,7 @@ public final class WatchPartyState {
             o.put("partner", new JSONObject());
             o.put("danmaku", new JSONArray());
             o.put("reactions", new JSONArray());
+            o.put("from_live", false);   // 是否来自「共享本机正在看的真实媒体」
             o.put("round", 0);
             o.put("updated_at_ms", 0);
         } catch (Exception ignored) { }
@@ -101,6 +102,71 @@ public final class WatchPartyState {
         JSONObject o = room(ctx);
         try { o.put("active", false); o.put("playing", false); o.put("updated_at_ms", System.currentTimeMillis()); }
         catch (Exception ignored) { }
+        save(ctx, o);
+        return o;
+    }
+
+    /**
+     * 从本机真实媒体会话采集「我正在看的抖音/电影」，写入一起看房间。
+     * 这是用户要的模式：不是单独开播放器上传视频，而是把我手机上正在播放的内容
+     * （MediaSession / 通知监听读到的标题、作者、包名、进度、时长、播放状态）共享给对方。
+     * 只在本机确实有可看媒体时更新 media，避免用空数据覆盖已共享的内容。
+     * 返回是否刷新到了真实媒体。
+     */
+    public static boolean applyLiveMedia(Context ctx, JSONObject mediaSnapshot) {
+        if (mediaSnapshot == null) return false;
+        try {
+            boolean available = mediaSnapshot.optBoolean("available", false)
+                    || mediaSnapshot.optBoolean("has_session", false);
+            boolean watchable = mediaSnapshot.optBoolean("is_watchable", false);
+            String pkg = mediaSnapshot.optString("package", "");
+            String title = mediaSnapshot.optString("title", "");
+            String author = mediaSnapshot.optString("artist", "");
+            if (author.isEmpty()) author = mediaSnapshot.optString("author", "");
+            if (author.isEmpty()) author = mediaSnapshot.optString("app", "");
+            if (!available && title.isEmpty() && pkg.isEmpty()) return false;
+
+            JSONObject o = room(ctx);
+            JSONObject media = new JSONObject();
+            media.put("title", title.isEmpty() ? mediaSnapshot.optString("app", "本机正在播放") : title);
+            media.put("author", author);
+            media.put("app", mediaSnapshot.optString("app", ""));
+            media.put("package", pkg);
+            media.put("cover", mediaSnapshot.optString("app", ""));
+            media.put("content_type", mediaSnapshot.optString("content_type", ""));
+            media.put("source", "live_media");
+            o.put("media", media);
+            // 进度 / 时长：MediaState 以 position_ms / duration_ms 输出，缺失时为 JSONObject.NULL。
+            long pos = optLong(mediaSnapshot, "position_ms");
+            long dur = optLong(mediaSnapshot, "duration_ms");
+            if (pos > 0) o.put("progress_ms", pos);
+            if (dur > 0) o.put("duration_ms", dur);
+            o.put("playing", mediaSnapshot.optBoolean("is_playing", false));
+            o.put("from_live", true);
+            o.put("available", available && (watchable || !title.isEmpty()));
+            o.put("updated_at_ms", System.currentTimeMillis());
+            o.put("round", o.optInt("round", 0) + 1);
+            save(ctx, o);
+            return true;
+        } catch (Exception ignored) { return false; }
+    }
+
+    private static long optLong(JSONObject o, String key) {
+        Object v = o.opt(key);
+        if (v == null || v == JSONObject.NULL) return 0;
+        if (v instanceof Number) return ((Number) v).longValue();
+        try { return Long.parseLong(String.valueOf(v)); } catch (Exception e) { return 0; }
+    }
+
+    /** 开启「共享本机正在看的」：标记房间为实时媒体模式并置为 active。 */
+    public static JSONObject enableLive(Context ctx) {
+        JSONObject o = room(ctx);
+        try {
+            o.put("from_live", true);
+            o.put("active", true);
+            o.put("updated_at_ms", System.currentTimeMillis());
+            o.put("round", o.optInt("round", 0) + 1);
+        } catch (Exception ignored) { }
         save(ctx, o);
         return o;
     }

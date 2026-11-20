@@ -1,8 +1,6 @@
 package dev.linjian.peek;
 
 import android.app.Activity;
-import android.graphics.Color;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -12,8 +10,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -27,14 +23,12 @@ import java.util.Timer;
 import java.util.TimerTask;
 
 /**
- * 双人共同观看 / 吐槽界面（对应 MCP watch_party_* 工具）。
+ * 一起看 —— 共享「我手机上正在看的抖音/电影」给对方（不是单独开播放器上传视频）。
  *
- * 参考“双人一起刷视频 / 共同看电影”设计：
- *  - 顶部影片卡（封面/标题/博主）+ 进度条 + 播放暂停；
- *  - 双方头像、位置、时间同屏显示（“在一起”感）；
- *  - 弹幕飘屏 + 表情互动行；
- *  - 吐槽输入框，发出后本机落地并镜像服务端，MCP 可读、对方可见。
- * 所有数据来自 WatchPartyState（与服务端双向同步），空态给出明确引导。
+ * 用户点「同意共享本机正在看的」后，本页每 1.5s 从 MediaState.collect() 读取
+ * 本机真实媒体会话（抖音/快手/B站/腾讯视频…的标题、作者、包名、进度、时长、播放状态），
+ * 写入一起看房间并镜像服务端；对方与 MCP（watch_party_*）读到的是我当下真实在看的内容。
+ * 同时保留：弹幕吐槽、表情互动、双方位置/头像/时间同屏。
  */
 public class WatchPartyActivity extends Activity {
 
@@ -42,10 +36,11 @@ public class WatchPartyActivity extends Activity {
     private Handler ui;
     private Timer ticker;
     private LinearLayout root, danmakuList, reactionRow;
-    private TextView mediaTitle, mediaAuthor, mediaCover, progressText, memberInfo, partnerInfo, emptyHint;
+    private TextView mediaTitle, mediaAuthor, mediaApp, progressText, memberInfo, partnerInfo, emptyHint, shareBtn;
     private SeekBar seekBar;
     private EditText input;
     private boolean userSeeking = false;
+    private boolean sharing = false;
 
     private static final String[] EMOJIS = {"❤️", "👍", "👏", "😂", "😮", "😢", "🔥", "🌹"};
 
@@ -53,13 +48,26 @@ public class WatchPartyActivity extends Activity {
         super.onCreate(b);
         t = UITheme.current(this);
         ui = new Handler(Looper.getMainLooper());
+        sharing = WatchPartyState.room(this).optBoolean("from_live", false)
+                && WatchPartyState.room(this).optBoolean("active", false);
         build();
         refresh();
-        // 每 1.5s 对齐房间状态（进度/新弹幕/新表情），实现双人“同步”观感。
+        // 每 1.5s：若已同意共享，抓本机真实媒体同步进房间；再对齐房间 UI（进度/新弹幕/新表情）。
         ticker = new Timer();
         ticker.schedule(new TimerTask() {
-            @Override public void run() { ui.post(() -> refresh()); }
-        }, 1500, 1500);
+            @Override public void run() {
+                if (sharing) {
+                    try {
+                        JSONObject live = MediaState.collect(WatchPartyActivity.this);
+                        if (WatchPartyState.applyLiveMedia(WatchPartyActivity.this, live)) {
+                            // 即时把真实媒体镜像到服务端，MCP get_watch_party 能读到我此刻在看什么。
+                            pushSnapshot();
+                        }
+                    } catch (Exception ignored) { }
+                }
+                ui.post(() -> refresh());
+            }
+        }, 1200, 1500);
     }
 
     @Override protected void onDestroy() {
@@ -89,33 +97,39 @@ public class WatchPartyActivity extends Activity {
         root.addView(back);
 
         TextView title = new TextView(this);
-        title.setText("一起看 · 双人同步观看");
+        title.setText("一起看 · 共享我正在看的");
         title.setTextSize(22);
         title.setTextColor(t.text);
         title.getPaint().setFakeBoldText(true);
         root.addView(title);
 
+        // —— 同意共享开关（核心）——
+        shareBtn = UiKit.primaryPill(this, sharing ? "● 已同意共享本机正在看的（点此停止）" : "同意共享本机正在看的抖音/电影");
+        shareBtn.setTextSize(14);
+        shareBtn.setPadding(dp(14), dp(12), dp(14), dp(12));
+        shareBtn.setOnClickListener(v -> toggleShare());
+        root.addView(shareBtn, lp(dp(12)));
+
         emptyHint = new TextView(this);
         emptyHint.setTextSize(13);
         emptyHint.setTextColor(t.subtext);
-        emptyHint.setPadding(0, dp(6), 0, dp(14));
+        emptyHint.setPadding(0, dp(2), 0, dp(12));
         root.addView(emptyHint);
 
-        // —— 影片卡 ——
+        // —— 影片卡（显示本机真实媒体）——
         LinearLayout hero = UiKit.glassCard(this, 18);
-        root.addView(hero, lp(dp(16)));
-        mediaCover = new TextView(this);
-        mediaCover.setText("▣");
-        mediaCover.setTextSize(64);
-        mediaCover.setGravity(Gravity.CENTER);
-        mediaCover.setTextColor(t.primary);
-        mediaCover.setBackground(t.soft(14));
-        hero.addView(mediaCover, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(170)));
+        root.addView(hero, lp(dp(6)));
+        mediaApp = new TextView(this);
+        mediaApp.setTextSize(13);
+        mediaApp.setTextColor(t.primary);
+        mediaApp.setPadding(dp(4), dp(2), dp(4), dp(2));
+        hero.addView(mediaApp);
+
         mediaTitle = new TextView(this);
         mediaTitle.setTextSize(18);
         mediaTitle.setTextColor(t.text);
         mediaTitle.getPaint().setFakeBoldText(true);
-        mediaTitle.setPadding(dp(4), dp(12), dp(4), 0);
+        mediaTitle.setPadding(dp(4), dp(6), dp(4), 0);
         hero.addView(mediaTitle);
         mediaAuthor = new TextView(this);
         mediaAuthor.setTextSize(13);
@@ -123,35 +137,18 @@ public class WatchPartyActivity extends Activity {
         mediaAuthor.setPadding(dp(4), dp(2), dp(4), dp(8));
         hero.addView(mediaAuthor);
 
-        // —— 进度条 ——
         progressText = new TextView(this);
         progressText.setTextSize(12);
         progressText.setTextColor(t.subtext);
         hero.addView(progressText);
         seekBar = new SeekBar(this);
+        seekBar.setEnabled(false); // 只读展示本机真实进度（内容在我手机的抖音/电影里，不在本页播放）
         seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onStartTrackingTouch(SeekBar s) { userSeeking = true; }
-            @Override public void onStopTrackingTouch(SeekBar s) {
-                userSeeking = false;
-                long ms = (long) (s.getProgress() / 100.0 * WatchPartyState.room(WatchPartyActivity.this).optLong("duration_ms", 0));
-                sendServer("watch_party_sync", "progress_ms", ms);
-            }
+            @Override public void onStopTrackingTouch(SeekBar s) { userSeeking = false; }
             @Override public void onProgressChanged(SeekBar s, int p, boolean fromUser) { }
         });
         hero.addView(seekBar, lp(0));
-
-        // —— 播放控制 ——
-        LinearLayout ctrl = new LinearLayout(this);
-        ctrl.setOrientation(LinearLayout.HORIZONTAL);
-        ctrl.setGravity(Gravity.CENTER);
-        ctrl.setPadding(0, dp(8), 0, dp(8));
-        hero.addView(ctrl, lp(0));
-        Button playBtn = UiKit.whitePill(this, "▶ 播放");
-        playBtn.setOnClickListener(v -> sendServer("watch_party_sync", "playing", true));
-        ctrl.addView(playBtn, new LinearLayout.LayoutParams(dp(110), ViewGroup.LayoutParams.WRAP_CONTENT));
-        Button pauseBtn = UiKit.whitePill(this, "❚❚ 暂停");
-        pauseBtn.setOnClickListener(v -> sendServer("watch_party_sync", "playing", false));
-        ctrl.addView(pauseBtn, new LinearLayout.LayoutParams(dp(110), ViewGroup.LayoutParams.WRAP_CONTENT));
 
         // —— 双方信息（位置/头像/时间）——
         LinearLayout duo = new LinearLayout(this);
@@ -171,7 +168,7 @@ public class WatchPartyActivity extends Activity {
         duo.addView(partnerInfo, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         root.addView(duo, lp(dp(10)));
 
-        // —— 弹幕飘屏区 ——
+        // —— 弹幕区 ——
         TextView dTitle = new TextView(this);
         dTitle.setText("弹幕 · 吐槽");
         dTitle.setTextSize(15);
@@ -185,7 +182,7 @@ public class WatchPartyActivity extends Activity {
         danmakuList.setPadding(dp(10), dp(8), dp(10), dp(8));
         root.addView(danmakuList, lp(0));
 
-        // —— 表情互动行 ——
+        // —— 表情互动 ——
         reactionRow = new LinearLayout(this);
         reactionRow.setOrientation(LinearLayout.HORIZONTAL);
         reactionRow.setGravity(Gravity.CENTER);
@@ -227,18 +224,40 @@ public class WatchPartyActivity extends Activity {
         });
         inputRow.addView(send, new LinearLayout.LayoutParams(dp(84), ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(inputRow, lp(dp(12)));
-
-        Button end = UiKit.whitePill(this, "结束一起看");
-        end.setOnClickListener(v -> {
-            WatchPartyState.end(this);
-            sendServer("watch_party_end", "", "");
-            finish();
-        });
-        root.addView(end, lp(dp(6)));
     }
 
     private LinearLayout.LayoutParams lp(int top) {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        p.topMargin = top;
+        return p;
+    }
+
+    /** 切换「同意共享本机正在看的」。 */
+    private void toggleShare() {
+        sharing = !sharing;
+        if (sharing) {
+            WatchPartyState.enableLive(this);
+            JSONObject live = MediaState.collect(this);
+            boolean got = WatchPartyState.applyLiveMedia(this, live);
+            sendServer("watch_party_start", "", null);
+            pushSnapshot();
+            UiKit.toast(this, got ? "已同意共享：对方现在能看到你正在看的" : "已同意共享：打开抖音/电影后自动同步");
+        } else {
+            WatchPartyState.end(this);
+            sendServer("watch_party_end", "", null);
+            UiKit.toast(this, "已停止共享");
+        }
+        refresh();
+    }
+
+    /** 立即把房间快照（含本机真实媒体）上报到服务端，MCP / 对方可读。 */
+    private void pushSnapshot() {
+        try {
+            String base = AppPrefs.server(this), token = AppPrefs.token(this);
+            if (base == null || base.trim().isEmpty()) return;
+            CompanionService.handleWatchPartyLocal(this, base, token, new JSONObject());
+        } catch (Exception ignored) { }
     }
 
     /** 把本机操作写成命令入队，由 CompanionService 上报服务端（MCP 可读、对方可见）。 */
@@ -259,18 +278,25 @@ public class WatchPartyActivity extends Activity {
         if (isFinishing() || isDestroyed()) return;
         JSONObject room = WatchPartyState.room(this);
         boolean active = room.optBoolean("active", false);
-        emptyHint.setText(active ? "● 正在同步观看，进度与吐槽实时对齐" : "○ 尚未发起一起看：可让陪伴对象用 MCP 发起，或点下方按钮开始本机房间");
+        shareBtn.setText(sharing ? "● 已同意共享本机正在看的（点此停止）" : "同意共享本机正在看的抖音/电影");
+
         JSONObject media = room.optJSONObject("media");
         if (media == null) media = new JSONObject();
-        String cover = media.optString("cover", "");
-        mediaCover.setText(cover != null && !cover.isEmpty() ? cover.substring(0, Math.min(2, cover.length())) : "▣");
-        mediaTitle.setText(active && !media.optString("title", "").isEmpty() ? media.optString("title") : "还没有影片");
-        mediaAuthor.setText(media.optString("author", "").isEmpty() ? "等待发起…" : ("博主 / 来源：" + media.optString("author")));
+        String app = media.optString("app", "");
+        mediaApp.setText(sharing && !app.isEmpty() ? "▶ 来自 " + app : (sharing ? "▶ 本机媒体" : ""));
+        String title = media.optString("title", "");
+        mediaTitle.setText(sharing && !title.isEmpty() ? title : (sharing ? "等待本机播放…" : "还没同意共享"));
+        String author = media.optString("author", "");
+        mediaAuthor.setText(sharing && !author.isEmpty() ? ("作者 / 来源：" + author) : (sharing ? "打开抖音/电影后自动同步" : "点上方按钮，把你正在看的分享给 TA"));
 
-        long prog = room.optLong("progress_ms", 0), dur = room.optLong("duration_ms", 0);
+        emptyHint.setText(sharing
+                ? (room.optBoolean("available", true) ? "● 正在共享你手机真实播放的内容，进度与吐槽实时同步" : "○ 已同意共享，但本机暂无正在播放的抖音/电影——打开后会自动同步")
+                : "○ 共享你正在看的抖音/电影，对方就能和你一起看（不用上传视频）");
+
+        long prog = optLong(room, "progress_ms"), dur = optLong(room, "duration_ms");
         int pct = dur > 0 ? (int) (prog * 100 / dur) : 0;
         if (!userSeeking) seekBar.setProgress(Math.max(0, Math.min(100, pct)));
-        progressText.setText(fmt(prog) + " / " + fmt(dur) + "  (" + pct + "%)");
+        progressText.setText(fmt(prog) + " / " + fmt(dur) + (dur > 0 ? "  (" + pct + "%)" : ""));
 
         JSONObject mem = room.optJSONObject("member");
         JSONObject par = room.optJSONObject("partner");
@@ -300,6 +326,13 @@ public class WatchPartyActivity extends Activity {
                 danmakuList.addView(line);
             }
         }
+    }
+
+    private static long optLong(JSONObject o, String key) {
+        Object v = o.opt(key);
+        if (v == null || v == JSONObject.NULL) return 0;
+        if (v instanceof Number) return ((Number) v).longValue();
+        try { return Long.parseLong(String.valueOf(v)); } catch (Exception e) { return 0; }
     }
 
     private static String fmt(long ms) {

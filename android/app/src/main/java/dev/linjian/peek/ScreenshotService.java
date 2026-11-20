@@ -101,9 +101,17 @@ public class ScreenshotService extends AccessibilityService {
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event == null) return;
-        CharSequence pkg = event.getPackageName();
-        if (pkg != null) currentPackage = pkg.toString();
         int t = event.getEventType();
+        CharSequence pkg = event.getPackageName();
+        // BUGFIX(召回误弹)：只有真正的「前台窗口切换」才刷新 currentPackage。
+        // 原实现对所有事件(滚动/内容变化/输入法弹起)都覆盖，导致在微信聊天时，
+        // 输入法事件把 currentPackage 污染成 com.tencent.qqpinyin 等，
+        // 令 PolicyScheduler 误判「不在聊天软件」而弹出召回弹窗。
+        // 同时过滤输入法/系统面板等瞬时窗口，避免它们夺取前台包名。
+        if (pkg != null && t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+                && !PolicyScheduler.isSystemExemptPackage(pkg.toString())) {
+            currentPackage = pkg.toString();
+        }
         if (t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || t == AccessibilityEvent.TYPE_WINDOWS_CHANGED || t == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED || t == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
             updateScreenText();
             // 伴看守护：把当前前台 App 的读屏文本交给 MediaState，短视频(抖音/B站/小红书)可结构化出视频文案/作者。

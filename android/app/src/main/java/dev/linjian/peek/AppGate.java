@@ -853,6 +853,11 @@ public class AppGate {
         packages.add("com.android.contacts");
         packages.add("com.android.mms");
         packages.add("com.eg.android.AlipayGphone");
+        // BUGFIX(召回误弹)：主流聊天 App 纳入保护名单，避免把微信/QQ 当成被锁/被召回对象。
+        packages.add("com.tencent.mm");
+        packages.add("com.tencent.mobileqq");
+        packages.add("com.tencent.tim");
+        packages.add("com.tencent.wework");
         return packages.toArray(new String[0]);
     }
 

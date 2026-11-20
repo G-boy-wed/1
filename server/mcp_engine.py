@@ -1281,11 +1281,44 @@ class McpEngine:
 
     def _t_watch_party_start(self, args: dict) -> dict:
         device_id = self._device(args)
+        # 用户诉求：一起看 = 「我在手机端同意后，对方/机器端就能和我一起看我手机上正在看的抖音/电影」，
+        # 不是单独开播放器上传视频。因此默认从手机真实媒体会话(media_context)读取我正在看的内容。
+        live_ms = {}
+        live_available = False
+        try:
+            ctx_media = self.ctx.media_context(device_id) or {}
+            if ctx_media.get("available") or ctx_media.get("has_session"):
+                live_ms = ctx_media.get("media_state") or {}
+                live_available = bool(live_ms)
+        except Exception:
+            pass
+        title = str(args.get("media_title") or args.get("title") or "").strip()
+        author = str(args.get("media_author") or args.get("author") or "").strip()
+        cover = str(args.get("media_cover") or args.get("cover") or "").strip()
+        # 未显式给出媒体信息时，用真实媒体兜底（title→app/包名，author→artist/author/app）。
+        if live_available and not title:
+            title = str(live_ms.get("title") or live_ms.get("app") or "").strip()
+        if live_available and not author:
+            author = str(live_ms.get("author") or live_ms.get("artist") or live_ms.get("app") or "").strip()
+        if live_available and not cover:
+            cover = str(live_ms.get("app") or "").strip()
+        duration = int(args.get("duration_ms", 0) or 0)
+        progress = int(args.get("progress_ms", 0) or 0)
+        playing = bool(args.get("playing", True))
+        if live_available:
+            if duration <= 0:
+                duration = int(live_ms.get("duration_ms") or live_ms.get("total_duration") or 0 or 0)
+            if progress <= 0:
+                progress = int(live_ms.get("position_ms") or live_ms.get("current_position") or 0 or 0)
+            playing = bool(live_ms.get("is_playing", playing))
         media = {
-            "title": str(args.get("media_title") or args.get("title") or "").strip(),
-            "author": str(args.get("media_author") or args.get("author") or "").strip(),
-            "cover": str(args.get("media_cover") or args.get("cover") or "").strip(),
-            "duration_ms": int(args.get("duration_ms", 0) or 0),
+            "title": title, "author": author, "cover": cover,
+            "app": str(live_ms.get("app") or "").strip(),
+            "package": str(live_ms.get("package") or "").strip(),
+            "content_type": str(live_ms.get("content_type") or "").strip(),
+            "duration_ms": duration,
+            "source": "live_media" if (live_available and not args.get("media_title")) else "declared",
+            "live_available": live_available,
         }
         member = {
             "position": str(args.get("position") or "").strip(),
@@ -1298,8 +1331,8 @@ class McpEngine:
         }
         try:
             wp = self._wp_local().watchparty_update({
-                "active": True, "media": media, "progress_ms": int(args.get("progress_ms", 0) or 0),
-                "duration_ms": media["duration_ms"], "playing": bool(args.get("playing", True)),
+                "active": True, "media": media, "progress_ms": progress,
+                "duration_ms": duration, "playing": playing,
                 "member": member, "partner": partner, "danmaku": [], "reactions": [],
             })
         except Exception as e:
@@ -1309,15 +1342,42 @@ class McpEngine:
             queued = True
         except Exception:
             queued = False
+        if not title and not live_available:
+            readable = ("已开启一起看房间，但手机当前没有正在播放的抖音/电影。"
+                        "请在手机上打开视频并同意共享，或直接告诉我片名。")
+        else:
+            readable = "已开启一起看：正在共享你手机上的《%s》%s" % (
+                title or "本机内容", (" · " + author) if author else "")
         return _text({"ok": True, "active": True, "media": media, "member": member, "partner": partner,
-                      "device_command_queued": queued,
-                      "readable": "已开启一起看：%s%s" % (media["title"] or "新影片", (" · " + media["author"]) if media["author"] else "")})
+                      "device_command_queued": queued, "live_media_used": live_available,
+                      "readable": readable})
 
     def _t_watch_party_get(self, args: dict) -> dict:
         try:
             wp = self._wp_local().watchparty_state()
         except Exception:
             wp = {}
+        # 若房间来自「共享本机真实媒体」，实时再读一次手机媒体进度——对方看到的是我此刻真正的进度，
+        # 而不是发起瞬间的快照。这样才是「和我一起看」而非看一段录好的静止状态。
+        try:
+            media = dict(wp.get("media") or {})
+            if media.get("source") == "live_media" or wp.get("from_live"):
+                ctx_media = self.ctx.media_context(self._device(args)) or {}
+                if ctx_media.get("available") or ctx_media.get("has_session"):
+                    live_ms = ctx_media.get("media_state") or {}
+                    p = int(live_ms.get("position_ms") or live_ms.get("current_position") or 0 or 0)
+                    d = int(live_ms.get("duration_ms") or live_ms.get("total_duration") or 0 or 0)
+                    if p > 0: wp["progress_ms"] = p
+                    if d > 0: wp["duration_ms"] = d
+                    wp["playing"] = bool(live_ms.get("is_playing", wp.get("playing", False)))
+                    t = str(live_ms.get("title") or "").strip()
+                    if t: media["title"] = t
+                    a = str(live_ms.get("author") or live_ms.get("artist") or "").strip()
+                    if a: media["author"] = a
+                    media["live_available"] = True
+                    wp["media"] = media
+        except Exception:
+            pass
         # 实时补齐我方时间
         mem = dict(wp.get("member") or {})
         mem["time"] = datetime.now(timezone(timedelta(hours=8))).strftime("%H:%M")

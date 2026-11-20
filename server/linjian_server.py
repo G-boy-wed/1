@@ -1592,6 +1592,23 @@ class Handler(BaseHTTPRequestHandler):
 
 # ===================== 主动关心：巡回查岗 / 居中弹窗 / 强制拉回 / 情绪感知 =====================
 # 把原本散落在外部脚本与第三方推送的管束/巡回/提醒能力收进掌心窗本体。
+
+# BUGFIX(召回误弹)：主流聊天 App 永不作为锁定/强制拉回对象。
+# 用户正在微信/QQ 等聊天软件里时，本身处于陪伴场景，弹召回会造成「在聊天软件被拉回聊天」的荒谬体验。
+CHAT_FOREGROUND_PACKAGES = frozenset({
+    "com.tencent.mm", "com.tencent.mm.ui", "com.tencent.mobileqq", "com.tencent.tim",
+    "com.tencent.wework", "com.alibaba.android.rimet", "com.ss.android.lark",
+    "com.whatsapp", "org.telegram.messenger", "com.instagram.android",
+    "com.facebook.katana", "com.kakao.talk", "jp.naver.line.android", "com.discord",
+})
+
+def is_chat_foreground_pkg(pkg: str) -> bool:
+    """前台包名是否为「正在聊天软件」场景（含常见分身/国际版后缀）。"""
+    if not pkg: return False
+    p = str(pkg)
+    if p in CHAT_FOREGROUND_PACKAGES: return True
+    return any(p.startswith(base + ":") or p.startswith(base + ".") for base in CHAT_FOREGROUND_PACKAGES)
+
 DEFAULT_TOUR_SCHEDULE = {
     "enabled": False,
     # 查岗：周期性“看一眼”当前状态（静默，不下发弹窗）。以下时间均为示例值，用户可在策略中自由调整。
@@ -1769,10 +1786,12 @@ def build_usage_snapshot(state: "State", device_id: str) -> dict:
 
 
 def is_package_exempt(state: "State", device_id: str, sched: dict) -> bool:
-    """通用豁免：当前前台 App 在用户配置的 exempt_packages 列表中时，不锁定、不强制拉回。"""
+    """通用豁免：当前前台 App 在用户配置的 exempt_packages 列表中，或属于主流聊天 App 时，不锁定、不强制拉回。"""
     ds = state.device_states.get(device_id) or {}
     pkg = ds.get("current_package") or ""
-    return bool(pkg) and pkg in set(sched.get("exempt_packages") or [])
+    if not pkg: return False
+    if is_chat_foreground_pkg(pkg): return True  # BUGFIX(召回误弹)：聊天软件永不锁定/召回
+    return pkg in set(sched.get("exempt_packages") or [])
 
 
 def build_emotion_snapshot(state: "State", device_id: str) -> dict:
@@ -2078,7 +2097,7 @@ def tour_step_check_in(state: "State", sched: dict, device_id: str = DEFAULT_DEV
     pkg = ds.get("current_package") or ""
     lock_min = max(0, int(sched.get("single_app_lock_minutes", 0)))
     locked = False
-    if lock_min > 0 and pkg and pkg not in exempt_pkgs:
+    if lock_min > 0 and pkg and not is_chat_foreground_pkg(pkg) and pkg not in exempt_pkgs:
         dwell = current_app_dwell_minutes(state, device_id)
         if dwell >= lock_min:
             lock_dur = max(1, int(sched.get("single_app_lock_duration_minutes", 5)))
@@ -2120,7 +2139,11 @@ def tour_step_force_back(state: "State", sched: dict, device_id: str = DEFAULT_D
     """
     ds = state.device_states.get(device_id) or {}
     exempt_pkgs = set(sched.get("exempt_packages") or [])
-    if (ds.get("current_package") or "") in exempt_pkgs:
+    _cur_pkg = ds.get("current_package") or ""
+    if is_chat_foreground_pkg(_cur_pkg):
+        add_tour_event(state, "force_back_skipped", "前台为聊天软件（陪伴场景），跳过强制拉回", device_id)
+        return {"ok": True, "step": "force_back", "skipped": True, "reason": "chat_foreground"}
+    if _cur_pkg in exempt_pkgs:
         add_tour_event(state, "force_back_skipped", "前台为豁免应用，跳过强制拉回", device_id)
         return {"ok": True, "step": "force_back", "skipped": True, "reason": "exempt_package"}
     cooldown = max(0, int(sched.get("cooldown_minutes", 5)) * 60)

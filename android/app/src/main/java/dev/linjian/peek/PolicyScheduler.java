@@ -65,6 +65,40 @@ public final class PolicyScheduler {
             "com.vivo.upslide", "com.vivo.interactionpool", "com.kelivo"
     ));
 
+    /**
+     * BUGFIX(召回误弹)：主流聊天 App 白名单。
+     * 用户「在聊天软件里」时本就处于陪伴场景，绝不能弹召回/查岗/情绪弹窗
+     * （否则出现「明明在微信聊天却被拉回聊天」的荒谬弹窗）。
+     * 判定同时兼容用户配置的 targetPackage 与掌心窗自身，名单单一来源。
+     */
+    private static final Set<String> CHAT_FOREGROUND_PACKAGES = new HashSet<>(Arrays.asList(
+            "com.tencent.mm",              // 微信
+            "com.tencent.mm.ui",
+            "com.tencent.mobileqq",        // QQ
+            "com.tencent.tim",             // TIM
+            "com.tencent.wework",          // 企业微信
+            "com.alibaba.android.rimet",   // 钉钉
+            "com.ss.android.lark",         // 飞书
+            "com.whatsapp", "org.telegram.messenger",
+            "com.instagram.android", "com.facebook.katana",
+            "com.kakao.talk", "jp.naver.line.android",
+            "com.discord", "org.thunderdog.challegram"
+    ));
+
+    /**
+     * 判断给定前台包名是否属于「正在聊天软件」场景：主流聊天 App、
+     * 用户配置的拉回目标 App、或掌心窗自身。命中即跳过一切召回类弹窗。
+     */
+    private boolean isChatForeground(String pkg) {
+        if (pkg == null || pkg.isEmpty()) return false;
+        if (CHAT_FOREGROUND_PACKAGES.contains(pkg)) return true;
+        try {
+            String target = PolicyStore.targetPackage(appCtx);
+            if (target != null && !target.isEmpty() && target.equals(pkg)) return true;
+        } catch (Exception ignored) { }
+        return SELF_PKG.equals(pkg);
+    }
+
     /** BE-09：公开为两处共用（PolicyScheduler 分心统计 + ActivityEventStore 事件记录），名单单一来源。 */
     public static boolean isSystemExemptPackage(String pkg) {
         if (pkg == null || pkg.isEmpty()) return false;
@@ -211,7 +245,9 @@ public final class PolicyScheduler {
         resetDailyIfNeeded(now);
 
         String current = ScreenshotService.currentPackage();
-        boolean inTarget = current != null && (current.equals(PolicyStore.targetPackage(appCtx)) || current.equals(SELF_PKG));
+        // BUGFIX(召回误弹)：inTarget 升级为「在任意聊天软件」判定——微信/QQ/目标App/掌心窗自身，
+        // 命中即视为陪伴场景，下方查岗/情绪/主动召回一律跳过，不再出现聊天时被拉回的荒谬弹窗。
+        boolean inTarget = isChatForeground(current);
         if (inTarget) {
             lastUserActivityAt = now;
             // 不在清 lastDistractionPkg：留给 evaluateDistraction 判定「切出→切回」来回。
@@ -270,6 +306,8 @@ public final class PolicyScheduler {
     // ============ 查岗与分级拉回 ============
 
     private void evaluateCheckIn(long now, String current) {
+        // BUGFIX(召回误弹)：入口兜底——在任意聊天软件里绝不查岗召回。
+        if (isChatForeground(current)) return;
         if (!PolicyStore.checkinEnabled(appCtx)) {
             lastCheckInElapsed = 0;
             return;
@@ -347,6 +385,8 @@ public final class PolicyScheduler {
      * 触发后写冷却，避免和查岗弹窗在同一时刻叠加。
      */
     private void evaluateEmotionPopup(long now) {
+        // BUGFIX(召回误弹)：入口兜底——在任意聊天软件里不弹情绪召回弹窗。
+        if (isChatForeground(ScreenshotService.currentPackage())) return;
         if (!PolicyStore.emotionPopupEnabled(appCtx)) return;
         if (ClassScheduleState.isInClassNow(appCtx) || PolicyStore.isQuietNow(appCtx)) return;
         int miss = CompanionEmotionState.effectiveMissPercent(appCtx);
@@ -389,6 +429,8 @@ public final class PolicyScheduler {
     // ============ 主动找她 ============
 
     private void evaluateInitiative(long now, String current) {
+        // BUGFIX(召回误弹)：入口兜底——用户正泡在聊天软件里，不需要被「主动找TA」弹窗打断。
+        if (isChatForeground(current)) return;
         if (!PolicyStore.initiativeEnabled(appCtx)) return;
         if (ClassScheduleState.isInClassNow(appCtx)) return;   // 上课期间不主动找用户
 
@@ -475,7 +517,9 @@ public final class PolicyScheduler {
         // 之类抖动把分心计数虚增并误触二档训诫。
         if (isSystemExemptPackage(current)) return;
 
-        boolean inChat = current.equals(SELF_PKG) || current.equals(PolicyStore.targetPackage(appCtx));
+        // BUGFIX(召回误弹)：分心的「在聊天」判定改用统一白名单，微信/QQ 等也算在聊天，
+        // 从这些 App 切出才计一次分心，避免聊天打字被输入法抖动误判。
+        boolean inChat = isChatForeground(current);
 
         if (inChat) {
             if (!inChatNow) {
