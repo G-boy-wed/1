@@ -118,6 +118,8 @@ public class PullBackActivity extends Activity {
     /** 拉回弹窗统一入口：锁屏走 Activity，其余情况优先悬浮窗，失败再退回 Activity。 */
     public static void show(Context ctx, JSONObject cfg) {
         try {
+            // 上课全局静默总闸：分级拉回（查岗/分心/主动找/服务端 force_back_to_chat）上课一律不弹、不拉回。
+            if (ClassScheduleState.silenceIfInClass(ctx, "分级拉回弹窗")) return;
             if (isLocked(ctx)) { startActivity(ctx, cfg); return; }
             if (PullBackOverlay.canShow(ctx) && PullBackOverlay.show(ctx, cfg)) return;
             // v0.4.0 双保险：悬浮窗不可用时，后台 startActivity 会被系统拦截。

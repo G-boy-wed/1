@@ -34,6 +34,8 @@ public final class PolicyScheduler {
 
     private static final long TICK_MS = 20_000L; // 每 20 秒评估一次
     private static final String SELF_PKG = "dev.linjian.peek";
+    /** Kelivo（掌心窗宿主聊天 App）包名：其前台时按用户规则只保留情绪/归电弹窗。 */
+    private static final String KELIVO_PKG = "com.kelivo";
 
     /**
      * Bug #34：系统级白名单 —— 输入法、系统面板、媒体选择器、截屏工具、桌面/启动器
@@ -99,6 +101,15 @@ public final class PolicyScheduler {
         return SELF_PKG.equals(pkg);
     }
 
+    /**
+     * 用户规则：Kelivo（掌心窗宿主聊天 App）在前台时，除「想念用户/情绪弹窗」与「归电提醒」外，
+     * 其它一切弹窗（查岗/分心/主动找/使用时长锁/权限/课表提醒）都不得触发。
+     * 归电由 GuidianState / 服务端命令独立通道触发，不经过本调度器，故此处无需处理。
+     */
+    private static boolean isKelivoForeground(String pkg) {
+        return KELIVO_PKG.equals(pkg) || (pkg != null && pkg.toLowerCase().contains("kelivo"));
+    }
+
     /** BE-09：公开为两处共用（PolicyScheduler 分心统计 + ActivityEventStore 事件记录），名单单一来源。 */
     public static boolean isSystemExemptPackage(String pkg) {
         if (pkg == null || pkg.isEmpty()) return false;
@@ -151,6 +162,8 @@ public final class PolicyScheduler {
     private long lastPeriodAt = 0;
     private String usagePkg = "";          // 正在统计连续使用时长的包名
     private long usageStartAt = 0;         // 该包连续使用起始时间
+    private long usageLeftAt = 0;          // 最近一次停留在监控 App 的时刻（短暂切走不清零用）
+    private static final long USAGE_LOCK_GRACE_MS = 2 * 60_000L; // 离开监控 App 宽限 2 分钟，超出才重置累计
     private long lastUsageLockAt = 0;      // 上次自动锁定的时间（限频）
     private long lastEmotionPopupAt = 0;   // 上次情绪自动弹窗的时间（按最小间隔限频）
 
@@ -272,20 +285,29 @@ public final class PolicyScheduler {
         // 上课期间「自动关闭」所有可能引起弹窗的评估：查岗拉回 / 情绪感知 / 主动聊天 /
         // 分心查岗 / 使用时长自动锁 / 权限提醒，全部跳过；课表评估始终运行（含上课检测与课前/下课提醒）。
         // 课程结束后 inClass 置否，上述评估自动恢复（「课程结束后自动开启」）。
+        boolean kelivoForeground = isKelivoForeground(current);
         if (!inClass) {
-            // 已在聊天陪伴页 / 目标聊天 App（inTarget）：用户本就在「该回去的地方」，
-            // 查岗拉回 / 情绪弹窗 / 主动找 一律不弹（否则会出现「在聊天软件里被拉回聊天」的荒谬弹窗）。
-            // 分心判定仍运行：它只在「离开聊天去了别的 App」时才计，不会在聊天里误弹。
-            if (!inTarget) {
+            if (kelivoForeground) {
+                // 用户规则：Kelivo 前台时只保留「想念用户/情绪弹窗」，其余（查岗/分心/主动找/
+                // 使用时长锁/权限提醒）全部不弹。归电走独立通道，不受此处影响。
+                evaluateEmotionPopup(now);
+            } else if (!inTarget) {
+                // 已在聊天陪伴页 / 目标聊天 App（inTarget）：用户本就在「该回去的地方」，
+                // 查岗拉回 / 情绪弹窗 / 主动找 一律不弹（否则会出现「在聊天软件里被拉回聊天」的荒谬弹窗）。
+                // 分心判定仍运行：它只在「离开聊天去了别的 App」时才计，不会在聊天里误弹。
                 evaluateCheckIn(now, current);
                 evaluateEmotionPopup(now);
                 evaluateInitiative(now, current);
                 evaluateUsageLock(now, current);
                 evaluatePermissions(now, current);
+                evaluateDistraction(now, current);
+            } else {
+                // 其它聊天 App：保留分心判定（只在真的切出切回时计），不弹召回类弹窗。
+                evaluateDistraction(now, current);
             }
-            evaluateDistraction(now, current);
         }
-        evaluateClassSchedule();
+        // 课表提醒：Kelivo 前台时按用户规则也暂停（课前/下课提醒属于「其它弹窗」）。
+        if (!kelivoForeground) evaluateClassSchedule();
 
         // 弹窗矩阵每日触发：天气出门 / 守护日历大事件（每天各一次，上课/安静时段不弹）。
         try { AlertWindowManager.onTick(appCtx); } catch (Exception ignored) { }
@@ -322,7 +344,9 @@ public final class PolicyScheduler {
         if (lastCheckInElapsed == 0) lastCheckInElapsed = elapsed;
         // BE-04：以「上次实际拉回」为锚点计算下一次，而不是以「跳过时的 now」为锚点。
         nextCheckInAt = lastCheckInElapsed + interval;
-        if (now < nextCheckInAt) return;
+        // [A3-FIX] nextCheckInAt 工作在 elapsedRealtime（单调时钟）域，必须与同为单调时钟的
+        // elapsed 比较；原用 wall-clock 的 now 比较导致该提前返回分支永不触发。
+        if (elapsed < nextCheckInAt) return;
 
         if (PolicyStore.isQuietNow(appCtx)) {
             // 安静时段不打扰：本次跳过，不提前下次；离开安静时段后按原间隔节奏恢复。
@@ -349,7 +373,7 @@ public final class PolicyScheduler {
             cfg.put("intensity", intensity);
             cfg.put("threshold", threshold);
             cfg.put("title", strong ? AppPrefs.companionName(appCtx) + "要你回来" : AppPrefs.companionName(appCtx) + "在等你");
-            cfg.put("message", CompanionEmotionState.message(appCtx));
+            cfg.put("message", CompanionEmotionState.checkinMessage(appCtx));
             cfg.put("tone", strong ? "angry" : CompanionEmotionState.tone(appCtx));
             cfg.put("from", "local_checkin");
             // 弹窗类型标识：查岗拉回
@@ -397,7 +421,10 @@ public final class PolicyScheduler {
         if (PolicyStore.isInCooldown(appCtx)) return;
 
         // 情绪判定弹窗：标明情绪标签与百分比，并按百分比决定弹窗样式。
-        boolean strong = strongByThreshold();
+        // [R1-FIX] 情绪自动弹窗只由「训诫强制档」或「底层判定的强情绪」决定强制级别，
+        // 不纳入 forceBackThreshold——否则触发阈值(70)>强制阈值(55)会让所有情绪弹窗都不可拒绝，
+        // "拒绝，再等会儿"软级分支彻底消失。miss 阈值口径仅用于查岗/分心拉回。
+        boolean strong = PolicyStore.disciplineForceStrong(appCtx) || EmotionPerception.isStrongNow(appCtx);
         JSONObject cfg = new JSONObject();
         try {
             String companion = AppPrefs.companionName(appCtx);
@@ -409,7 +436,7 @@ public final class PolicyScheduler {
             cfg.put("intensity", CompanionEmotionState.effectiveIntensity(appCtx));
             cfg.put("threshold", PolicyStore.forceBackThreshold(appCtx));
             cfg.put("title", companion + "想你了");
-            cfg.put("message", CompanionEmotionState.message(appCtx)); // 随机文案，每次不同
+            cfg.put("message", CompanionEmotionState.missingMessage(appCtx)); // 想你情感文案，每次不同
             cfg.put("tone", strong ? "angry" : CompanionEmotionState.tone(appCtx));
             cfg.put("from", "emotion_popup");
             // 弹窗类型标识：情绪感知
@@ -478,20 +505,15 @@ public final class PolicyScheduler {
         String companion = AppPrefs.companionName(appCtx);
         if ("template".equals(mode)) {
             String tpl = PolicyStore.initiativeTemplate(appCtx);
-            if (tpl != null && !tpl.trim().isEmpty())
-                return tpl.replace("{companion}", companion).replace("{user}", AppPrefs.userName(appCtx));
+            if (tpl != null && !tpl.trim().isEmpty()) {
+                String rendered = tpl.replace("{companion}", companion).replace("{user}", AppPrefs.userName(appCtx));
+                return CompanionEmotionState.withDisciplineTone(appCtx, rendered);
+            }
         }
-        // 自由生成：从一组温柔的主动话术里随机挑一句。
-        String[] pool = {
-                companion + "，想你了，今天过得好吗？",
-                "有空回" + companion + "一句呀，在等你。",
-                companion + "刚发呆了一下，突然想找你说话。",
-                "今天有没有好好吃饭？" + companion + "有点惦记。",
-                companion + "在呢，想聊点什么都行。",
-                "忙完了没？" + companion + "想听你说说话。"
-        };
-        int i = (int) (System.currentTimeMillis() / 1000L) % pool.length;
-        return pool[i];
+        // 自由生成：主动聊天专属文案库——凸显「是我主动想你、才来找你」。
+        // 与查岗质问、想你情感、关心提醒各自独立，四类提示词不再雷同。
+        // 文案库内部已按训诫模式叠加管束意味（撒娇/命令随 mode）。
+        return CompanionEmotionState.initiativeMessage(appCtx);
     }
 
     // ============ 分心判定 ============
@@ -540,7 +562,7 @@ public final class PolicyScheduler {
                             && !ClassScheduleState.isInClassNow(appCtx)) {
                         distractLoopCount = 0;
                         boolean strong = strongByThreshold();
-                        String msg = CompanionEmotionState.message(appCtx)
+                        String msg = CompanionEmotionState.checkinMessage(appCtx)
                                 + "\n（刚才切出去又切回来了 " + loopTimes + " 次，是在分心吗？）";
                         showPullBack(strong, "distraction_loop", "分心查岗", msg);
                         PolicyStore.markAction(appCtx);
@@ -588,8 +610,8 @@ public final class PolicyScheduler {
                         && !ClassScheduleState.isInClassNow(appCtx)) {
                     boolean strong = strongByThreshold();
                     String msg = byAccum
-                            ? ("已经分心 " + cnt + " 次了，先回来陪" + AppPrefs.companionName(appCtx) + "。")
-                            : CompanionEmotionState.message(appCtx);
+                            ? ("已经分心 " + cnt + " 次了，老实说刚才干嘛去了？先回来把话讲清楚。")
+                            : CompanionEmotionState.checkinMessage(appCtx);
                     showPullBack(strong, byAccum ? "distraction_accumulated" : "distraction", "分心查岗", msg);
                     PolicyStore.markAction(appCtx);
                     if (byAccum) PolicyStore.setDistractionCount(appCtx, 0);
@@ -603,6 +625,10 @@ public final class PolicyScheduler {
     /** 是否达到拉回阈值：优先看训诫高档位（加强管控强制拉回），否则由底层代码算出的想你程度与强情绪决定。 */
     private boolean strongByThreshold() {
         if (PolicyStore.disciplineForceStrong(appCtx)) return true;
+        // [A1-FIX] 与 evaluateCheckIn 口径统一：想你程度达到强制拉回阈值也应判为 strong，
+        // 否则高想你值+平静情绪时情绪弹窗仍是 soft（可拒绝），削弱强制拉回。
+        int miss = CompanionEmotionState.effectiveMissPercent(appCtx);
+        if (miss >= PolicyStore.forceBackThreshold(appCtx)) return true;
         return EmotionPerception.isStrongNow(appCtx);
     }
 
@@ -618,7 +644,7 @@ public final class PolicyScheduler {
             cfg.put("intensity", CompanionEmotionState.effectiveIntensity(appCtx));
             cfg.put("threshold", PolicyStore.forceBackThreshold(appCtx));
             cfg.put("title", strong ? AppPrefs.companionName(appCtx) + "要你回来" : AppPrefs.companionName(appCtx) + "在等你");
-            cfg.put("message", (message != null && !message.trim().isEmpty()) ? message : CompanionEmotionState.message(appCtx));
+            cfg.put("message", (message != null && !message.trim().isEmpty()) ? message : CompanionEmotionState.messageForKind(appCtx, kindLabel));
             cfg.put("tone", strong ? "angry" : CompanionEmotionState.tone(appCtx));
             cfg.put("from", from);
             // 弹窗类型标识：卡片顶部会显示这个徽标，让用户一眼知道这是什么弹窗。
@@ -743,8 +769,15 @@ public final class PolicyScheduler {
             for (String p : pkgs.split("[,，\\s]+")) if (!p.trim().isEmpty()) watch.add(p.trim());
         }
         boolean watched = current != null && watch.contains(current);
-        if (!watched) { usagePkg = ""; usageStartAt = 0; return; }
-        if (!current.equals(usagePkg)) { usagePkg = current; usageStartAt = now; return; }
+        if (!watched) {
+            // 修复「切走再切回就重新计时」：短暂离开监控 App 不清零、保留累计时长；
+            // 只有离开超过 USAGE_LOCK_GRACE_MS（默认 2 分钟）才真正重置，避免抖一下就重来。
+            if (usagePkg.isEmpty() || usageStartAt == 0 || now - usageStartAt <= 0) return;
+            if (now - usageLeftAt > USAGE_LOCK_GRACE_MS) { usagePkg = ""; usageStartAt = 0; }
+            return;
+        }
+        if (!current.equals(usagePkg)) { usagePkg = current; usageStartAt = now; }
+        usageLeftAt = now; // 每次停留在监控 App 都刷新，配合上面的离开宽限
         if (usageStartAt == 0) { usageStartAt = now; return; }
         long usedMin = (now - usageStartAt) / 60_000L;
         int limit = PolicyStore.usageLockMinutes(appCtx);

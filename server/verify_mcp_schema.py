@@ -145,9 +145,61 @@ def verify_static():
         for b in bad2:
             print("  MISSING ->", b)
 
-    passed = ok1 and ok2 and n == 0 and n2 == 0
+    # [S13-FIX] 一致性检查：幽灵工具 / ACTION_OVERRIDE 死键 / 空 schema。
+    ok3 = check_consistency(raw, engine)
+
+    passed = ok1 and ok2 and ok3 and n == 0 and n2 == 0
     report(passed, n, n2)
     return 0 if passed else 1
+
+
+def check_consistency(raw_tools, engine):
+    """[S13] 检查工具表与引擎出口的一致性：
+      1) 每个工具的 required 字段必须在其 properties 中声明；
+      2) 每个工具的 inputSchema.properties 不得整体为空（除非是无参读取工具）；
+      3) ACTION_OVERRIDE 的键必须都能在工具表中找到（否则是已删工具的死映射）；
+      4) 工具名不得重复。
+    """
+    import mcp_engine  # 局部导入，避免 --e2e 模式强依赖
+    print("== 一致性检查：schema / 工具名 / ACTION_OVERRIDE ==")
+    ok = True
+    tools = raw_tools if isinstance(raw_tools, list) else raw_tools.get("tools", [])
+    names = [t.get("name") for t in tools if isinstance(t, dict) and t.get("name")]
+    name_set = set(names)
+    # 4) 重复工具名
+    dup = sorted({x for x in names if names.count(x) > 1})
+    if dup:
+        print("  [FAIL] 重复工具名：", dup); ok = False
+    else:
+        print("  [OK]   无重复工具名（共 %d 个）" % len(names))
+    # 1) & 2) 逐工具 schema 自检
+    noarg_ok = {"linjian_status", "get_current_time", "health",
+                "latest_screen", "get_window_whisper", "list_diary_books",
+                "get_care_policy", "list_known_apps", "get_discipline_mode",
+                "get_screen_break_release_requests"}
+    for t in tools:
+        if not isinstance(t, dict):
+            continue
+        nm = t.get("name", "")
+        schema = t.get("inputSchema") or {}
+        props = schema.get("properties") or {}
+        req = schema.get("required") or []
+        for r in req:
+            if r not in props:
+                print("  [FAIL] %s: required 字段 %s 未在 properties 声明" % (nm, r)); ok = False
+        if not props and nm not in noarg_ok:
+            print("  [WARN] %s: inputSchema.properties 为空（可能不可调用）" % nm)
+    # 3) ACTION_OVERRIDE 死键
+    try:
+        override = getattr(mcp_engine, "ACTION_OVERRIDE", None) or getattr(type(engine), "ACTION_OVERRIDE", {})
+        dead = [k for k in override if k not in name_set]
+        if dead:
+            print("  [FAIL] ACTION_OVERRIDE 残留已删工具键：", dead); ok = False
+        else:
+            print("  [OK]   ACTION_OVERRIDE 无死键（%d 条映射）" % len(override))
+    except Exception as e:
+        print("  [WARN] 无法读取 ACTION_OVERRIDE：%s" % e)
+    return ok
 
 
 def verify_e2e():

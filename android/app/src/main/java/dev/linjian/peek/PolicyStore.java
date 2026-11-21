@@ -89,9 +89,6 @@ public final class PolicyStore {
     public static final String KEY_USAGE_LOCK_DURATION = PREFIX + "usage_lock_dur";    // 锁定 M 分钟，默认 15
     public static final String KEY_USAGE_LOCK_PACKAGES = PREFIX + "usage_lock_pkgs";   // 监控的包名（逗号分隔，空=仅目标 App）
 
-    // —— 识图感知（可开关；默认开启，用户可在「查岗与管束」里关闭）——
-    public static final String KEY_OCR_ENABLED = PREFIX + "ocr_enabled";          // 识图感知总开关，默认 true
-
     // —— 情绪感知自动弹窗（想你程度达阈值时，独立触发「同意/拒绝」全局弹窗）——
     public static final String KEY_EMOTION_POPUP_ENABLED = PREFIX + "emo_popup_enabled";   // 自动弹窗总开关，默认 true
     public static final String KEY_EMOTION_POPUP_THRESHOLD = PREFIX + "emo_popup_threshold"; // 想你达到该 % 触发，默认 70
@@ -156,7 +153,6 @@ public final class PolicyStore {
     private static final boolean DEF_USAGE_LOCK_ENABLED = true;  // false -> true：使用时长自动锁默认开
     private static final int DEF_USAGE_LOCK_MIN = 45;
     private static final int DEF_USAGE_LOCK_DUR = 15;
-    private static final boolean DEF_OCR_ENABLED = true;
     private static final boolean DEF_EMO_POPUP_ENABLED = true;
     private static final int DEF_EMO_POPUP_THRESHOLD = 70;
     private static final int DEF_EMO_POPUP_INTERVAL = 30;
@@ -410,10 +406,6 @@ public final class PolicyStore {
     public static String usageLockPackages(Context ctx) { return getString(ctx, KEY_USAGE_LOCK_PACKAGES, ""); }
     public static void setUsageLockPackages(Context ctx, String v) { putString(ctx, KEY_USAGE_LOCK_PACKAGES, v, "时长自动锁监控包名"); }
 
-    // —— 识图感知（可开关）——
-    public static boolean ocrEnabled(Context ctx) { return getBool(ctx, KEY_OCR_ENABLED, DEF_OCR_ENABLED); }
-    public static void setOcrEnabled(Context ctx, boolean v) { putBool(ctx, KEY_OCR_ENABLED, v, "识图感知开关"); }
-
     // —— 情绪感知自动弹窗（独立于查岗，想你达阈值即弹「同意/拒绝」）——
     public static boolean emotionPopupEnabled(Context ctx) { return getBool(ctx, KEY_EMOTION_POPUP_ENABLED, DEF_EMO_POPUP_ENABLED); }
     public static void setEmotionPopupEnabled(Context ctx, boolean v) { putBool(ctx, KEY_EMOTION_POPUP_ENABLED, v, "情绪自动弹窗开关"); }
@@ -644,7 +636,6 @@ public final class PolicyStore {
         e.putInt(KEY_USAGE_LOCK_MINUTES, DEF_USAGE_LOCK_MIN);
         e.putInt(KEY_USAGE_LOCK_DURATION, DEF_USAGE_LOCK_DUR);
         e.putString(KEY_USAGE_LOCK_PACKAGES, "");
-        e.putBoolean(KEY_OCR_ENABLED, DEF_OCR_ENABLED);
         e.putBoolean(KEY_EMOTION_POPUP_ENABLED, DEF_EMO_POPUP_ENABLED);
         e.putInt(KEY_EMOTION_POPUP_THRESHOLD, DEF_EMO_POPUP_THRESHOLD);
         e.putInt(KEY_EMOTION_POPUP_INTERVAL, DEF_EMO_POPUP_INTERVAL);

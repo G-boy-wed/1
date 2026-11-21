@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>掌心窗 · 全范围排查 + MCP增删 + UI美化验证</title>
+<style>
+  :root{--bg:#eef1f3;--card:#fff;--ink:#2a3439;--sub:#6b7a82;--line:#e2e8ec;--blue:#5B7385;--red:#c0392b;--amber:#b8860b;--green:#3e8e6b}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;line-height:1.65;padding:28px 18px}
+  .wrap{max-width:940px;margin:0 auto}
+  h1{font-size:24px;margin:0 0 6px}
+  .meta{color:var(--sub);font-size:13px;margin-bottom:24px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px 22px;margin-bottom:18px;box-shadow:0 2px 12px rgba(40,60,80,.05)}
+  h2{font-size:18px;margin:0 0 14px;padding-left:11px;border-left:4px solid var(--blue)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--sub);font-weight:600;background:#f7f9fa}
+  .hi{color:var(--red);font-weight:700}.mid{color:var(--amber);font-weight:700}.low{color:var(--sub);font-weight:600}
+  .ok{color:var(--green);font-weight:600}
+  code{background:#eef2f4;padding:1px 6px;border-radius:5px;font-size:12.5px;color:#3a5a6b}
+  .note{font-size:13px;color:var(--sub);margin-top:12px;padding:10px 12px;background:#f6f9fa;border-radius:8px;border:1px dashed var(--line)}
+  .pill{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;background:#eef2f5;color:var(--blue);margin:2px 4px 2px 0}
+  .pill.add{background:#eaf5ef;color:var(--green)}.pill.del{background:#fdecea;color:var(--red)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>掌心窗 · 全范围排查 + MCP 增删 + UI 简约美化验证</h1>
+  <div class="meta">2026-11-22 · 只读排查 → 逐条确认 → 修改 · 编译验签全过 · APK SHA256 e61ec21c…6a8266c9dc168c4ed</div>
+
+  <div class="card">
+    <h2>一、全范围排查出的 7 个 bug（全修）</h2>
+    <table>
+      <tr><th style="width:36px">#</th><th style="width:56px">严重度</th><th>问题与修复</th></tr>
+      <tr><td>1</td><td class="hi">高</td><td><b>12 个幽灵 MCP 工具</b>：专注模式 8 + 桌面角标 4，功能早删工具没删，调用后变 noop 空转 → 已从清单删除，133→121。</td></tr>
+      <tr><td>2</td><td class="mid">中</td><td><b>MCP 编辑日历不递增 version</b>：新建/删除都递增，唯独编辑漏了，多端刷新判断失灵 → 补 bumpCalendarVersion。</td></tr>
+      <tr><td>3</td><td class="mid">中</td><td><b>_t_shared_list limit 负数</b>：[-limit:] 变正向切片取错数据 → max(1,…) 钳制。</td></tr>
+      <tr><td>4</td><td class="low">低</td><td><b>归电主题按钮选中态恒未选中</b>：保存值与重绘比对名不一致 → 统一并改为跟随全局主题。</td></tr>
+      <tr><td>5</td><td class="low">低</td><td><b>无障碍延迟回调未取消</b>：12 秒内退出页面仍刷新已停止 Activity → 记录 Runnable，onPause/onDestroy 移除。</td></tr>
+      <tr><td>6</td><td class="low">低</td><td><b>_t_shared_write 失败误报成功</b>：参数校验失败用 _text 而非 _error → 改用 _error。</td></tr>
+      <tr><td>7</td><td class="low">低</td><td><b>/api/tour/state 事件串设备</b>：schedule 按设备、events 却全局 → events 按 device_id 过滤。</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>二、MCP 工具增删（最终 123 个，无重复）</h2>
+    <p style="margin:0 0 10px;color:var(--sub);font-size:14px">删除前先发现两处"伪冗余"并跟你确认后保留：<code>screen_ocr</code>（抓当前屏幕）与 <code>analyze_image</code>（分析用户发的图）是不同入口且属识图 5 工具；<code>set_companion_emotion</code> 是情绪写入底层 action，删了会破坏前几轮的"弹窗按情绪生成"。</p>
+    <div>
+      <span class="pill del">− start_screen_break</span><span class="pill del">− stop_screen_break</span>
+      <span class="pill del">− temporary_screen_release</span><span class="pill del">− deny_break_release_request</span>
+      <span class="pill del">− add_guardian_day</span><span class="pill del">− set_companion_emotion</span>
+      <span class="pill del">− 12 幽灵工具</span>
+    </div>
+    <div style="margin-top:8px">
+      <span class="pill add">+ set_policy</span><span class="pill add">+ get_policy</span><span class="pill add">+ reset_policy</span>
+      <span class="pill add">+ get_class_schedule</span><span class="pill add">+ upsert_class_entry</span><span class="pill add">+ remove_class_entry</span>
+      <span class="pill add">+ edit_shared_memory</span><span class="pill add">+ get_now_state</span>
+    </div>
+    <div class="note">策略三件套把手机端约 50 项可调参数暴露给 MCP；课表读/增改/删、记忆改单条、此刻状态快照补齐能力缺口。每个新工具都补齐了白名单 + 手机端 handler / READ 映射，无新增空转工具。</div>
+  </div>
+
+  <div class="card">
+    <h2>三、UI 简约美化（守护页 + 主题 + 弹窗）</h2>
+    <table>
+      <tr><th style="width:130px">改动</th><th>内容</th></tr>
+      <tr><td>守护页卡片流</td><td>48dp 圆角图标底、标题 14sp 加粗、说明压到 12 字内并改 11sp、去掉 › 箭头、开关按钮跟随主题色（含写入失败回滚抑制）。</td></tr>
+      <tr><td>分组标题</td><td>6 组标题改 11sp Medium + 主题色，层级更清晰。</td></tr>
+      <tr><td>主题配色</td><td>6 套统一降饱和加雾感；<b>默认改为雾灰 + 雾霾蓝</b>（老用户主题不受影响）。</td></tr>
+      <tr><td>弹窗跟随主题</td><td>归电全屏页、居中弹窗、拉回弹窗统一从 UITheme 派生配色（<code>GuidianTheme.fromContext</code>），切主题/亮暗时三类弹窗同步变；归电主题按钮改为直接联动全局主题，真正生效。</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>四、构建与约束核对</h2>
+    <table>
+      <tr><td>编译</td><td class="ok">通过</td><td>Android build.sh 通过；Python py_compile 通过</td></tr>
+      <tr><td>签名验签</td><td class="ok">v1 / v2 / v3 全过</td><td>固定公钥摘要 8f89e9f8…b1672e 一致</td></tr>
+      <tr><td>MCP</td><td class="ok">123 工具</td><td>无重复、幽灵 0、冗余已删、新增齐全、识图/情绪/一起看/天气关键工具全在</td></tr>
+      <tr><td>闹钟链路</td><td class="ok">正常</td><td>set_alarm 工具→白名单→手机端 setAlarm（精确闹钟权限申请 + setAlarmClock 兜底），无障碍定闹钟</td></tr>
+      <tr><td>既有约束</td><td class="ok">未破坏</td><td>上课静默、一起看、识图 5 工具、专注模式已剔除、区县天气、dex 无 FocusLock/PalmDesk 残留</td></tr>
+      <tr><td>APK</td><td colspan="2"><code>/workspace/android/Zhangxinchuang-public-v0.3.9.0.apk</code> · SHA256 e61ec21c…6a8266c9dc168c4ed</td></tr>
+    </table>
+    <div class="note">改动文件：UITheme.java、GuidianTheme.java、MainActivity.java、AlertCenterActivity.java、GuidianActivity.java、PullBackCard.java、CalendarState.java、CompanionService.java（Android）；mcp_tools.json、mcp_engine.py、linjian_server.py（Server）。两个 update.json 已同步 SHA 与 changelog。</div>
+  </div>
+</div>
+</body>
+</html>

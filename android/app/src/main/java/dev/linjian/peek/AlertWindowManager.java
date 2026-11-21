@@ -27,21 +27,63 @@ public final class AlertWindowManager {
         CompanionService.showCenterAlert(ctx, title, message, "gentle", "知道啦", dailyKind(type), false);
     }
 
-    /** 天气出门弹窗：抓当前经纬度气象，弹出带祁晏口吻的穿衣/带伞卡片。 */
+    /**
+     * 天气出门弹窗：抓当前地区气象，弹出带陪伴口吻的穿衣/带伞卡片。
+     * [FIX] 弹窗显示的「地址」必须是用户设置的地区名称（如 家/学校）或实时天气解析出的
+     * 精确地址（geo_display/resolved_city），而不是城市名占位或「当前地区」。
+     */
     public static void showWeatherAlert(Context ctx, String city, String district) {
-        JSONObject live = WeatherLive.cached(ctx, city, district);
+        JSONObject current = WeatherState.currentLocation(ctx);
+        String areaName = current.optString("name", "");
+        // 弹窗前同步确保按区县取到最新实况，避免读占位/过期缓存导致温度与区县不匹配。
+        JSONObject live = WeatherLive.ensureFresh(ctx, city, district);
+        if (live == null) live = WeatherLive.cached(ctx, city, district);
+        // 精确地址优先级：① uapis 返回的省·市·区县(geo_display) ② 省+市(admin1+admin2) ③ 地区别名 ④ 城市名。
+        // 保证弹窗标注的是「正确的区县」，从而与区县级温度、穿衣提醒一一对应。
+        String precise = "";
+        if (live != null) {
+            precise = firstNonEmpty(
+                    live.optString("geo_display", ""),
+                    joinProvinceCity(live.optString("province", live.optString("admin1", "")), live.optString("resolved_city", "")),
+                    live.optString("resolved_city", ""));
+        }
+        // [FIX] 只填了地区别名（如「家」）而没有任何可用天气时，不弹「当前地区」空卡片——
+        // 没有真实城市/区县/坐标可按，弹卡片只会展示占位文案，属于无效打扰。
+        if ((live == null || !live.optBoolean("ok")) && city.isEmpty() && district.isEmpty()) {
+            DebugState.append(ctx, "天气弹窗跳过：地区未填城市/区县且无可用天气，避免空卡片");
+            return;
+        }
+        String displayAddr = firstNonEmpty(precise, areaName, city);
         String advice = (live != null && live.optBoolean("ok"))
-                ? WeatherLive.advice(live, (city == null || city.isEmpty()) ? "当前地区" : city)
-                : "出门建议：实时天气没查到，先按体感穿衣。";
-        String title = (city == null || city.isEmpty()) ? "天气提醒" : ("天气 · " + city);
+                ? WeatherLive.advice(live, displayAddr)
+                : ("出门建议：" + displayAddr + "的实时天气暂时没查到，先按体感穿衣。");
+        String title = "天气 · " + (displayAddr.isEmpty() ? "当前地区" : displayAddr);
         CompanionService.showCenterAlert(ctx, title, advice, "gentle", "收到啦", "天气出门", false);
+    }
+
+    /** 省 + 市拼接，供没有 geo_display 时的地址兜底。 */
+    private static String joinProvinceCity(String province, String city) {
+        province = province == null ? "" : province.trim();
+        city = city == null ? "" : city.trim();
+        if (province.isEmpty()) return city;
+        if (city.isEmpty()) return province;
+        if (city.startsWith(province)) return city;
+        return province + "·" + city;
+    }
+
+    private static String firstNonEmpty(String... values) {
+        if (values == null) return "";
+        for (String v : values) if (v != null && !v.trim().isEmpty()) return v.trim();
+        return "";
     }
 
     /** 守护日历大事件弹窗：纪念日/生日/生理期倒数。 */
     public static void showCalendarBanner(Context ctx, JSONObject item) {
         if (item == null) return;
         String title = item.optString("title", "守护日子");
-        int days = item.optInt("daysLeft", -1);
+        // [FIX] CalendarState.toJson() 写入的键是 days_left（下划线），旧代码读驼峰 daysLeft 恒为 -1，
+        // 导致「就是今天/还有 N 天」永远不显示。保留 daysLeft 兜底以兼容其它来源。
+        int days = item.has("days_left") ? item.optInt("days_left", -1) : item.optInt("daysLeft", -1);
         String sub = days == 0 ? "就是今天" : (days > 0 ? ("还有 " + days + " 天") : "");
         String text = item.optString("banner_text", item.optString("text", ""));
         CompanionService.showCenterAlert(ctx, title + (sub.isEmpty() ? "" : " · " + sub), text, "gentle", "我记着呢", "守护日历", false);
@@ -71,7 +113,8 @@ public final class AlertWindowManager {
         try {
             if (ClassScheduleState.isInClassNow(ctx) || PolicyStore.isQuietNow(ctx)) return;
             int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
-            if (hour < 6 || hour > 23) return; // 仅白天/清晨触发
+            // [FIX] HOUR_OF_DAY 取值 0~23，原 hour>23 恒假导致 23 点整仍弹窗；改为 >=23 让 23 点起静默。
+            if (hour < 6 || hour >= 23) return; // 仅 06:00~22:59 触发
 
             // 1) 天气出门弹窗：每天首次
             if (AppPrefs.get(ctx).getBoolean(AppPrefs.KEY_RULE_WEATHER, true)
@@ -79,7 +122,12 @@ public final class AlertWindowManager {
                 JSONObject cur = WeatherState.collect(ctx).optJSONObject("current");
                 String city = cur == null ? "" : cur.optString("city", "");
                 String district = cur == null ? "" : cur.optString("district", "");
-                if (city != null && !city.isEmpty()) {
+                String areaName = cur == null ? "" : cur.optString("name", "");
+                // 地区别名 / 城市 / 区县任一存在即可弹，确保只设了区县也能出天气弹窗。
+                boolean hasArea = (city != null && !city.isEmpty())
+                        || (areaName != null && !areaName.isEmpty())
+                        || (district != null && !district.isEmpty());
+                if (hasArea) {
                     showWeatherAlert(ctx, city, district);
                     PolicyStore.markDailyAlertShown(ctx, PolicyStore.KEY_WEATHER_ALERT_DATE);
                 }

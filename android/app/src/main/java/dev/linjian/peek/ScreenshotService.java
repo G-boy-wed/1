@@ -93,7 +93,7 @@ public class ScreenshotService extends AccessibilityService {
         instance = this;
         NowState.start(this);
         PolicyScheduler.start(this, "accessibility");
-        DebugState.append(this, "无障碍服务已连接：截图/读屏/节点坐标/活动轨迹/远程息屏/专注模式可用 v0.3.9.0");
+        DebugState.append(this, "无障碍服务已连接：截图/读屏/节点坐标/活动轨迹/远程息屏可用 v0.3.9.0");
         watchdog = new Handler(Looper.getMainLooper());
         watchdog.postDelayed(watchdogTick, 15000);
         startBackgroundPolling();
@@ -119,7 +119,6 @@ public class ScreenshotService extends AccessibilityService {
         }
         if (t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && pkg != null) {
             ActivityEventStore.recordForegroundChange(this, pkg.toString());
-            FocusMode.onForegroundPackage(this, pkg.toString());
         }
         if (pkg != null && (
                 t == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED

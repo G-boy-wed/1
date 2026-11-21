@@ -58,7 +58,9 @@ public final class DisciplineController {
         String configured = PolicyStore.disciplineText(ctx);
         String reason = customReason == null ? "" : customReason.trim();
         if (configured != null && !configured.trim().isEmpty()) {
-            return reason.isEmpty() ? configured : configured + "\n（" + reason + "）";
+            // [FIX] 自定义文案也必须带语气标签，否则 gentle/strict 用同一句自定义话术时完全看不出区别。
+            String body = reason.isEmpty() ? configured : configured + "\n（" + reason + "）";
+            return toneBadge(ctx) + " " + body;
         }
         String reasonText = reason.isEmpty() ? "" : "【" + reason + "】\n";
         String name = AppPrefs.userName(ctx);

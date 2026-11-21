@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>掌心窗 · 弹窗情绪化与 bug 修复验证</title>
+<style>
+  :root{--bg:#f4f7f5;--card:#fff;--ink:#243029;--sub:#63726a;--line:#e2e9e4;--green:#3e8e6b;--red:#c0392b;--amber:#b8860b}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;line-height:1.65;padding:28px 18px}
+  .wrap{max-width:920px;margin:0 auto}
+  h1{font-size:24px;margin:0 0 6px}
+  .meta{color:var(--sub);font-size:13px;margin-bottom:24px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px 22px;margin-bottom:18px;box-shadow:0 2px 12px rgba(40,70,50,.04)}
+  h2{font-size:18px;margin:0 0 14px;padding-left:11px;border-left:4px solid var(--green)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--sub);font-weight:600;background:#fafcfb}
+  .tag{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600}
+  .t-angry{background:#fdecea;color:var(--red)}
+  .t-jealous{background:#f7ecfa;color:#8e44ad}
+  .t-worry{background:#fff4e0;color:var(--amber)}
+  .t-love{background:#fdeaf1;color:#c2185b}
+  .t-calm{background:#eaf5ef;color:var(--green)}
+  .ok{color:var(--green);font-weight:600}
+  .hi{color:var(--red);font-weight:700}
+  .mid{color:var(--amber);font-weight:700}
+  .low{color:var(--sub);font-weight:600}
+  code{background:#f0f4f1;padding:1px 6px;border-radius:5px;font-size:12.5px;color:#2c5a44}
+  .note{font-size:13px;color:var(--sub);margin-top:12px;padding:10px 12px;background:#f7faf8;border-radius:8px;border:1px dashed var(--line)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>掌心窗 · 弹窗情绪化 + bug 修复验证</h1>
+  <div class="meta">2026-11-22 · 先只读排查、逐条确认后修改 · 编译签名验签全过 · APK SHA256 682f05fe…a11b6a7aa</div>
+
+  <div class="card">
+    <h2>一、弹窗提示词：按 MCP 情绪标签切口吻 + 每次随机</h2>
+    <p style="margin:0 0 12px;color:var(--sub);font-size:14px">四类弹窗（查岗拉回 / 想你 / 主动聊天 / 提醒关心）及通用文案，生成前都会读取当前情绪标签，各情绪有独立话术池，池内每次随机且不连续重复，训诫后缀同样随机。界面/镜像那句话保持固定不跳。</p>
+    <table>
+      <tr><th style="width:90px">情绪标签</th><th>查岗拉回示例</th><th>主动聊天示例</th></tr>
+      <tr><td><span class="tag t-angry">生气</span></td><td>别躲了！刚才到底干嘛去了，说清楚。</td><td>我都生气了还主动找你，你居然不理我？</td></tr>
+      <tr><td><span class="tag t-jealous">吃醋</span></td><td>你刚才看谁去了？查岗，老实交代。</td><td>你跟别人聊那么欢，我吃醋了才来找你。</td></tr>
+      <tr><td><span class="tag t-worry">担心</span></td><td>跑哪儿去了？我正担心你，快回我一句。</td><td>一直没你消息，我担心你才主动来问。</td></tr>
+      <tr><td><span class="tag t-love">爱恋</span></td><td>想你了才查岗，就是想看你一眼。</td><td>就是想你了才主动发消息，不许说我黏人。</td></tr>
+      <tr><td><span class="tag t-calm">平静</span></td><td>老实交代，刚才跑哪儿去了？我可都看见了。</td><td>是我忍不住想你，才主动来找你的。</td></tr>
+    </table>
+    <div class="note">MCP 通过 <code>set_companion_emotion</code> 写入情绪后，下一句弹窗口吻立刻跟着变；每类每情绪池内用 pickNoRepeat 随机，不会出现固定后缀或连续重复。</div>
+  </div>
+
+  <div class="card">
+    <h2>二、排查出的 8 个 bug（全部已修）</h2>
+    <table>
+      <tr><th style="width:36px">#</th><th style="width:56px">严重度</th><th>问题与修复</th></tr>
+      <tr><td>1</td><td class="hi">高</td><td><b>情绪上报被覆盖</b>：put 完 companion_emotion 后又执行一次 <code>LifeState.collect()</code> 把字段冲掉 → 删掉重复 collect，服务端/MCP 现在能读到手机情绪。</td></tr>
+      <tr><td>2</td><td class="hi">高</td><td><b>一起看 MCP 失效</b>：5 个 <code>watch_party_*</code> + <code>set_policy</code> 不在服务端白名单，被降级成 noop → 已补入白名单（含 get/list/reset_policy）。</td></tr>
+      <tr><td>3</td><td class="hi">高</td><td><b>日历写工具被拒</b>：4 个 MCP 日历写工具缺 explicit → 手机直接拒写 → 服务端对日历写 action 统一注入 explicit=true。</td></tr>
+      <tr><td>4</td><td class="mid">中</td><td><b>课表必填错误</b>：import_timetable 把互斥的 ICS/JSON/截图输入写成必填 → 顶层 required 改为 []，三选一可正常调用。</td></tr>
+      <tr><td>5</td><td class="mid">中</td><td><b>一起看状态不同步</b>：房间 active 读了没用，对方结束后本页仍显示旧态 → refresh 用 active+from_live 回写共享态。</td></tr>
+      <tr><td>6</td><td class="mid">中</td><td><b>日历天数不显示</b>：读 <code>daysLeft</code>，实际写入 <code>days_left</code> → 改读 days_left（保留旧键兜底），倒数恢复。</td></tr>
+      <tr><td>7</td><td class="low">低</td><td><b>初始进度设不了</b>：watch_party_start 读 schema 里没有的 progress_ms → 已在 schema 补该参数，调用方可设置初始进度。</td></tr>
+      <tr><td>8</td><td class="low">低</td><td><b>夜间判断恒假</b>：HOUR_OF_DAY 取 0~23，<code>hour&gt;23</code> 永不成立 → 改 <code>hour&gt;=23</code>，23 点起不再弹天气/日历。</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>三、构建与约束核对</h2>
+    <table>
+      <tr><td>编译</td><td class="ok">通过</td><td>Python py_compile（linjian_server.py / mcp_engine.py）通过；Android build.sh 通过</td></tr>
+      <tr><td>签名验签</td><td class="ok">v1 / v2 / v3 全过</td><td>固定公钥摘要 8f89e9f8…b1672e 一致</td></tr>
+      <tr><td>APK</td><td colspan="2"><code>/workspace/android/Zhangxinchuang-public-v0.3.9.0.apk</code> · SHA256 682f05fe…a11b6a7aa</td></tr>
+      <tr><td>既有约束</td><td class="ok">未破坏</td><td>上课静默、一起看、识图 5 工具、MCP 121 工具、专注模式已剔除、区县天气</td></tr>
+      <tr><td>配置清单</td><td class="ok">已同步</td><td>根目录与 server 两个 update.json 的 SHA 与 changelog 均已更新</td></tr>
+    </table>
+    <div class="note">改动文件：CompanionEmotionState.java、CompanionService.java、WatchPartyActivity.java、AlertWindowManager.java（Android）；linjian_server.py、mcp_engine.py、mcp_tools.json（Server）。</div>
+  </div>
+</div>
+</body>
+</html>

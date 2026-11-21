@@ -35,7 +35,7 @@ public final class PolicyCommand {
         a.put(meta("force_back_threshold", "int", 1, 100, 70, "分级拉回阈值：想你程度达到此值触发强拉回"));
         a.put(meta("decline_reason_required", "bool", 0, 0, false, "软拉回时是否必须填写拒绝理由"));
         a.put(meta("target_package", "string", 0, 0, "com.psyche.kelivo", "拉回目标 App 包名"));
-        a.put(meta("theme_override", "string", 0, 0, "", "弹窗主题覆盖（空=跟随归电）"));
+        // [R2-FIX] 移除 theme_override：弹窗主题统一跟随全局 UITheme。
         a.put(meta("position_override", "string", 0, 0, "", "弹窗位置覆盖：空/top/center/bottom"));
         a.put(meta("cooldown_min", "int", 0, 240, 5, "同类提醒冷却（分钟）"));
         a.put(meta("checkin_enabled", "bool", 0, 0, true, "是否开启随机查岗"));
@@ -76,8 +76,7 @@ public final class PolicyCommand {
         a.put(meta("usage_lock_duration", "int", 1, 1440, 15, "自动锁定持续多少分钟"));
         a.put(meta("usage_lock_packages", "string", 0, 0, "", "监控包名（逗号分隔，空=仅目标 App）"));
 
-        // —— 识图 / 情绪自动弹窗 ——
-        a.put(meta("ocr_enabled", "bool", 0, 0, true, "识图感知总开关（关闭后本地与 MCP 都不可读屏）"));
+        // —— 情绪自动弹窗 ——
         a.put(meta("emotion_popup_enabled", "bool", 0, 0, true, "情绪达标自动弹窗开关（独立于查岗）"));
         a.put(meta("emotion_popup_threshold", "int", 1, 100, 70, "想你达到此百分比自动弹「同意/拒绝」弹窗"));
         a.put(meta("emotion_popup_interval_min", "int", 1, 1440, 30, "两次情绪弹窗最小间隔（分钟）"));
@@ -114,6 +113,29 @@ public final class PolicyCommand {
 
     // ============ 命令分发 ============
 
+    /**
+     * [FIX] 兼容两种 fields 位置：命令顶层 cmd.fields（手机端本地调用）与 cmd.payload.fields
+     * （服务端/MCP 经 enqueue 下发，payload 不会自动展开到顶层）。此前只读顶层，导致 MCP
+     * set_care_policy 下发的 payload.fields 全部读空、写入静默失败却回执「成功」。
+     */
+    private static JSONObject extractFieldsObj(JSONObject cmd) {
+        JSONObject f = cmd.optJSONObject("fields");
+        if (f == null) {
+            JSONObject payload = cmd.optJSONObject("payload");
+            if (payload != null) f = payload.optJSONObject("fields");
+        }
+        return f;
+    }
+
+    private static JSONArray extractFieldsArr(JSONObject cmd) {
+        JSONArray a = cmd.optJSONArray("fields");
+        if (a == null) {
+            JSONObject payload = cmd.optJSONObject("payload");
+            if (payload != null) a = payload.optJSONArray("fields");
+        }
+        return a;
+    }
+
     public static JSONObject handleCommand(Context ctx, JSONObject cmd) {
         String action = cmd.optString("action", "");
         try {
@@ -127,13 +149,13 @@ public final class PolicyCommand {
                 return ok("fields", catalog);
             }
             if ("get_policy".equals(action) || "get_policy_fields".equals(action)) {
-                JSONObject fields = cmd.optJSONObject("fields");
-                JSONArray arr = cmd.optJSONArray("fields");
+                JSONObject fields = extractFieldsObj(cmd);
+                JSONArray arr = extractFieldsArr(cmd);
                 JSONObject out = currentSettings(ctx, fields, arr);
                 return ok("settings", out);
             }
             if ("set_policy".equals(action) || "set_policy_fields".equals(action)) {
-                JSONObject fields = cmd.optJSONObject("fields");
+                JSONObject fields = extractFieldsObj(cmd);
                 if (fields == null) fields = new JSONObject();
                 JSONObject result = applySettings(ctx, fields);
                 return result;
@@ -149,6 +171,9 @@ public final class PolicyCommand {
     }
 
     // ============ 读取 ============
+
+    /** [SYNC] 导出当前全部策略配置快照，供状态上报镜像到服务端，保证 MCP 查询读到手机最新值。 */
+    public static JSONObject snapshot(Context ctx) { return currentSettings(ctx, null, null); }
 
     /** 返回当前全部配置；若指定 fields（对象取键或数组取元素），只返回这些字段。 */
     private static JSONObject currentSettings(Context ctx, JSONObject fieldsObj, JSONArray fieldsArr) {
@@ -201,7 +226,6 @@ public final class PolicyCommand {
             case "force_back_threshold": return PolicyStore.forceBackThreshold(ctx);
             case "decline_reason_required": return PolicyStore.declineReasonRequired(ctx);
             case "target_package": return PolicyStore.targetPackage(ctx);
-            case "theme_override": return PolicyStore.themeOverride(ctx);
             case "position_override": return PolicyStore.positionOverride(ctx);
             case "cooldown_min": return PolicyStore.cooldownMinutes(ctx);
             case "checkin_enabled": return PolicyStore.checkinEnabled(ctx);
@@ -236,8 +260,7 @@ public final class PolicyCommand {
             case "usage_lock_minutes": return PolicyStore.usageLockMinutes(ctx);
             case "usage_lock_duration": return PolicyStore.usageLockDuration(ctx);
             case "usage_lock_packages": return PolicyStore.usageLockPackages(ctx);
-            // 识图 / 情绪自动弹窗
-            case "ocr_enabled": return PolicyStore.ocrEnabled(ctx);
+            // 情绪自动弹窗
             case "emotion_popup_enabled": return PolicyStore.emotionPopupEnabled(ctx);
             case "emotion_popup_threshold": return PolicyStore.emotionPopupThreshold(ctx);
             case "emotion_popup_interval_min": return PolicyStore.emotionPopupIntervalMin(ctx);
@@ -303,7 +326,6 @@ public final class PolicyCommand {
             case "force_back_threshold": PolicyStore.setForceBackThreshold(ctx, asInt(raw)); return 0;
             case "decline_reason_required": PolicyStore.setDeclineReasonRequired(ctx, asBool(raw)); return 0;
             case "target_package": PolicyStore.setTargetPackage(ctx, asString(raw)); return 0;
-            case "theme_override": PolicyStore.setThemeOverride(ctx, asString(raw)); return 0;
             case "position_override": PolicyStore.setPositionOverride(ctx, asString(raw)); return 0;
             case "cooldown_min": PolicyStore.setCooldown(ctx, asInt(raw)); return 0;
             case "checkin_enabled": PolicyStore.setCheckinEnabled(ctx, asBool(raw)); return 0;
@@ -338,8 +360,7 @@ public final class PolicyCommand {
             case "usage_lock_minutes": PolicyStore.setUsageLockMinutes(ctx, asInt(raw)); return 0;
             case "usage_lock_duration": PolicyStore.setUsageLockDuration(ctx, asInt(raw)); return 0;
             case "usage_lock_packages": PolicyStore.setUsageLockPackages(ctx, asString(raw)); return 0;
-            // 识图 / 情绪自动弹窗
-            case "ocr_enabled": PolicyStore.setOcrEnabled(ctx, asBool(raw)); return 0;
+            // 情绪自动弹窗
             case "emotion_popup_enabled": PolicyStore.setEmotionPopupEnabled(ctx, asBool(raw)); return 0;
             case "emotion_popup_threshold": PolicyStore.setEmotionPopupThreshold(ctx, asInt(raw)); return 0;
             case "emotion_popup_interval_min": PolicyStore.setEmotionPopupIntervalMin(ctx, asInt(raw)); return 0;

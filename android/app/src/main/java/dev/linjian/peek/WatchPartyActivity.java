@@ -40,7 +40,8 @@ public class WatchPartyActivity extends Activity {
     private SeekBar seekBar;
     private EditText input;
     private boolean userSeeking = false;
-    private boolean sharing = false;
+    // [U7-FIX] sharing 在 UI 线程改写、Timer 后台线程读取，声明 volatile 保证跨线程可见性。
+    private volatile boolean sharing = false;
 
     private static final String[] EMOJIS = {"❤️", "👍", "👏", "😂", "😮", "😢", "🔥", "🌹"};
 
@@ -74,6 +75,8 @@ public class WatchPartyActivity extends Activity {
 
     @Override protected void onDestroy() {
         try { if (ticker != null) ticker.cancel(); } catch (Exception ignored) { }
+        // [U6-FIX] 清理 Timer 已 post 但未执行的 refresh 回调，避免销毁后仍执行一次。
+        try { if (ui != null) ui.removeCallbacksAndMessages(null); } catch (Exception ignored) { }
         super.onDestroy();
     }
 
@@ -293,6 +296,11 @@ public class WatchPartyActivity extends Activity {
         if (isFinishing() || isDestroyed()) return;
         JSONObject room = WatchPartyState.room(this);
         boolean active = room.optBoolean("active", false);
+        // [FIX] 用房间状态回写本机共享态：对方/机端结束共享(active=false)时，本页不再停留在旧的
+        // 「已同意共享」；只有本机 live 共享(from_live=true)才算我方同意，避免对方单独开房间误触发。
+        boolean fromLive = room.optBoolean("from_live", false);
+        if (!active || !fromLive) sharing = false;
+        else sharing = true;
         shareBtn.setText(sharing ? "● 已同意共享本机正在看的（点此停止）" : "同意共享本机正在看的抖音/电影");
 
         JSONObject media = room.optJSONObject("media");

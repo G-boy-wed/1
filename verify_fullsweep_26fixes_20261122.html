@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>掌心窗 全范围 Bug 排查与修复报告 · 2026-11-22</title>
+<style>
+  :root{--bg:#f7f8fa;--card:#fff;--ink:#23272e;--sub:#6b7280;--line:#e5e7eb;--ok:#1a7f37;--warn:#9a6700;--hi:#b42318;--brand:#7c8aa5}
+  *{box-sizing:border-box}body{margin:0;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);line-height:1.65}
+  .wrap{max-width:960px;margin:0 auto;padding:32px 20px 60px}
+  h1{font-size:26px;margin:0 0 6px}.sub{color:var(--sub);font-size:14px;margin-bottom:24px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin:16px 0;box-shadow:0 1px 3px rgba(0,0,0,.03)}
+  h2{font-size:18px;margin:0 0 12px;border-left:4px solid var(--brand);padding-left:10px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}th{background:#fafafa;color:var(--sub);font-weight:600}
+  .tag{display:inline-block;padding:1px 8px;border-radius:20px;font-size:12px;font-weight:600}.t-ok{background:#e7f6ec;color:var(--ok)}.t-hi{background:#fdecea;color:var(--hi)}.t-warn{background:#fff4d6;color:var(--warn)}
+  code{background:#f2f3f5;padding:1px 5px;border-radius:5px;font-size:12.5px;color:#b42318}
+  .kv{display:grid;grid-template-columns:180px 1fr;gap:6px 14px;font-size:14px}.kv dt{color:var(--sub)}.kv dd{margin:0}
+  .foot{color:var(--sub);font-size:12.5px;margin-top:24px;text-align:center}
+  ul{margin:8px 0 0;padding-left:20px}li{margin:3px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>掌心窗 · 全范围 Bug 排查与修复报告</h1>
+  <div class="sub">时间：2026-11-22 · 范围：Android 客户端 + 服务端 + MCP 工具链 · 全库只读排查 → 逐项确认 → 修复 → 编译验签</div>
+
+  <div class="card">
+    <h2>一、结论速览</h2>
+    <p>本轮对<strong>整个软件</strong>（Android 全部 Java 源码、Python 服务端、MCP 工具表/引擎/校验脚本）进行了三路并行深度排查，并对每一项高风险发现回源码逐行核实，排除误报。共发现 <strong>27 项</strong>问题，经你逐批确认：<strong>26 项修改、1 项保留不动</strong>（Q1「今日专注」卡片——判定为屏幕使用统计、非专注模式功能）。</p>
+    <table>
+      <tr><th>类别</th><th>数量</th><th>处理</th></tr>
+      <tr><td>MCP / 服务端（S1–S13）</td><td>13</td><td><span class="tag t-ok">全部已修复</span></td></tr>
+      <tr><td>Android 核心逻辑（A1–A5）</td><td>5</td><td><span class="tag t-ok">全部已修复</span></td></tr>
+      <tr><td>Android UI / 生命周期（U1–U8）</td><td>8</td><td><span class="tag t-ok">全部已修复</span></td></tr>
+      <tr><td>边界项（Q1）</td><td>1</td><td><span class="tag t-warn">按你决定保留不动</span></td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>二、修复明细</h2>
+    <table>
+      <tr><th>编号</th><th>问题</th><th>修复</th></tr>
+      <tr><td>A2</td><td>情感弹窗按秒轮转拼接固定尾句，违反「无固定后缀/每次随机」</td><td>删除尾句拼接与死方法，文案完全交给 <code>pickNoRepeat</code></td></tr>
+      <tr><td>S1</td><td><code>screen_ocr</code> 下发后静默 noop，识图能力失效</td><td>手机端新增分支复用无障碍节点结构化提取，失败明确回执</td></tr>
+      <tr><td>S2</td><td><code>analyze_image</code> 空壳，图片不落盘、永远空 OCR</td><td>新增 <code>image_analyze</code>：base64/url 落盘 + best-effort OCR + 明确失败</td></tr>
+      <tr><td>S3</td><td><code>write_emotion_tag</code> 把用户状态标签错写进陪伴对象情绪</td><td>拆分 handler，走 <code>record_user_emotion_tag</code> 专用路径</td></tr>
+      <tr><td>S4</td><td><code>edit_shared_memory</code> 缺 explicit，手机端必然拒写</td><td>explicit 注入扩展到所有记忆写操作</td></tr>
+      <tr><td>S5</td><td><code>update_guardian_day</code> schema 完全为空</td><td>补全 properties，<code>id</code> 设为必填</td></tr>
+      <tr><td>S6</td><td>日记本 id 用进程内 <code>hash()</code>，重启后变化</td><td>改用 md5 稳定摘要，跨进程/重启恒定</td></tr>
+      <tr><td>S7</td><td>ACTION_OVERRIDE 残留 3 个已删工具死键</td><td>清理死映射，保留仍存在的工具</td></tr>
+      <tr><td>S8</td><td><code>send_phone_command</code> 描述残留 focus 系列 action</td><td>删除整段 focus 表述</td></tr>
+      <tr><td>S9</td><td>白名单缺口，6 个 action 被强制改成 noop</td><td>补齐 ALLOWED_ACTIONS</td></tr>
+      <tr><td>S10</td><td><code>shared_write</code> 硬编码 DEFAULT_DEVICE</td><td>透传 device_id，schema 增参数</td></tr>
+      <tr><td>S11</td><td>MCP initialize 文案含「专注」</td><td>删除该词</td></tr>
+      <tr><td>S12</td><td><code>search_shared_memory</code> 忽略 limit</td><td>按 limit 切片并钳制 [1,10000]</td></tr>
+      <tr><td>S13</td><td>校验脚本缺一致性检查</td><td>新增 schema/工具名/ACTION_OVERRIDE 一致性断言</td></tr>
+      <tr><td>A1</td><td>情绪弹窗强级别判定口径与查岗不一致</td><td>纳入 miss≥阈值，与查岗统一</td></tr>
+      <tr><td>A3</td><td><code>nextCheckInAt</code> 时钟域混用，提前返回恒失效</td><td>改用 elapsedRealtime 单调时钟比较</td></tr>
+      <tr><td>A4</td><td>归电未弹窗仍消耗次数/重置冷却</td><td>确认弹出后才落盘计数与冷却</td></tr>
+      <tr><td>A5</td><td>PolicySync 推送前即锁 15 分钟节流</td><td>推送成功才更新时间戳，失败可重试</td></tr>
+      <tr><td>U1</td><td>守护页 Switch 被当按钮重绘 + 换主题不刷色</td><td>styleTree 跳过 Switch，换主题重新着色</td></tr>
+      <tr><td>U2</td><td>一起看 <code>from_live</code> 残留致误判</td><td>end() 清空、start() 缺省置 false</td></tr>
+      <tr><td>U3</td><td>拉回弹窗主题覆盖走旧色板</td><td>移除覆盖分支，统一 fromContext</td></tr>
+      <tr><td>U4</td><td>归电接通后目标 App 打不开</td><td>改独立 Handler 执行打开动作</td></tr>
+      <tr><td>U5</td><td>锁屏紧急解锁幽灵弹窗</td><td>回调提成员字段 + 生命周期清理 + 防护</td></tr>
+      <tr><td>U6</td><td>一起看 ui 回调未清理</td><td>onDestroy 增加清理</td></tr>
+      <tr><td>U7</td><td>一起看 sharing 跨线程无同步</td><td>声明 volatile</td></tr>
+      <tr><td>U8</td><td>头像在线圆点硬编码色</td><td>改主题派生，与归电页一致</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>三、验证结果</h2>
+    <dl class="kv">
+      <dt>Java 编译</dt><dd><span class="tag t-ok">通过</span>（javac 仅 deprecation 提示）</dd>
+      <dt>v1 / v2 / v3 验签</dt><dd><span class="tag t-ok">全部通过</span>，公钥摘要 <code>8f89e9f8…72b1672e</code> 一致</dd>
+      <dt>dex 残留类</dt><dd><span class="tag t-ok">无</span> FocusLock / PalmDesk / OcrPlugin 等均已剔除</dd>
+      <dt>MCP 工具数</dt><dd><span class="tag t-ok">123</span>，无重复、无幽灵工具</dd>
+      <dt>必须保留能力</dt><dd><span class="tag t-ok">齐全</span> screen_ocr / analyze_image / write_companion_emotion / peek_screen / watch_party_* / 策略 / 课表 / 共同记忆 / get_now_state</dd>
+      <dt>initialize 文案</dt><dd><span class="tag t-ok">已去除「专注」</span></dd>
+      <dt>端到端冒烟</dt><dd><span class="tag t-ok">通过</span> 真实服务启动 + MCP 握手 + tools/list + 关键 handler 调用</dd>
+      <dt>静态校验</dt><dd><span class="tag t-ok">PERFECT: ZERO_ERRORS_ALL_RESOLVED</span></dd>
+    </dl>
+  </div>
+
+  <div class="card">
+    <h2>四、交付物</h2>
+    <ul>
+      <li>APK：<code>android/Zhangxinchuang-public-v0.3.9.0.apk</code>（2.3 MB）</li>
+      <li>SHA-256：<code>96d23451a56ab24e47ee0b8bd9e443f26f7053d383fecd2021f2c5d13904acec</code></li>
+      <li>两个 <code>update.json</code> 已同步最新 SHA</li>
+      <li>修改文件：mcp_engine.py / linjian_server.py / mcp_tools.json / verify_mcp_schema.py + 11 个 Java 文件</li>
+    </ul>
+  </div>
+
+  <div class="foot">本报告由全范围只读排查 → 逐项确认 → 修复 → 编译验签流程生成 · 掌心窗 v0.3.9.0</div>
+</div>
+</body>
+</html>

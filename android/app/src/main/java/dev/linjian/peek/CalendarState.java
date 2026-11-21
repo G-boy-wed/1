@@ -294,12 +294,34 @@ public class CalendarState {
                 if (biz.has("remind_days_before")) e.put("remind_days_before", clamp(biz.optInt("remind_days_before", DEFAULT_REMIND_DAYS), 0, 30));
                 if (biz.has("banner_enabled")) e.put("banner_enabled", biz.optBoolean("banner_enabled"));
                 if (biz.has("created_by")) e.put("created_by", safe(biz.optString("created_by")));
-                if (biz.has("date")) e.put("date", safe(biz.optString("date")));
-                if (biz.has("solar_date")) e.put("solar_date", safe(biz.optString("solar_date")));
+                // [N4-FIX] 日期更新必须与创建路径对称：农历事件的有效日期由 lunar_month/lunar_day 决定，
+                // 只写 date/solar_date 会导致"农历0月0日"并被 nextDateFor 丢弃。
+                String finalDateType = e.optString("date_type", TYPE_SOLAR);
+                String newDate = biz.has("date") ? safe(biz.optString("date"))
+                        : (biz.has("solar_date") ? safe(biz.optString("solar_date")) : e.optString("date", ""));
+                if (TYPE_LUNAR.equals(finalDateType)) {
+                    int lm = firstPositive(biz.optInt("lunar_month", 0), e.optInt("lunar_month", 0));
+                    int ld = firstPositive(biz.optInt("lunar_day", 0), e.optInt("lunar_day", 0));
+                    boolean leap = biz.has("lunar_is_leap") ? biz.optBoolean("lunar_is_leap") : e.optBoolean("lunar_is_leap", false);
+                    int[] md = parseMonthDay(newDate); // 兼容 date="07-07" 形式
+                    if (lm <= 0 && md[0] > 0) lm = md[0];
+                    if (ld <= 0 && md[1] > 0) ld = md[1];
+                    if (lm >= 1 && lm <= 12 && ld >= 1 && ld <= 30) {
+                        e.put("lunar_month", lm); e.put("lunar_day", ld); e.put("lunar_is_leap", leap);
+                        e.put("date", pad2(lm) + "-" + pad2(ld));
+                    }
+                } else {
+                    if (biz.has("date") || biz.has("solar_date")) {
+                        String normalized = normalizeSolarDate(newDate, e.optString("repeat_type", REPEAT_NONE));
+                        if (normalized.length() > 0) { e.put("solar_date", normalized); e.put("date", normalized); }
+                        else return out.put("ok", false).put("error", "bad_solar_date");
+                    }
+                }
                 e.put("id", id); // id 恒定，绝不更换
                 e.put("updated_at", formatDateTime(System.currentTimeMillis()));
                 arr.put(i, e);
                 if (!saveEvents(ctx, arr)) return out.put("ok", false).put("error", "save_failed");
+                bumpCalendarVersion(ctx); // [FIX] 编辑已有事件也是写操作，version 必须自增，否则多端刷新/缓存失效判断失灵
                 return out.put("ok", true).put("event", e).put("calendar_state", collect(ctx));
             }
             return out.put("ok", false).put("error", "event_not_found").put("id", id);
@@ -321,10 +343,15 @@ public class CalendarState {
                 JSONObject saved = upsertEventSmart(ctx, biz);
                 out.put("ok", saved.optBoolean("ok", false)).put("result", saved.toString()).put("saved", saved);
             } else if ("delete_calendar_event".equals(action)) {
-                // R2：事件 id 取 payload.id（业务 id），绝不再把命令 uuid 当事件 id
-                String id = firstNonEmpty(biz.optString("id", ""), biz.optString("event_id", ""));
-                boolean ok = id.length() > 0 && deleteEvent(ctx, id);
-                out.put("ok", ok).put("result", ok ? "deleted:" + id : (id.length() == 0 ? "missing_event_id" : "not_found:" + id));
+                // [N1-FIX] 破坏性删除必须显式确认（与 DiaryState 删除口径一致），避免通用命令无确认删除。
+                if (!cmd.optBoolean("confirm", false)) {
+                    out.put("ok", false).put("result", "confirmation_required").put("error", "confirmation_required");
+                } else {
+                    // R2：事件 id 取 payload.id（业务 id），绝不再把命令 uuid 当事件 id
+                    String id = firstNonEmpty(biz.optString("id", ""), biz.optString("event_id", ""));
+                    boolean ok = id.length() > 0 && deleteEvent(ctx, id);
+                    out.put("ok", ok).put("result", ok ? "deleted:" + id : (id.length() == 0 ? "missing_event_id" : "not_found:" + id));
+                }
             } else {
                 out.put("ok", false).put("result", "unknown_calendar_action");
             }
@@ -344,7 +371,8 @@ public class CalendarState {
             date = safe(date);
             group = normalizeGroup(group);
             JSONObject e = new JSONObject();
-            if (id == null || id.trim().isEmpty()) id = "cal_" + System.currentTimeMillis();
+            // [N13-FIX] UUID 避免毫秒内连建事件撞 id 互相覆盖。
+            if (id == null || id.trim().isEmpty()) id = "cal_" + UUID.randomUUID().toString().replace("-", "");
             e.put("id", id);
             e.put("title", title);
             e.put("date_type", dateType);

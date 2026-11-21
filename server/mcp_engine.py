@@ -12,6 +12,8 @@
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import math
 import os
@@ -216,7 +218,7 @@ DEFAULT_CARE_POLICY = {
         "get_phone_state", "get_life_state", "get_senses_state", "send_notification",
         "trigger_guidian", "screen_break_app", "end_screen_break", "get_screen_break_state",
         "get_lock_state", "open_app", "set_alarm", "run_sequence", "show_center_alert",
-        "force_back_to_chat", "get_focus_status", "start_focus_mode", "end_focus_mode",
+        "force_back_to_chat",
     ],
     "sensitive_apps": [
         {"name": "小红书", "package": "com.xingin.xhs", "max_lock_minutes": 90},
@@ -535,9 +537,10 @@ ACTION_OVERRIDE = {
     "phone_home": "home", "phone_back": "back", "phone_recents": "recents",
     "phone_screen_off": "screen_off",
     "add_guardian_calendar_event": "upsert_calendar_event",
-    "add_guardian_day": "upsert_calendar_event", "update_guardian_day": "upsert_calendar_event",
+    # [S7-FIX] 已删除工具 add_guardian_day / start_screen_break / stop_screen_break 的死映射已清理；
+    # 保留仍存在的 update_guardian_day / delete_guardian_day / list_guardian_days。
+    "update_guardian_day": "upsert_calendar_event",
     "delete_guardian_day": "delete_calendar_event", "list_guardian_days": "get_calendar_state",
-    "start_screen_break": "screen_break_app", "stop_screen_break": "end_screen_break",
     "write_shared_memory": "add_shared_memory",
     "draft_xhs_comment": "run_sequence", "xhs_comment": "run_sequence",
     "send_visible_comment_after_confirmation": "tap_text",
@@ -547,7 +550,6 @@ ACTION_OVERRIDE = {
 READ_TOOLS = {
     "get_phone_state": "device_state",
     "get_life_state": "life_state",
-    "get_focus_status": "life_state",
     "get_guardian_calendar": "life_state",
     "get_senses_state": "life_state",
     "get_guidian_state": "guidian_state",
@@ -560,6 +562,7 @@ READ_TOOLS = {
     "get_screen_break_release_requests": "unlock_requests",
     "get_live_media_context": "media_context",
     "get_discipline_state": "life_state",
+    "get_now_state": "life_state",  # [MCP-ADD] 此刻状态快照，数据随 life_state.now_state 上报
 }
 
 # 明确要等待手机回执的工具（其余命令默认也短等，见 DEFAULT_WAIT）
@@ -609,7 +612,7 @@ class McpEngine:
                 "protocolVersion": version,
                 "capabilities": {"tools": {"listChanged": False}, "resources": {}, "prompts": {}},
                 "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
-                "instructions": "掌心窗 unified Python MCP：手机控制、生活状态、日记、日历、门禁、专注、共同记忆、天气等。全部工具在 8513 端口单进程内实现。",
+                "instructions": "掌心窗 unified Python MCP：手机控制、生活状态、日记、日历、门禁、共同记忆、天气等。全部工具在 8513 端口单进程内实现。",
             }}
         if method == "ping":
             return {"jsonrpc": "2.0", "id": mid, "result": {}}
@@ -788,6 +791,17 @@ class McpEngine:
         # 后端 /api/command 读 data["payload"]（dict），make_command 会把 payload 平铺到顶层；
         # 这里让 payload = 完整参数集，手机端无论读顶层还是 payload 都能拿到。
         data["payload"] = dict(flat)
+        # 守护日历写操作（增/改/删）手机端要求 explicit=True 才会真正写入，
+        # 否则直接返回 calendar_write_requires_explicit_request（回执成功但没写）。
+        # MCP 工具本来就是用户明确发起的调用，这里统一补齐 explicit。
+        if action in ("upsert_calendar_event", "add_calendar_event", "delete_calendar_event"):
+            data["payload"]["explicit"] = True
+            data["explicit"] = True
+        # [S4-FIX] 共同记忆写操作（增/改/删）手机端同样强制要求 explicit=True，
+        # 否则回执 memory_write_requires_explicit_request（显示成功但没写）。MCP 调用即明确请求，统一补齐。
+        if action in ("edit_shared_memory", "remove_shared_memory", "add_shared_memory"):
+            data["payload"]["explicit"] = True
+            data["explicit"] = True
         try:
             queued = self.ctx.enqueue(data)
         except Exception as e:
@@ -840,7 +854,9 @@ class McpEngine:
                           "command_id": first_cid,
                           "message": "同一日记本在 %d 秒内已入队，已去重，不会重复创建。" % int(self._diary_dedup_ttl)})
         # 确定性 book_id 提示：服务端生成的稳定 id，手机端优先用它查找/创建。
-        book_id = "book_%s_%s" % (device_id, abs(hash(book_name)) & 0xFFFFFFFF)
+        # [S6-FIX] 不用进程内 hash()（受 PYTHONHASHSEED 随机化影响，重启后 id 会变，
+        # 手机端查不到→重复建本）；改用 md5 稳定摘要，跨进程/重启恒定。
+        book_id = "book_%s_%s" % (device_id, hashlib.md5(book_name.encode("utf-8")).hexdigest()[:8])
         args = dict(args)
         args.setdefault("book_id", book_id)
         args["_server_dedup_key"] = key
@@ -880,14 +896,15 @@ class McpEngine:
                               "state": tele})
             if kind == "life_state":
                 state = self.ctx.life_state(device_id)
-                if name == "get_focus_status":
-                    return _text({"ok": True, "device_id": device_id, "focus_mode": state.get("focus_mode") or {}, "life_state_version": state.get("life_state_version", "")})
                 if name == "get_guardian_calendar":
                     return _text({"ok": True, "device_id": device_id, "calendar_state": state.get("calendar_state") or {}})
                 if name == "get_senses_state":
                     return _text({"ok": True, "device_id": device_id, "life_state": state, "guidian_state": self.ctx.guidian_state(device_id)})
                 if name == "get_discipline_state":
                     return _text({"ok": True, "device_id": device_id, "discipline_state": state.get("discipline_state") or {}})
+                if name == "get_now_state":
+                    # [MCP-ADD] 此刻状态：姿态/光线/近距/定位/媒体/当前 App，随 life_state 上报。
+                    return _text({"ok": True, "device_id": device_id, "now_state": state.get("now_state") or {}})
                 return _text({"ok": True, "device_id": device_id, "life_state": state})
             if kind == "guidian_state":
                 return _text({"ok": True, "device_id": device_id, "guidian_state": self.ctx.guidian_state(device_id)})
@@ -902,7 +919,7 @@ class McpEngine:
             if kind == "discipline":
                 return _text({"ok": True, "discipline": self.ctx.discipline_state(), "device_id": device_id})
             if kind == "tour_state":
-                return _text(self.ctx.tour_state())
+                return _text(self.ctx.tour_state(device_id))
             if kind == "unlock_requests":
                 return _text({"ok": True, "requests": self.ctx.unlock_requests()})
             if kind == "media_context":
@@ -957,11 +974,6 @@ class McpEngine:
         "watch_party_danmaku": "_t_watch_party_danmaku",
         "watch_party_reaction": "_t_watch_party_reaction",
         "watch_party_end": "_t_watch_party_end",
-        # [DESK] 桌面角标/背景/文字的机端控制（与手机端闭环）
-        "set_desk_badge": "_t_set_desk_badge",
-        "set_desk_toggle": "_t_set_desk_toggle",
-        "get_desk_state": "_t_get_desk_state",
-        "reset_desk": "_t_reset_desk",
         "run_preset": "_t_run_preset",
         "get_screen_break_state": "_t_generic_gate_read",
         "get_lock_state": "_t_generic_gate_read",
@@ -1038,9 +1050,10 @@ class McpEngine:
     def _t_shared_write(self, args: dict) -> dict:
         text = str(args.get("text") or args.get("content") or args.get("memory") or "").strip()
         if not text:
-            return _text({"ok": False, "error": "empty_text"})
+            return _error({"ok": False, "error": "empty_text"})  # [FIX] 参数校验失败应置 isError=true，与其它工具一致
         author = str(args.get("author") or "陪伴对象").strip() or "陪伴对象"
-        res = self.ctx.shared_write(text, author)
+        # [S10-FIX] 透传 device_id，避免多设备镜像只更新默认设备。
+        res = self.ctx.shared_write(text, author, self._device(args))
         return _text(res)
 
     def _t_shared_list(self, args: dict) -> dict:
@@ -1048,13 +1061,23 @@ class McpEngine:
             limit = int(args.get("limit") or 100)
         except (TypeError, ValueError):
             limit = 100
-        items = self.ctx.shared_list()[-limit:]
+        # [R3-FIX] 列表按时间倒序（最新在前），取最新 limit 条；与 _t_shared_search 口径统一。
+        limit = max(1, min(limit, 10000))
+        items = self.ctx.shared_list()[:limit]
         return _text({"ok": True, "count": len(items), "items": items})
 
     def _t_shared_search(self, args: dict) -> dict:
         q = str(args.get("query") or args.get("keyword") or args.get("search") or "").strip()
         items = self.ctx.shared_search(q) if q else self.ctx.shared_list()
-        return _text({"ok": True, "query": q, "count": len(items), "items": items})
+        # [S12-FIX] 尊重 limit 参数（与 _t_shared_list 一致钳制为 [1,10000]），不再永远返回全量。
+        try:
+            limit = int(args.get("limit") or 20)
+        except (TypeError, ValueError):
+            limit = 20
+        limit = max(1, min(limit, 10000))
+        total = len(items)
+        items = items[:limit]
+        return _text({"ok": True, "query": q, "count": len(items), "total": total, "limit": limit, "items": items})
 
     def _t_record_visit(self, args: dict) -> dict:
         res = self.local.record_visit(args)
@@ -1089,6 +1112,23 @@ class McpEngine:
         return _text({"ok": True, "policy": self.local.care_policy()})
 
     def _t_set_care_policy(self, args: dict) -> dict:
+        # [N6-FIX] 解析工具声明的 *_json 字段，合并成真实策略字段后再写入。
+        args = dict(args)
+        sj = args.pop("sensitive_apps_json", None)
+        if sj:
+            try:
+                parsed = json.loads(sj) if isinstance(sj, str) else sj
+                if isinstance(parsed, list): args["sensitive_apps"] = parsed
+            except Exception:
+                return _error({"ok": False, "error": "bad_sensitive_apps_json"})
+        pj = args.pop("policy_json", None)
+        if pj:
+            try:
+                parsed = json.loads(pj) if isinstance(pj, str) else pj
+                if isinstance(parsed, dict):
+                    for k, v in parsed.items(): args.setdefault(k, v)
+            except Exception:
+                return _error({"ok": False, "error": "bad_policy_json"})
         policy = self.local.set_care_policy(args)
         # [SYNC-FIX] 服务端写入后下发 set_policy 到手机，保证“机器写入手机端可见”。
         # 把 care.policy 的键映射成手机端 PolicyCommand 的稳定字段名（只下发手机认识的字段）。
@@ -1192,85 +1232,6 @@ class McpEngine:
         except Exception as e:
             return _error({"ok": False, "error": "send_phone_command_failed", "message": str(e)})
 
-    def _t_set_desk_badge(self, args: dict) -> dict:
-        """机端改手机桌面角标：名字/内置ins风低饱和风景图标/某页背景色。全部经命令通道落手机本机。"""
-        device = self._device(args)
-        ident = str(args.get("id") or "").strip()
-        if not ident:
-            return _error({"ok": False, "error": "missing_id", "message": "请传角标 id。"})
-        old_entry = bool(args.get("old_entry", False))
-        queued = []
-        try:
-            name = str(args.get("name") or "").strip()
-            if name:
-                action = "desk_set_old_name" if old_entry else "desk_set_badge_name"
-                enq = self.ctx.enqueue({"action": action, "id": ident, "name": name,
-                                        "device_id": device, "payload": {"id": ident, "name": name}})
-                queued.append((action, (enq.get("command") or {}).get("id", "")))
-            if args.get("builtin_index") is not None and int(args.get("builtin_index", -1)) >= 0:
-                idx = int(args["builtin_index"])
-                action = "desk_set_old_icon" if old_entry else "desk_set_badge_icon"
-                enq = self.ctx.enqueue({"action": action, "id": ident, "builtin_index": idx,
-                                        "device_id": device, "payload": {"id": ident, "builtin_index": idx}})
-                queued.append((action, (enq.get("command") or {}).get("id", "")))
-            glyph = str(args.get("glyph") or "").strip()
-            if glyph:
-                action = "desk_set_old_icon" if old_entry else "desk_set_badge_icon"
-                enq = self.ctx.enqueue({"action": action, "id": ident, "glyph": glyph,
-                                        "device_id": device, "payload": {"id": ident, "glyph": glyph}})
-                queued.append((action, (enq.get("command") or {}).get("id", "")))
-            color = str(args.get("color") or "").strip()
-            if args.get("color") is not None:
-                enq = self.ctx.enqueue({"action": "desk_set_page_bg", "page": int(args.get("page", 0)),
-                                        "color": color, "device_id": device,
-                                        "payload": {"page": int(args.get("page", 0)), "color": color}})
-                queued.append(("desk_set_page_bg", (enq.get("command") or {}).get("id", "")))
-            if not queued:
-                return _error({"ok": False, "error": "nothing_to_change", "message": "请至少传 name / builtin_index / glyph / color 之一。"})
-            return _text({"ok": True, "queued": True, "id": ident, "commands": queued})
-        except Exception as e:
-            return _error({"ok": False, "error": "set_desk_badge_failed", "message": str(e)})
-
-    def _t_set_desk_toggle(self, args: dict) -> dict:
-        """机端开/关手机桌面某个功能角标；不传 enabled 则翻转。经命令通道落手机本机。"""
-        device = self._device(args)
-        ident = str(args.get("id") or "").strip()
-        if not ident:
-            return _error({"ok": False, "error": "missing_id", "message": "请传角标 id。"})
-        payload = {"id": ident}
-        if "enabled" in args and args.get("enabled") is not None:
-            payload["enabled"] = bool(args.get("enabled"))
-        try:
-            enq = self.ctx.enqueue({"action": "desk_set_toggle", "device_id": device,
-                                    "payload": payload, **payload})
-            return _text({"ok": True, "queued": True, "id": ident,
-                          "enabled": payload.get("enabled", "toggle"),
-                          "command_id": (enq.get("command") or {}).get("id", "")})
-        except Exception as e:
-            return _error({"ok": False, "error": "set_desk_toggle_failed", "message": str(e)})
-
-    def _t_get_desk_state(self, args: dict) -> dict:
-        """读取手机桌面配置快照（来自本机状态上报镜像；若尚未上报给出提示）。"""
-        try:
-            st = self.ctx.desk_state(self._device(args)) if hasattr(self.ctx, "desk_state") else None
-            if st:
-                return _text({"ok": True, "desk": st})
-            return _text({"ok": True, "desk": None,
-                          "message": "桌面状态尚未从手机上报，可先用手机端打开桌面；或调用 set_desk_badge 下发更改。"})
-        except Exception as e:
-            return _text({"ok": True, "desk": None, "message": str(e)})
-
-    def _t_reset_desk(self, args: dict) -> dict:
-        scope = str(args.get("scope") or "all").strip()
-        if scope not in ("all", "layout", "icons", "bg"): scope = "all"
-        try:
-            enq = self.ctx.enqueue({"action": "desk_reset", "scope": scope,
-                                    "device_id": self._device(args), "payload": {"scope": scope}})
-            return _text({"ok": True, "queued": True, "scope": scope,
-                          "command_id": (enq.get("command") or {}).get("id", "")})
-        except Exception as e:
-            return _error({"ok": False, "error": "reset_desk_failed", "message": str(e)})
-
     def _t_whisper_get(self, args: dict) -> dict:
         return _text({"ok": True, "whisper": self.ctx.whisper_get()})
 
@@ -1330,13 +1291,24 @@ class McpEngine:
         return _error({"ok": False, "error": "peek_timeout", "message": "等待超时：请确认手机 App 已启动、无障碍已开启、地址/Token 一致。"})
 
     def _t_analyze_image(self, args: dict) -> dict:
-        # 优先使用服务端已上传的最近截图 OCR 结果；无视觉模型时返回可见文本。
+        # [S2-FIX] 真正落盘 image_base64/image_url 并 best-effort OCR，无图/失败明确回执。
         try:
-            res = self.ctx.ocr_analyze(args) or {}
+            res = self.ctx.image_analyze(args) or {}
+        except AttributeError:
+            # 兼容旧 backend：没有 image_analyze 时退回 ocr_analyze 且明确标注未落盘。
+            try:
+                res = self.ctx.ocr_analyze(args) or {}
+                res = dict(res)
+                res["note"] = "backend 未实现图片落盘，仅返回可见文本。"
+            except Exception as e:
+                res = {"ok": False, "error": str(e)}
         except Exception as e:
             res = {"ok": False, "error": str(e)}
-        return _text({"ok": res.get("ok", False), "analysis": res,
-                      "note": "服务端返回可见文本/OCR 摘要；如需视觉推理请在后端部署带视觉能力的模型。"})
+        if not res.get("ok"):
+            return _error(res)
+        return _text({"ok": True, "analysis": res,
+                      "visible_text": res.get("visible_text", ""),
+                      "image_path": res.get("image_path", "")})
 
     def _t_tour_schedule(self, args: dict) -> dict:
         try:
@@ -1382,15 +1354,28 @@ class McpEngine:
         return _text({"ok": True, "discipline": disc, "device_command_queued": True})
 
     def _t_emotion_tag(self, args: dict) -> dict:
-        flat = {k: v for k, v in args.items() if k not in ("action", "device_id", "wait_seconds")}
+        # [S3-FIX] write_emotion_tag 写的是「用户/来访者状态标签」（如 撒娇/低落/嘴硬），
+        # 不是「陪伴对象情绪」。走服务端 record_emotion_tag 专用路径，绝不再下发
+        # set_companion_emotion，避免污染陪伴对象情绪这个底层感知输入信号。
+        tag = str(args.get("tag") or args.get("emotion_tag") or "").strip()
+        note = str(args.get("note") or "").strip()
+        if not tag:
+            return _error({"ok": False, "error": "empty_tag", "message": "tag 不能为空"})
         try:
-            self.ctx.enqueue({"action": "set_companion_emotion", "device_id": self._device(args), "payload": dict(flat)})
-            return _text({"ok": True, "queued": True, "emotion_tag": args.get("emotion_tag") or args.get("tag")})
+            rec = self.ctx.record_user_emotion_tag(tag, note)
+            return _text({"ok": True, "recorded": True, "emotion_tag": tag,
+                          "scope": "user_state", "result": rec})
         except Exception as e:
             return _error({"ok": False, "error": "emotion_tag_failed", "message": str(e)})
 
     def _t_companion_emotion_write(self, args: dict) -> dict:
-        return self._t_emotion_tag(args)
+        # 陪伴对象情绪写入（平静/想你/吃醋…）：保持下发 set_companion_emotion。
+        flat = {k: v for k, v in args.items() if k not in ("action", "device_id", "wait_seconds")}
+        try:
+            self.ctx.enqueue({"action": "set_companion_emotion", "device_id": self._device(args), "payload": dict(flat)})
+            return _text({"ok": True, "queued": True, "emotion_tag": args.get("emotion_tag")})
+        except Exception as e:
+            return _error({"ok": False, "error": "companion_emotion_failed", "message": str(e)})
 
     # ---------------- [WATCH-PARTY] 双人共同观看/吐槽 ----------------
     def _wp_local(self) -> "LocalState":
@@ -1629,13 +1614,25 @@ class McpEngine:
     def _t_run_preset(self, args: dict) -> dict:
         preset = str(args.get("preset") or args.get("name") or "").strip()
         device_id = self._device(args)
+        # [N5-FIX] 尊重 target_app/target_package/x/y；未知 preset 不再盲目打开名为 preset 的 App。
+        target_app = str(args.get("target_app") or "").strip()
+        target_pkg = str(args.get("target_package") or args.get("package") or "").strip()
         seq = []
         if preset in ("check_in", "查岗", "看看状态"):
             seq = [{"action": "get_life_state"}, {"action": "peek"}]
         elif preset in ("bedtime", "睡前", "睡觉"):
-            seq = [{"action": "screen_off"}, {"action": "start_focus_mode", "duration_minutes": 480}]
+            seq = [{"action": "screen_off"}]
+        elif preset in ("open_app", "打开应用", "open") or target_app or target_pkg:
+            step = {"action": "open_app", "app": target_app, "package": target_pkg}
+            if args.get("x") is not None: step["x"] = args.get("x")
+            if args.get("y") is not None: step["y"] = args.get("y")
+            seq = [step, {"action": "get_life_state"}]
         else:
-            seq = [{"action": "open_app", "app": preset or "微信"}, {"action": "get_life_state"}]
+            if not preset:
+                return _error({"ok": False, "error": "preset_required",
+                               "message": "请传 preset，或提供 target_app/target_package 指定要打开的应用。"})
+            return _error({"ok": False, "error": "unknown_preset", "preset": preset,
+                           "message": "未知预设 %s；可用 check_in/bedtime/open_app，或传 target_app。" % preset})
         try:
             enq = self.ctx.enqueue({"action": "run_sequence", "device_id": device_id, "payload": {"steps": seq, "preset": preset}})
             return _text({"ok": True, "queued": True, "preset": preset, "steps": seq, "command_id": (enq.get("command") or {}).get("id", "")})
@@ -1697,8 +1694,12 @@ class McpEngine:
                           "count": len(primary), "apps": primary,
                           "message": "取自手机端最近一次状态上报的可门禁应用清单（screen_break_apps 主源）。"})
         # 主源为空：回退到已配置门禁应用
+        # [N10-FIX] gate_apps 在 AppGate 中是 {别名: 包名} 的 JSONObject(dict)，原类型判断会丢弃它。
         fallback = gate.get("gate_apps") or []
-        fallback = fallback if isinstance(fallback, list) else []
+        if isinstance(fallback, dict):
+            fallback = [{"app": k, "package": v} for k, v in fallback.items()]
+        elif not isinstance(fallback, list):
+            fallback = []
         if fallback:
             return _text({"ok": True, "tool": tool, "device_id": device_id,
                           "source": "app_gate.gate_apps",

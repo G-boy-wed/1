@@ -31,12 +31,23 @@ public final class DiaryState {
     public static JSONObject entryById(Context ctx, String id) { return findById(entries(ctx), id); }
 
     public static JSONObject createBook(Context ctx, String name, String subtitle, String coverStyle) {
+        return createBook(ctx, name, subtitle, coverStyle, "");
+    }
+
+    /** [N9-FIX] 带服务端确定性 book_id 的幂等创建：若该 id 已存在直接返回，避免重试产生重复本。 */
+    public static JSONObject createBook(Context ctx, String name, String subtitle, String coverStyle, String bookId) {
         JSONObject out = new JSONObject();
         try {
+            String wantedId = clean(bookId);
+            if (!wantedId.isEmpty()) {
+                JSONObject existing = findById(books(ctx), wantedId);
+                if (existing != null) return out.put("ok", true).put("book", existing)
+                        .put("book_id", existing.optString("id")).put("deduplicated", true).put("message", "日记本已存在，复用");
+            }
             name = clean(name);
             if (name.isEmpty()) name = "TA 的日记";
             JSONObject book = new JSONObject();
-            book.put("id", "book_" + UUID.randomUUID().toString());
+            book.put("id", wantedId.isEmpty() ? ("book_" + UUID.randomUUID().toString()) : wantedId);
             book.put("name", limit(name, 60));
             book.put("subtitle", limit(clean(subtitle).isEmpty() ? "把今天看见的你，轻轻写下来。" : clean(subtitle), 100));
             book.put("cover_style", clean(coverStyle).isEmpty() ? DEFAULT_COVER : limit(clean(coverStyle), 80));
@@ -61,9 +72,8 @@ public final class DiaryState {
             JSONObject book = findById(all, clean(id));
             if (book == null) book = findBookByName(all, clean(oldName));
             if (book == null) book = findBookByName(all, clean(bookName));
-            // 兜底：按 new_name 反查（用户常常想「把名叫 X 的本子改名」却只传了新名），
-            // 只要名称能唯一匹配就自动选中，不再返回 book_not_found_or_ambiguous。
-            if (book == null) book = findBookByName(all, clean(name));
+            // [N13-FIX] 去掉"按新名反查"兜底：当用户想把 A 改名为 B、而库里已存在另一本 B 时，
+            // 会错误命中那本 B 并改掉它。定位只用 id/old_name/book_name；无定位且仅一本时才自动选中。
             if (book == null && all.length() == 1) book = all.optJSONObject(0);
             if (book == null) {
                 JSONArray choices = new JSONArray();
@@ -366,8 +376,21 @@ public final class DiaryState {
     public static JSONObject handleCommand(Context ctx, JSONObject cmd) {
         JSONObject out = new JSONObject();
         try {
+            // [FIX] 服务端/MCP 下发的日记命令把参数放在 cmd.payload 里，而下方各分支都从 cmd 顶层读。
+            // 将 payload 的键合并到 cmd 顶层（顶层已有值优先），一次性修复全部 diary action 的
+            // 「写入显示成功但参数读空」问题；手机端本地调用参数本就在顶层，不受影响。
+            JSONObject payload = cmd.optJSONObject("payload");
+            if (payload != null) {
+                java.util.Iterator<String> it = payload.keys();
+                while (it.hasNext()) {
+                    String k = it.next();
+                    if (!cmd.has(k)) {
+                        try { cmd.put(k, payload.opt(k)); } catch (Exception ignored) { }
+                    }
+                }
+            }
             String action = cmd.optString("action", "");
-            if ("create_diary_book".equals(action)) out = createBook(ctx, cmd.optString("name"), cmd.optString("subtitle"), cmd.optString("cover_style", DEFAULT_COVER));
+            if ("create_diary_book".equals(action)) out = createBook(ctx, cmd.optString("name"), cmd.optString("subtitle"), cmd.optString("cover_style", DEFAULT_COVER), cmd.optString("book_id"));
             else if ("list_diary_books".equals(action)) out.put("ok", true).put("books", books(ctx)).put("message", "已读取本机日记本列表");
             else if ("rename_diary_book".equals(action)) out = renameBook(ctx, cmd.optString("book_id"), cmd.optString("old_name"), firstNonEmpty(cmd.optString("new_name"), cmd.optString("name")), cmd.has("subtitle") ? cmd.optString("subtitle") : null, firstNonEmpty(cmd.optString("book_name"), cmd.optString("book_title")));
             else if ("update_diary_book_cover".equals(action)) out = updateCover(ctx, cmd.optString("book_id"), cmd.has("cover_style") ? cmd.optString("cover_style") : null, cmd.has("cover_uri") ? cmd.optString("cover_uri") : null);

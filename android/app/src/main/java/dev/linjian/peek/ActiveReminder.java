@@ -123,7 +123,10 @@ public class ActiveReminder {
     }
 
     private static boolean notify(Context ctx, String title, String message, String tag) {
-        boolean ok = CompanionService.showReminderNotification(ctx, title, message);
+        // 提醒类统一带关心的口吻前缀，突出「提醒 + 惦记」，与查岗/想你/主动聊天明显区分。
+        String care = CompanionEmotionState.careMessage(ctx);
+        String wrapped = message + "\n" + care;
+        boolean ok = CompanionService.showReminderNotification(ctx, title, wrapped);
         DebugState.append(ctx, ok ? "主动提醒已发送[" + tag + "]：" + message : "主动提醒失败[" + tag + "]：请允许通知权限");
         return ok;
     }

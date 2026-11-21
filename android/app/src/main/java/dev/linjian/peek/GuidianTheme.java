@@ -1,6 +1,7 @@
 package dev.linjian.peek;
 
 import android.graphics.Color;
+import android.content.Context;
 
 /**
  * 归电主题：归电全屏页、屏幕居中弹窗、强制拉回弹窗共用这一份配色。
@@ -42,6 +43,31 @@ public class GuidianTheme {
         return "暮夜蓝紫";
     }
 
+    /**
+     * [THEME-INS] 从全局 UITheme 派生弹窗配色：归电全屏页、居中弹窗、拉回弹窗统一跟随
+     * 用户在设置页选择的主题（含亮/暗），不再维护第二套独立色板。onPrimary/装饰值按亮暗自适应。
+     */
+    public static GuidianTheme fromContext(Context ctx) {
+        UITheme u = UITheme.current(ctx);
+        int onPrimary = u.dark ? 0xFF1C1E20 : Color.WHITE;
+        int scrim = u.dark ? 0xAA0A0A0A : 0x660A1014;
+        int decor = u.primarySoft;
+        int wave = u.primary;
+        int online = blend(u.primary, 0xFF6FAE8C, 0.45f); // 在线绿与主题色的柔和混色
+        return new GuidianTheme(u.name, u.bgTop, u.card, u.cardSoft, u.primary, onPrimary, u.text,
+                u.subtext, u.line, decor, wave, online, scrim, u.danger,
+                u.dark ? .18f : .20f, u.dark ? .09f : .10f, u.dark);
+    }
+
+    private static int blend(int a, int b, float ratio) {
+        float x = Math.max(0f, Math.min(1f, ratio));
+        return Color.argb(
+                Math.round(Color.alpha(a) * (1 - x) + Color.alpha(b) * x),
+                Math.round(Color.red(a) * (1 - x) + Color.red(b) * x),
+                Math.round(Color.green(a) * (1 - x) + Color.green(b) * x),
+                Math.round(Color.blue(a) * (1 - x) + Color.blue(b) * x));
+    }
+
     public static GuidianTheme from(String raw) {
         String n = normalize(raw);
         if ("暮夜蓝紫".equals(n)) {
@@ -76,6 +102,8 @@ public class GuidianTheme {
 
     /** 按语气取强调色：生气 / 训诫严厉都用 danger 色（更硬的视觉语气），其余用 primary。 */
     public int accentFor(String tone) {
-        return ("angry".equalsIgnoreCase(tone) || "strict".equalsIgnoreCase(tone)) ? danger : primary;
+        if (tone == null) return primary;
+        String t = tone.trim().toLowerCase(java.util.Locale.US);
+        return ("angry".equals(t) || "strict".equals(t) || "harsh".equals(t) || "strong".equals(t)) ? danger : primary;
     }
 }

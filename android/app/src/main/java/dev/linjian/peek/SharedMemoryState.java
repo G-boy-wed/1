@@ -9,6 +9,7 @@ import org.json.JSONObject;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.UUID;
 
 /**
  * 掌心窗共同记忆插件（对应 PRD P1.6）。
@@ -48,12 +49,15 @@ public final class SharedMemoryState {
         catch (Exception e) { return new JSONArray(); }
     }
 
-    private static String newId() { return String.valueOf(System.currentTimeMillis()); }
+    // [N7-FIX] UUID 避免同毫秒新增撞 id 导致 edit/remove 同时命中多条。
+    private static String newId() { return UUID.randomUUID().toString().replace("-", ""); }
 
     /** 新增一条记忆（author 标识是谁写的）。 */
     public static JSONObject add(Context ctx, String text, String author) {
         JSONObject o = new JSONObject();
         try {
+            // [N7-FIX] 写入开关校验下沉到数据层，堵住设置页直连绕过（关闭共同记忆后仍可增）。
+            if (!enabled(ctx)) { o.put("ok", false).put("error", "disabled_read_only"); return o; }
             text = text == null ? "" : text.trim();
             if (text.isEmpty()) return new JSONObject().put("ok", false).put("error", "empty_text");
             long now = System.currentTimeMillis();
@@ -77,6 +81,9 @@ public final class SharedMemoryState {
 
     /** 编辑一条记忆（按 id）。 */
     public static boolean edit(Context ctx, String id, String text) {
+        // [N7-FIX] 写入校验下沉；[N13-FIX] 编辑同样拒绝空文本（与 add 一致）。
+        if (!enabled(ctx)) return false;
+        if (text == null || text.trim().isEmpty()) return false;
         try {
             JSONArray arr = getItems(ctx);
             JSONArray next = new JSONArray();
@@ -101,6 +108,8 @@ public final class SharedMemoryState {
 
     /** 删除一条记忆（按 id）。返回是否删除成功。 */
     public static boolean remove(Context ctx, String id) {
+        // [N7-FIX] 写入校验下沉，堵住设置页直连绕过。
+        if (!enabled(ctx)) return false;
         try {
             JSONArray arr = getItems(ctx);
             JSONArray next = new JSONArray();
@@ -122,6 +131,18 @@ public final class SharedMemoryState {
     public static JSONObject handleCommand(Context ctx, JSONObject cmd) {
         JSONObject out = new JSONObject();
         try {
+            // [FIX] 服务端/MCP 下发把参数放在 cmd.payload（text/author/id），本类各分支从顶层读。
+            // 合并 payload 到顶层（顶层优先），修复「记忆写入显示成功但手机端读空」。
+            JSONObject payload = cmd.optJSONObject("payload");
+            if (payload != null) {
+                java.util.Iterator<String> it = payload.keys();
+                while (it.hasNext()) {
+                    String k = it.next();
+                    if (!cmd.has(k)) {
+                        try { cmd.put(k, payload.opt(k)); } catch (Exception ignored) { }
+                    }
+                }
+            }
             String action = cmd.optString("action", "");
             if ("get_shared_memory".equals(action) || "list_shared_memory".equals(action)) {
                 return out.put("ok", true).put("result", "shared_memory").put("items", getItems(ctx))

@@ -1,0 +1,43 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>掌心窗改动证据2</title>
+<style>
+body{font-family:-apple-system,"PingFang SC",sans-serif;background:#faf7f9;color:#2f403b;margin:0;padding:18px;line-height:1.6}
+h1{font-size:20px}h2{font-size:15px;color:#b4532a;margin:22px 0 8px}
+.card{background:#fff;border-radius:12px;padding:14px 16px;margin-bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.05)}
+.tag{display:inline-block;background:#eef3f0;color:#3c6b5b;border-radius:6px;padding:2px 9px;font-size:11px;margin-left:8px}
+.ok{color:#2e7d5b;font-weight:600} .err{color:#b4532a;font-weight:600}
+pre{background:#f4f1f3;border-radius:8px;padding:10px;font-size:11px;overflow-x:auto}
+code{font-family:ui-monospace,Menlo,monospace}.meta{font-size:12px;color:#7a8b85}
+</style></head><body>
+<h1>掌心窗改动证据2 · 2026-11-22</h1>
+<div class="meta">编译通过 · v1/v2/v3 验签全 Verified · SHA-256: <code>9a5b33b13dd9e42f0bb2dedf1870de1beabe1988a47d95bf283b4277df9129b3</code></div>
+
+<h2>① 纠正：恢复被误删的 MCP 截屏查看能力</h2>
+<div class="card">
+<p><span class="err">上一轮错误</span>：把 MCP 的截屏/读屏工具当"识图感知"删了。你澄清后已恢复。</p>
+<p><span class="ok">✓ 已恢复 5 个工具</span>：<code>peek_screen / latest_screen / get_screen_nodes / screen_ocr / analyze_image</code></p>
+<p>仅保留删除"单独编写的识图感知插件"（守护页卡片 + OcrPlugin/ScreenOcrService 类 + ocrEnabled 开关）。MCP 工具数 124 → 129。</p>
+</div>
+
+<h2>② bug2 锁应用计时：切走再切回不再重来</h2>
+<div class="card">
+<p>根因：切到非监控 App 就 <code>usageStartAt=0</code> 清零，切回来重新计时。</p>
+<pre><code>短暂切走(≤2分钟) → 不清零，保留累计时长
+离开超2分钟 → 才重置
+停留在监控App每次刷新 usageLeftAt</code></pre>
+<p class="ok">✓ 已修（PolicyScheduler.evaluateUsageLock）</p>
+</div>
+
+<h2>③ bug3 Kelivo 前台弹窗策略</h2>
+<div class="card">
+<p>你的规则：白名单不要一堆默认 App，只认 Kelivo（<code>com.kelivo</code>）。Kelivo 前台时——</p>
+<pre><code>保留：想念用户/情绪弹窗、归电提醒(独立通道)
+停止：查岗/分心/主动找/使用时长锁/权限/课表提醒</code></pre>
+<p class="ok">✓ 已修（PolicyScheduler.evaluate 新增 kelivoForeground 分支）</p>
+</div>
+
+<h2>④ 待你确认：bug1 上课没静默</h2>
+<div class="card">
+<p>代码审计结果：上课判定、静默编排、进入上课关闭弹窗——逻辑链完整，未发现明确断裂。</p>
+<p>更可能是数据层问题（课表未导入成功 / 星期或时段与实际不符）。需你提供课表截图或导入方式再精准修，暂不盲改。</p>
+</div>
+</body></html>

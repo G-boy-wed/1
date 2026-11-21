@@ -31,22 +31,23 @@ public class UITheme {
     // ---- THEME-02：{page, card, accent} 三元组 ----
     private static final String[] NAMES = {"经典白", "雾灰", "暖米", "暮夜蓝紫", "云海青灰", "落日莓雾"};
 
+    // THEME-INS：六套统一降饱和、加雾感；雾灰=雾灰底+雾霾蓝点缀(默认)。
     private static final int[][] LIGHT = {
-            {0xFFF4F4F4, 0xFFFFFFFF, 0xFF4A4A4A}, // 经典白
-            {0xFFEDEDED, 0xFFFAFAFA, 0xFF555555}, // 雾灰
-            {0xFFF6F2EC, 0xFFFFFDF9, 0xFF5A5248}, // 暖米
-            {0xFFE9E8F2, 0xFFFFFFFF, 0xFF5F5C93}, // 暮夜蓝紫·亮（浅紫灰版）
-            {0xFFE8EDEE, 0xFFFBFDFD, 0xFF4A5A5E}, // 云海青灰
-            {0xFFF4EAEA, 0xFFFFF9F9, 0xFF6B4E52}, // 落日莓雾
+            {0xFFF5F5F3, 0xFFFFFFFE, 0xFF565B5E}, // 经典白·柔灰
+            {0xFFEDEFF1, 0xFFFAFBFC, 0xFF5B7385}, // 雾灰+雾霾蓝（默认）
+            {0xFFF7F3ED, 0xFFFFFDF8, 0xFF6A6055}, // 暖米
+            {0xFFEBEAF2, 0xFFFFFFFE, 0xFF6B6899}, // 暮夜蓝紫·亮（浅紫灰版）
+            {0xFFE9EDEF, 0xFFFBFCFD, 0xFF5A6B70}, // 云海青灰
+            {0xFFF5ECEC, 0xFFFFFAFA, 0xFF7A5E62}, // 落日莓雾
     };
 
     private static final int[][] DARK = {
-            {0xFF1B1B1B, 0xFF262626, 0xFFE8E8E8}, // 经典白·暗
-            {0xFF191919, 0xFF232323, 0xFFE0E0E0}, // 雾灰·暗
-            {0xFF1E1B17, 0xFF2A2621, 0xFFE8DDD1}, // 暖米·暗
-            {0xFF2A2C38, 0xFF343748, 0xFFD9D6E8}, // 暮夜蓝紫·暗 = 规范原值
-            {0xFF171E20, 0xFF222C2E, 0xFFD6E2E4}, // 云海青灰·暗
-            {0xFF201718, 0xFF2C2224, 0xFFECD9DA}, // 落日莓雾·暗
+            {0xFF1C1D1C, 0xFF272827, 0xFFE6E8E7}, // 经典白·暗
+            {0xFF191C1F, 0xFF23272C, 0xFFB9CBD8}, // 雾灰+雾霾蓝·暗
+            {0xFF1F1C18, 0xFF2B2722, 0xFFE6DBCF}, // 暖米·暗
+            {0xFF2B2D39, 0xFF353849, 0xFFD9D6E8}, // 暮夜蓝紫·暗
+            {0xFF181F21, 0xFF232D2F, 0xFFD6E2E4}, // 云海青灰·暗
+            {0xFF21191A, 0xFF2D2325, 0xFFECD9DA}, // 落日莓雾·暗
     };
 
     /** 设置页 / MCP 取主题名，避免多处维护。 */
@@ -76,7 +77,8 @@ public class UITheme {
     }
 
     public static String currentBaseName(Context ctx) {
-        return normalize(AppPrefs.get(ctx).getString(AppPrefs.KEY_THEME, NAMES[0]));
+        // [THEME-INS] 默认主题改为雾灰+雾霾蓝（NAMES[1]）；老用户已存的主题不受影响。
+        return normalize(AppPrefs.get(ctx).getString(AppPrefs.KEY_THEME, NAMES[1]));
     }
 
     public static boolean isDarkMode(Context ctx) {

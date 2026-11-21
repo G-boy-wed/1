@@ -1,0 +1,41 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>掌心窗改动证据3</title>
+<style>
+body{font-family:-apple-system,"PingFang SC",sans-serif;background:#faf7f9;color:#2f403b;margin:0;padding:18px;line-height:1.65}
+h1{font-size:20px}h2{font-size:15px;color:#b4532a;margin:22px 0 8px}
+.card{background:#fff;border-radius:12px;padding:14px 16px;margin-bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.05)}
+.tag{display:inline-block;background:#eef3f0;color:#3c6b5b;border-radius:6px;padding:2px 9px;font-size:11px;margin-left:8px}
+.ok{color:#2e7d5b;font-weight:600}.err{color:#b4532a;font-weight:600}
+pre{background:#f4f1f3;border-radius:8px;padding:10px;font-size:11px;overflow-x:auto;color:#444}
+code{font-family:ui-monospace,Menlo,monospace}.meta{font-size:12px;color:#7a8b85}
+</style></head><body>
+<h1>掌心窗改动证据 · 上课静默 + 写入修复 · 2026-11-22</h1>
+<div class="meta">编译通过 · v1/v2/v3 验签全 Verified · SHA-256: <code>PREFIX</code></div>
+
+<h2>① 上课时间「全部静默」</h2>
+<div class="card">
+<p><span class="err">根因</span>：真正弹窗的出口本身没有静默检查，服务端/MCP 命令、主动提醒、训诫、一起看、拉回、归电等直接调出口的路径，绕过了调度器的 isInClassNow 编排。</p>
+<p><span class="ok">✓ 修法</span>：新增统一总闸 <code>ClassScheduleState.silenceIfInClass()</code>，在 <b>4 类最终出口全部拦截</b>：</p>
+<pre><code>1) showCenterAlert(...)      → 居中弹窗/震动（含MCP下发、训诫、一起看、主动提醒）
+2) showReminderNotification(...) → 横幅通知（低电量/喝水/天气/下课/send_notification）
+3) PullBackActivity.show(...) → 分级拉回（查岗/分心/主动找/force_back_to_chat）
+4) GuidianState.showPrompt/showFullScreenNotification → 归电来电（Activity+通知+计数）</code></pre>
+<p>上课期间这些一律不触发（含情绪弹窗与归电），下课自动恢复；课前提醒/下课提醒因触发时不在上课时段，不受影响。</p>
+</div>
+
+<h2>② 修复 MCP「写入更改不生效」</h2>
+<div class="card">
+<p><span class="err">根因</span>：服务端/MCP 下发把参数放在 <code>cmd.payload</code>，手机端却从命令顶层读，读空→什么都没写入→命令却回执「成功」。</p>
+<p><span class="ok">✓ 已修复 3 处写入路径</span>：</p>
+<pre><code>set_policy      → PolicyCommand 兼容 cmd.payload.fields（设置页/MCP 改配置）
+write/create diary → DiaryState 合并 payload 到顶层（TA 的日记写入）
+add_shared_memory → SharedMemoryState 合并 payload 到顶层（共同记忆写入）</code></pre>
+<p class="meta">已核对：set_discipline_mode / set_companion_emotion / CalendarState 本就有 payload 兼容，无同类问题。</p>
+</div>
+
+<h2>③ 保持一致（未变动）</h2>
+<div class="card">
+<p>MCP 工具 129 个：识图 5 工具（peek_screen 等）保留、桌面角标 4 工具仍删除、watchparty 6 工具保留。视频互动在守护页带开关、居中弹窗三通道、锁应用计时与 Kelivo 弹窗策略均为上一轮已验证状态。</p>
+</div>
+</body></html>
+EOF
+sed -i "s/PREFIX/02afc1ff0034a2a76d65f76344efc818120a379a7b34a021d1c5684218c19cb7/" 改动证据_上课静默与写入修复_v2026-11-22.html && echo "证据报告已生成"

@@ -38,12 +38,12 @@ public final class PolicySync {
         try {
             long now = System.currentTimeMillis();
             if (!force && now - lastPushAt < MIN_INTERVAL_MS) return;
-            lastPushAt = now;
             final Context app = ctx.getApplicationContext();
             final String base = AppPrefs.server(app), token = AppPrefs.token(app);
             if (base == null || base.trim().isEmpty()) return; // 未配置服务器：本机生效即可
 
             new Thread(() -> {
+                boolean anySuccess = false;
                 try {
                     JSONObject tour = new JSONObject();
                     tour.put("enabled", PolicyStore.checkinEnabled(app));
@@ -56,15 +56,20 @@ public final class PolicySync {
                     n.put("start", PolicyStore.nightStart(app)); n.put("end", PolicyStore.nightEnd(app));
                     tour.put("night_hours", n);
                     tour.put("force_back_miss_threshold", PolicyStore.forceBackThreshold(app));
-                    request(base, token, "POST", "/api/tour/schedule", tour.toString());
+                    String r1 = request(base, token, "POST", "/api/tour/schedule", tour.toString());
+                    if (r1 != null && !r1.startsWith("ERROR")) anySuccess = true;
                 } catch (Exception ignored) { }
                 try {
                     JSONObject dis = new JSONObject();
                     dis.put("enabled", PolicyStore.disciplineEnabled(app));
                     dis.put("mode", PolicyStore.disciplineMode(app));
                     dis.put("level", PolicyStore.disciplineLevel(app));
-                    request(base, token, "POST", "/api/discipline", dis.toString());
+                    String r2 = request(base, token, "POST", "/api/discipline", dis.toString());
+                    if (r2 != null && !r2.startsWith("ERROR")) anySuccess = true;
                 } catch (Exception ignored) { }
+                // [A5-FIX] 仅当至少一路推送成功才更新节流时间戳；失败时保持为 0 允许下次重试，
+                // 避免"失败后 15 分钟内不再重试"与设计意图相反。
+                if (anySuccess) lastPushAt = System.currentTimeMillis();
             }, "policy-sync").start();
         } catch (Exception ignored) { }
     }

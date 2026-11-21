@@ -29,6 +29,8 @@ public class LockActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private final Runnable tick = new Runnable() { @Override public void run() { refresh(); handler.postDelayed(this, 1000); } };
+    // [U5-FIX] 长按紧急解锁回调提为成员字段，便于 onPause/onDestroy 统一清理，避免幽灵弹窗。
+    private final Runnable emergencyRunnable = new Runnable() { @Override public void run() { showEmergencyDialog(); } };
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -54,11 +56,14 @@ public class LockActivity extends Activity {
 
     @Override protected void onPause() {
         handler.removeCallbacks(tick);
+        handler.removeCallbacks(emergencyRunnable);
         AppGate.markLockActivityVisible(pkg, false);
         super.onPause();
     }
 
     @Override protected void onDestroy() {
+        handler.removeCallbacks(tick);
+        handler.removeCallbacks(emergencyRunnable);
         AppGate.markLockActivityVisible(pkg, false);
         super.onDestroy();
     }
@@ -136,7 +141,6 @@ public class LockActivity extends Activity {
         root.addView(actions, lp(-1, dp(40), 0, 0, 0, 11));
 
         Button emergency = textButton("长按 5 秒紧急解锁");
-        final Runnable emergencyRunnable = () -> showEmergencyDialog();
         emergency.setOnTouchListener((v, event) -> {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 handler.postDelayed(emergencyRunnable, 5000);
@@ -172,6 +176,8 @@ public class LockActivity extends Activity {
     }
 
     private void showEmergencyDialog() {
+        // [U5-FIX] 已结束/销毁的 Activity 不再弹 Dialog，避免 BadTokenException / 幽灵弹窗。
+        if (isFinishing() || (android.os.Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
         final EditText input = new EditText(this);
         input.setHint("输入" + AppPrefs.companionName(this) + "告诉你的紧急口令");
         new AlertDialog.Builder(this)

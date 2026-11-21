@@ -103,11 +103,17 @@ public class AlertCenterOverlay {
             current = null;
             if (wm == null || view == null) return;
             PopupMutex.onDismissed(PopupMutex.CENTER_ALERT);
-            main.post(new Runnable() {
-                @Override public void run() {
-                    try { wm.removeView(view); } catch (Exception ignored) { }
-                }
-            });
+            // [FIX] 主线程同步移除：show() 里 dismiss() 后紧接着 addView，若这里 post 异步移除，
+            // 旧窗还没移除新窗已加入，会出现两窗同帧叠加、点击穿透。与 PullBackOverlay 保持一致。
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                try { wm.removeViewImmediate(view); } catch (Exception ignored) { }
+            } else {
+                main.post(new Runnable() {
+                    @Override public void run() {
+                        try { wm.removeView(view); } catch (Exception ignored) { }
+                    }
+                });
+            }
         } catch (Exception ignored) { }
     }
 

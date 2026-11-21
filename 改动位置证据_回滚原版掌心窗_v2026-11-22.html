@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>改动位置证据 · 回滚原版掌心窗 v2026-11-22</title>
+<style>
+  :root{
+    --bg:#eef1ec; --card:#ffffff; --ink:#26302a; --sub:#6b786f;
+    --green:#5f9b78; --green-soft:#e6f0e9; --red:#c96a6a; --red-soft:#f8eaea;
+    --line:#dfe6df; --code:#1e2723; --code-ink:#e7efe9; --amber:#b8935a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);line-height:1.7;padding:28px 18px 60px}
+  .wrap{max-width:920px;margin:0 auto}
+  header{text-align:center;padding:22px 18px 30px}
+  header h1{font-size:26px;font-weight:700;letter-spacing:.5px}
+  header .sub{color:var(--sub);font-size:14px;margin-top:8px}
+  .badge{display:inline-block;background:var(--green);color:#fff;font-size:12px;padding:4px 12px;border-radius:20px;margin-top:14px;font-weight:600}
+  .verdict{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px 22px;margin-bottom:26px;box-shadow:0 6px 20px rgba(40,60,45,.05)}
+  .verdict h2{font-size:16px;margin-bottom:12px;color:var(--green)}
+  .vrow{display:flex;gap:12px;align-items:flex-start;padding:8px 0;border-top:1px dashed var(--line)}
+  .vrow:first-of-type{border-top:none}
+  .vkey{flex:0 0 96px;color:var(--sub);font-size:13px}
+  .vval{flex:1;font-size:13.5px}
+  h2.sec{font-size:17px;margin:34px 0 14px;padding-left:12px;border-left:4px solid var(--green)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin-bottom:16px;box-shadow:0 4px 14px rgba(40,60,45,.04)}
+  .card .path{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;color:var(--amber);background:#fbf6ec;display:inline-block;padding:3px 9px;border-radius:7px;margin-bottom:10px}
+  .card .desc{font-size:13.5px;color:var(--sub);margin-bottom:12px}
+  .tag{font-size:11px;padding:2px 9px;border-radius:12px;font-weight:600;margin-left:6px}
+  .tag.del{background:var(--red-soft);color:var(--red)}
+  .tag.add{background:var(--green-soft);color:var(--green)}
+  .tag.keep{background:#eef1fb;color:#5a6bb0}
+  .code{background:var(--code);color:var(--code-ink);border-radius:12px;padding:14px 16px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;overflow-x:auto;white-space:pre;line-height:1.65}
+  .code .cm{color:#7f9c88}
+  .code .hi{color:#9ed6b3}
+  .code .rm{color:#e39a9a;text-decoration:line-through;opacity:.8}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:680px){.two{grid-template-columns:1fr}.vkey{flex-basis:72px}}
+  .lbl{font-size:11px;color:var(--sub);margin:8px 0 4px;font-weight:600;letter-spacing:.5px}
+  .delgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  @media(max-width:680px){.delgrid{grid-template-columns:1fr}}
+  .delitem{background:var(--red-soft);color:var(--red);border-radius:8px;padding:8px 12px;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line)}
+  th{color:var(--sub);font-weight:600;background:#f7faf7}
+  .ok{color:var(--green);font-weight:700}
+  .hash{font-family:ui-monospace,monospace;font-size:11px;word-break:break-all;color:var(--sub)}
+  footer{text-align:center;color:var(--sub);font-size:12px;margin-top:40px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>改动位置证据 · 回滚原版掌心窗</h1>
+    <div class="sub">v2026-11-22 · 删除小手机角标 UI，恢复原版 MainActivity，保留视频互动「一起看」</div>
+    <div class="badge">✓ 编译通过 · v1/v2/v3 验签 · 零残留</div>
+  </header>
+
+  <div class="verdict">
+    <h2>三项需求边界（已逐项确认）</h2>
+    <div class="vrow"><div class="vkey">原版基准</div><div class="vval">恢复小手机 UI 出现之前的掌心窗：<b>MainActivity 启动</b>，含陪伴 / 守护 / 生活 / 设置 / 日记本完整功能（v0.3.9.0 修改版形态）。</div></div>
+    <div class="vrow"><div class="vkey">MCP 删除范围</div><div class="vval">删除所有和<b>桌面角标相关</b>的 MCP；保留掌心窗核心 MCP 接入与视频互动相关工具。</div></div>
+    <div class="vrow"><div class="vkey">一起看入口</div><div class="vval">放进原版掌心窗（陪伴页），不保留独立桌面角标。</div></div>
+  </div>
+
+  <h2 class="sec">一、Android 端改动位置</h2>
+
+  <div class="card">
+    <div class="path">android/app/src/main/AndroidManifest.xml <span class="tag add">恢复入口</span></div>
+    <div class="desc">删除 <b>.PalmDeskActivity</b> 整个 activity 声明，把 MAIN/LAUNCHER 移回原版 MainActivity。APK 验证：launchable-activity = dev.linjian.peek.MainActivity。</div>
+    <div class="lbl">修改后（最终代码）</div>
+    <div class="code"><span class="cm">&lt;!-- 掌心窗主入口：恢复原版 MainActivity（陪伴 / 守护 / 生活 / 设置 / 日记本） --&gt;</span>
+&lt;activity
+    android:name=<span class="hi">".MainActivity"</span>
+    android:exported="true" ...&gt;
+    &lt;intent-filter&gt;
+        &lt;action android:name="android.intent.action.MAIN" /&gt;
+        &lt;category android:name=<span class="hi">"android.intent.category.LAUNCHER"</span> /&gt;
+    &lt;/intent-filter&gt;
+&lt;/activity&gt;</div>
+  </div>
+
+  <div class="card">
+    <div class="path">MainActivity.java <span class="tag add">加入口</span> <span class="tag del">删桌面直达</span></div>
+    <div class="desc">在陪伴页「更多陪伴」区新增「一起看」入口（风格与其余入口统一）；移除桌面第四页角标专用的 onNewIntent()/applyLaunchIntent() 直达逻辑。天气定位等后续 bug 修复全部保留。</div>
+    <div class="lbl">新增：陪伴页一起看入口 + openWatchParty()</div>
+    <div class="code">root.addView(actionSettingBlock(<span class="hi">"一起看"</span>,
+    <span class="hi">"和你爱的人同步看电影、短视频，实时吐槽"</span>,
+    R.drawable.ic_heart_wave, <span class="hi">this::openWatchParty</span>), marginBottom(10));
+
+<span class="cm">/** 打开「一起看」：共享本机正在播放的影视/短视频，双方可看进度、发弹幕与表情。 */</span>
+private void openWatchParty() {
+    try { startActivity(new Intent(this, WatchPartyActivity.class)); }
+    catch (Exception e) { Toast.makeText(this, "一起看打开失败：" + ..., Toast.LENGTH_SHORT).show(); }
+}</div>
+    <div class="lbl">删除：桌面角标直达逻辑（0 命中 = 已彻底删除）</div>
+    <div class="code"><span class="rm">@Override protected void onNewIntent(Intent intent) {...}</span>
+<span class="rm">private void applyLaunchIntent() { ... tab=see|gate|diary|connection ... }</span>
+<span class="cm">// grep 验证：applyLaunchIntent / onNewIntent → 0 命中</span></div>
+  </div>
+
+  <div class="card">
+    <div class="path">CompanionService.java <span class="tag del">删 desk 命令</span> <span class="tag keep">保留 watchparty</span></div>
+    <div class="desc">删除 desk_ 命令分发分支、状态上报里的 desk_toggles / desk_badges 镜像；保留 watch_party_* 命令与房间状态镜像。</div>
+    <div class="code"><span class="rm">// [DESK] if (action.startsWith("desk_")) { DeskCommand.handleCommand(...) }</span>
+<span class="rm">// [DESK-TOGGLE] state.put("desk_toggles", ...)</span>
+<span class="rm">// [DESK] state.put("desk_badges", ...)</span>
+
+<span class="cm">// 保留 ↓</span>
+if ("watch_party_start".equals(action) || "watch_party_sync".equals(action) || ...) {
+    JSONObject rr = <span class="hi">WatchPartyState.handleCommand(ctx, cmd)</span>; ... }
+state.put(<span class="hi">"watch_party"</span>, WatchPartyState.snapshot(ctx));</div>
+  </div>
+
+  <div class="card">
+    <div class="path">删除的小手机桌面角标 UI 专属类（11 个）<span class="tag del">彻底删除</span></div>
+    <div class="desc">全局检查：保留文件对这些类的引用 <b>0 命中</b>；Android java / Manifest 中 desk_ / PalmDesk 残留 <b>0 命中</b>。图片资源 ic_badge_* 仍被原版 Activity 引用，保留不删以免破坏原功能。</div>
+    <div class="delgrid">
+      <div class="delitem">PalmDeskActivity.java</div>
+      <div class="delitem">FreeDeskLayout.java</div>
+      <div class="delitem">DeskFeatureStore.java</div>
+      <div class="delitem">DeskFeatureToggleStore.java</div>
+      <div class="delitem">DeskLayoutStore.java</div>
+      <div class="delitem">DeskSkinStore.java</div>
+      <div class="delitem">DeskAssetStore.java</div>
+      <div class="delitem">DeskIconPack.java</div>
+      <div class="delitem">DeskCompanionCards.java</div>
+      <div class="delitem">OldEntryStore.java</div>
+      <div class="delitem">DeskCommand.java</div>
+    </div>
+  </div>
+
+  <h2 class="sec">二、MCP 端改动位置</h2>
+
+  <div class="card">
+    <div class="path">server/mcp_tools.json <span class="tag del">删 4 工具</span></div>
+    <div class="desc">删除桌面角标相关 4 个工具，工具总数 <b>133 → 129</b>，JSON 校验通过、无残留。</div>
+    <div class="code"><span class="rm">set_desk_badge</span>   <span class="rm">set_desk_toggle</span>
+<span class="rm">get_desk_state</span>   <span class="rm">reset_desk</span>
+
+<span class="cm">// 保留的 6 个视频互动工具：</span>
+watch_party_start / get_watch_party / watch_party_sync
+watch_party_danmaku / watch_party_reaction / watch_party_end</div>
+  </div>
+
+  <div class="card">
+    <div class="path">server/mcp_engine.py <span class="tag del">删映射+函数</span></div>
+    <div class="desc">删除工具映射 4 项 + 四个处理函数；watchparty 工具链完整保留。</div>
+    <div class="code"><span class="rm">"set_desk_badge": "_t_set_desk_badge",</span>
+<span class="rm">"set_desk_toggle": "_t_set_desk_toggle",</span>
+<span class="rm">"get_desk_state": "_t_get_desk_state",</span>
+<span class="rm">"reset_desk": "_t_reset_desk",</span>
+<span class="rm">def _t_set_desk_badge / _t_set_desk_toggle / _t_get_desk_state / _t_reset_desk: ...</span>
+
+<span class="cm"># 改动后：watch_party_end 之后直接是 run_preset（desk 项已消失）</span>
+"watch_party_end": "_t_watch_party_end",
+<span class="hi">"run_preset": "_t_run_preset",</span></div>
+  </div>
+
+  <div class="card">
+    <div class="path">server/linjian_server.py <span class="tag del">删 desk_state()</span></div>
+    <div class="desc">删除 McpBackend.desk_state() 方法（读取 desk_badges / desk_toggles 镜像）。</div>
+    <div class="code"><span class="rm">def desk_state(self, device_id=...):</span>
+<span class="rm">    badges = raw.get("desk_badges"); toggles = raw.get("desk_toggles")</span>
+<span class="rm">    return {"badges": ..., "toggles": ...}</span>
+
+<span class="cm"># 改动后：guidian_state() 之后直接是 usage_snapshot()</span>
+def guidian_state(self, ...): return ...
+<span class="hi">def usage_snapshot(self, ...): return build_usage_snapshot(...)</span></div>
+  </div>
+
+  <h2 class="sec">三、验证结果</h2>
+  <div class="card">
+    <table>
+      <tr><th>检查项</th><th>结果</th></tr>
+      <tr><td>APK 编译</td><td class="ok">通过</td></tr>
+      <tr><td>签名 v1 / v2 / v3</td><td class="ok">全部 Verified: true</td></tr>
+      <tr><td>Launcher</td><td class="ok">dev.linjian.peek.MainActivity</td></tr>
+      <tr><td>classes.dex 中 PalmDeskActivity</td><td class="ok">0 命中（已移除）</td></tr>
+      <tr><td>Android java/manifest desk_/PalmDesk 残留</td><td class="ok">0 命中</td></tr>
+      <tr><td>Server desk 相关残留</td><td class="ok">0 命中</td></tr>
+      <tr><td>MCP 工具数</td><td class="ok">129（desk 0，watchparty 6 全保留）</td></tr>
+      <tr><td>MCP schema 校验</td><td class="ok">0 问题</td></tr>
+      <tr><td>py_compile</td><td class="ok">mcp_engine.py / linjian_server.py 通过</td></tr>
+    </table>
+  </div>
+
+  <h2 class="sec">四、交付产物</h2>
+  <div class="card">
+    <div class="desc">APK：android/Zhangxinchuang-public-v0.3.9.0.apk（2.4MB）· update.json 的 sha256 与 changelog 已同步。</div>
+    <div class="lbl">APK SHA-256</div>
+    <div class="hash">872c095f15d852cabf4b06eb8c2a763c21df4811f621acb0ee3df73a23df95f6</div>
+    <div class="desc" style="margin-top:12px">注：本次按你的选择<b>暂不上传 GitHub</b>，所有改动已在本地完成并验证，随时可提供 PAT 推送并覆盖 Release。</div>
+  </div>
+
+  <footer>掌心窗 · 回滚原版改动证据 · 2026-11-22</footer>
+</div>
+</body>
+</html>

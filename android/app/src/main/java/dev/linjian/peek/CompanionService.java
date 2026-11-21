@@ -231,18 +231,6 @@ public class CompanionService extends Service {
                 try { reportCommand(ctx, serverUrl, token, id, true, result); uploadStateThrottled(serverUrl, token, ctx, false); } catch (Exception ignored) { }
                 return;
             }
-            if (FocusMode.isFocusAction(action)) {
-                Context focusCtx = ScreenshotService.getInstance() != null ? ScreenshotService.getInstance() : ctx;
-                JSONObject rr = FocusMode.handleCommand(focusCtx, cmd);
-                boolean ok = rr.optBoolean("ok", false);
-                String result = rr.optString("result", rr.toString());
-                if (ok && ("start_focus_mode".equals(action) || "enable_focus_mode".equals(action))) {
-                    FocusMode.forceShowLockActivity(focusCtx);
-                }
-                DebugState.append(ctx, "执行专注模式命令 " + action + "：" + result);
-                try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, focusCtx, true); } catch (Exception ignored) { }
-                return;
-            }
             if (isAppGateAction(action)) {
                 JSONObject rr = AppGate.handleCommand(ctx, normalizedGateCommand(cmd));
                 boolean ok = rr.optBoolean("ok", false);
@@ -252,13 +240,8 @@ public class CompanionService extends Service {
                 return;
             }
 
-            if ("get_plugin_registry".equals(action) || "plugin_registry".equals(action)) {
-                JSONObject rr = PluginRegistry.categorizedJson();
-                DebugState.append(ctx, "执行插件分类查询：" + rr.length() + " 个分类");
-                try { reportCommand(ctx, serverUrl, token, id, true, rr.toString()); } catch (Exception ignored) { }
-                return;
-            }
-            if (action.contains("class_schedule")) {
+            // [MCP-ADD] 课表条目增改删的 action 名含 class_entry，一并纳入课表命令分发。
+            if (action.contains("class_schedule") || action.contains("class_entry")) {
                 JSONObject rr = ClassScheduleState.handleCommand(ctx, cmd);
                 boolean ok = rr.optBoolean("ok", false);
                 String result = rr.optString("result", rr.toString());
@@ -279,15 +262,6 @@ public class CompanionService extends Service {
                 boolean ok = rr.optBoolean("ok", false);
                 String result = rr.optString("result", rr.toString());
                 DebugState.append(ctx, "执行共同记忆命令 " + action + "：" + result);
-                try { reportCommand(ctx, serverUrl, token, id, ok, result); } catch (Exception ignored) { }
-                return;
-            }
-            if (action.contains("ocr") || "extract_screen".equals(action) || "scan_screen".equals(action)) {
-                // screen_ocr 走 ScreenOcrService（含位图截屏 + 服务端视觉增强）；其余仍走本地 OcrPlugin。
-                JSONObject rr = "screen_ocr".equals(action) ? ScreenOcrService.handleCommand(ctx, cmd) : OcrPlugin.handleCommand(ctx, cmd);
-                boolean ok = rr.optBoolean("ok", false);
-                String result = rr.optString("result", rr.toString());
-                DebugState.append(ctx, "执行识图命令 " + action + "：" + result);
                 try { reportCommand(ctx, serverUrl, token, id, ok, result); } catch (Exception ignored) { }
                 return;
             }
@@ -393,16 +367,6 @@ public class CompanionService extends Service {
                 return;
             }
 
-            // [DESK] 桌面配置命令：机端 MCP 可改角标图标/名字/背景/文字/恢复默认，与手机端闭环。
-            if (action.startsWith("desk_")) {
-                JSONObject rr = DeskCommand.handleCommand(ctx, cmd);
-                boolean ok = rr != null && rr.optBoolean("ok", false);
-                String result = rr != null ? rr.toString() : "desk_unhandled";
-                DebugState.append(ctx, "执行桌面命令 " + action + "：" + (ok ? "成功" : result));
-                try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, true); } catch (Exception ignored) { }
-                return;
-            }
-
             if ("run_sequence".equals(action)) {
                 executeSequence(ctx, id, cmd, serverUrl, token);
                 return;
@@ -459,18 +423,12 @@ public class CompanionService extends Service {
             if ("wait".equals(action)) { ok = true; result = "wait";
             } else if ("get_life_state".equals(action)) { ok = true; result = LifeState.collect(ctx).toString();
             } else if ("get_calendar_state".equals(action) || "upsert_calendar_event".equals(action) || "add_calendar_event".equals(action) || "delete_calendar_event".equals(action)) { // 日历命令统一由 handleCommandBody(ctx, cmd) 处理：那里带完整 payload，能解析出稳定的事件 id。 // performAction 这条旧标量路径没有 payload，若继续用命令 id 顶替会重现「删除 not_found:命令id / 更新换 id」(R1/R2)， // 因此明确拒绝，绝不再悄悄构造一个缺 id 的 cmd。 ok = false; result = "calendar_command_requires_payload_use_handleCommandBody";
-            } else if (FocusMode.isFocusAction(action)) {
-                JSONObject focusCmd = new JSONObject().put("action", action).put("app", app).put("package", pkg);
-                if (duration > 0 && duration != 350) focusCmd.put("duration_minutes", Math.max(1, Math.round(duration / 60000.0)));
-                if (message != null && message.trim().length() > 0) focusCmd.put("message", message);
-                if (title != null && title.trim().length() > 0) focusCmd.put("goal", title);
-                Context focusCtx = ScreenshotService.getInstance() != null ? ScreenshotService.getInstance() : ctx;
-                JSONObject rr = FocusMode.handleCommand(focusCtx, focusCmd); ok = rr.optBoolean("ok", false); result = rr.optString("result", rr.toString());
-                if (ok && ("start_focus_mode".equals(action) || "enable_focus_mode".equals(action))) FocusMode.forceShowLockActivity(focusCtx);
             } else if (isAppGateAction(action)) { JSONObject rr = AppGate.handleCommand(ctx, new JSONObject().put("action", normalizeGateAction(action)).put("app", app).put("package", pkg)); ok = rr.optBoolean("ok", false); result = rr.optString("result", rr.toString());
-            } else if ("get_screen_nodes".equals(action)) {
+            } else if ("get_screen_nodes".equals(action) || "screen_ocr".equals(action)) {
+                // [S1-FIX] screen_ocr 走手机端无障碍节点结构化提取（识图能力保留），
+                // 复用 get_screen_nodes 的真实实现，不再落到默认分支静默返回 noop。
                 if (svc != null) { svc.refreshScreenModel(); ok = true; result = svc.getScreenNodesJsonNow(); }
-                else result = "accessibility service not ready";
+                else { ok = false; result = "accessibility service not ready"; }
             } else if ("tap_text".equals(action)) {
                 if (svc != null) { JSONObject rr = svc.tapText(targetText, match, index); ok = rr.optBoolean("ok", false); result = rr.toString(); }
                 else result = "accessibility service not ready";
@@ -662,32 +620,98 @@ public class CompanionService extends Service {
         showCenterAlert(ctx, title, message, tone, buttonText, kindLabel, false);
     }
 
-    /** 带震动标志的居中弹窗：训诫等强制类弹窗调用，弹窗同时震动提示。 */
+    /**
+     * 带震动标志的居中弹窗：训诫等强制类弹窗调用，弹窗同时震动提示。
+     *
+     * 三通道策略（修复「必须先打开掌心窗才弹得出」）：
+     *  1) 有悬浮窗权限 → AlertCenterOverlay 悬浮窗，直接盖在当前 App 之上（体验最好）；
+     *  2) 无悬浮窗权限 → 发带 fullScreenIntent 的最高紧急级通知，由系统全屏骑脸拉起
+     *     AlertCenterActivity 居中弹窗页——这一步是系统级能力，不要求掌心窗在前台；
+     *  3) 连通知权限都没有 → 才退回直接 startActivity（此时才需要掌心窗在前台，属最后兜底）。
+     * 绝不因为「掌心窗没打开」而弹不出：主通道（1/2）都不依赖掌心窗前台。
+     */
     public static void showCenterAlert(Context ctx, String title, String message, String tone, String buttonText, String kindLabel, boolean vibrate) {
         try {
+            // 上课全局静默总闸：任何居中弹窗（含服务端/MCP下发、训诫、一起看、主动提醒等）上课一律不弹、不震。
+            if (ClassScheduleState.silenceIfInClass(ctx, "居中弹窗(" + kindLabel + ")")) return;
             if (vibrate) vibrate(ctx, "strict".equalsIgnoreCase(tone) || "angry".equalsIgnoreCase(tone));
-            if (AlertCenterOverlay.canShow(ctx) && AlertCenterOverlay.show(ctx, title, message, tone, buttonText, kindLabel)) {
-                DebugState.append(ctx, "屏幕居中弹窗已下发（悬浮窗，类型=" + kindLabel + "）：" + (title == null ? "" : title));
+            final String t = (title == null || title.trim().isEmpty()) ? "掌心窗" : title.trim();
+            final String m = (message == null || message.trim().isEmpty()) ? (AppPrefs.userName(ctx) + "，看一眼这里。") : message.trim();
+            final String toneSafe = (tone == null || tone.trim().isEmpty()) ? "gentle" : tone;
+            final String btn = (buttonText == null || buttonText.trim().isEmpty()) ? "知道啦" : buttonText;
+            final String kind = (kindLabel == null || kindLabel.trim().isEmpty()) ? "陪伴消息" : kindLabel;
+
+            // 通道1：悬浮窗（需悬浮窗权限）——真正盖住当前 App，居中且无需 Activity。
+            if (AlertCenterOverlay.canShow(ctx) && AlertCenterOverlay.show(ctx, t, m, toneSafe, btn, kind)) {
+                DebugState.append(ctx, "屏幕居中弹窗已下发（悬浮窗，类型=" + kind + "）：" + t);
                 return;
             }
-            // v0.4.0 双保险：Android 10+ 会拦截后台 startActivity。悬浮窗不可用/失败时，
-            // 除了 Activity 兜底，额外发一条带 fullScreenIntent 的最高紧急级横幅通知：
-            // 系统会把它以悬浮横幅/全屏方式骑脸展示，无论用户当前在刷什么 App 都不会漏。
+
+            // 通道2：fullScreenIntent 全屏通知（无需掌心窗前台、无需悬浮窗权限）。
+            // 系统以悬浮横幅/全屏方式拉起 AlertCenterActivity，实现真正的「骑脸居中弹窗」。
             try {
-                showReminderNotification(ctx, title == null ? "掌心窗" : title, message);
-                DebugState.append(ctx, "居中弹窗补发 fullScreenIntent 横幅通知（后台 Activity 拦截兜底）");
+                if (showFullScreenAlertNotification(ctx, t, m, toneSafe, btn, kind)) {
+                    DebugState.append(ctx, "屏幕居中弹窗已下发（fullScreenIntent 全屏通知，类型=" + kind + "）：" + t);
+                    return;
+                }
             } catch (Exception ignored) { }
-            // 没有悬浮窗权限或悬浮失败：退回 Activity 兜底，仍然弹得出。
+
+            // 通道3：连通知权限都没有的最后兜底——直接拉起居中弹窗页。
             Intent i = new Intent(ctx, AlertCenterActivity.class);
-            i.putExtra("title", title == null ? "" : title);
-            i.putExtra("message", message == null ? "" : message);
-            i.putExtra("tone", tone == null ? "gentle" : tone);
-            i.putExtra("button_text", buttonText == null ? "知道啦" : buttonText);
-            i.putExtra("kind", kindLabel == null ? "陪伴消息" : kindLabel);
+            i.putExtra("title", t);
+            i.putExtra("message", m);
+            i.putExtra("tone", toneSafe);
+            i.putExtra("button_text", btn);
+            i.putExtra("kind", kind);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             ctx.startActivity(i);
-            DebugState.append(ctx, "屏幕居中弹窗已下发（Activity 兜底，类型=" + kindLabel + "）：" + (title == null ? "" : title));
+            DebugState.append(ctx, "屏幕居中弹窗已下发（Activity 最后兜底，类型=" + kind + "）：" + t);
         } catch (Exception e) { DebugState.append(ctx, "居中弹窗异常：" + ScreenshotService.shortMsg(e)); }
+    }
+
+    /**
+     * 发一条带 fullScreenIntent 的最高紧急级通知，全屏拉起完整的居中弹窗页（AlertCenterActivity）。
+     * 这是「无需掌心窗前台、无需悬浮窗权限」可靠弹窗的关键通道。返回 false 表示无通知权限/发送失败。
+     */
+    private static boolean showFullScreenAlertNotification(Context ctx, String title, String message, String tone, String buttonText, String kind) {
+        if (Build.VERSION.SDK_INT >= 33 && ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false;
+        NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null) return false;
+        int nid = (int) (System.currentTimeMillis() % Integer.MAX_VALUE);
+        int piFlags = Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT : PendingIntent.FLAG_UPDATE_CURRENT;
+
+        Intent full = new Intent(ctx, AlertCenterActivity.class);
+        full.putExtra("title", title);
+        full.putExtra("message", message);
+        full.putExtra("tone", tone);
+        full.putExtra("button_text", buttonText);
+        full.putExtra("kind", kind);
+        full.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent fullPi = PendingIntent.getActivity(ctx, nid + 700000, full, piFlags);
+
+        PendingIntent contentPi = PendingIntent.getActivity(ctx, nid, full, piFlags);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(REMINDER_CHANNEL_ID, "掌心窗悬浮横幅提醒", NotificationManager.IMPORTANCE_HIGH);
+            channel.setDescription("最高紧急级悬浮横幅：fullScreenIntent 全屏骑脸，无需打开掌心窗。");
+            channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            channel.enableVibration(true);
+            nm.createNotificationChannel(channel);
+        }
+        Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? new Notification.Builder(ctx, REMINDER_CHANNEL_ID) : new Notification.Builder(ctx);
+        builder.setContentTitle(title)
+                .setContentText(message)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentIntent(contentPi)
+                .setFullScreenIntent(fullPi, true)
+                .setAutoCancel(true)
+                .setCategory(Notification.CATEGORY_MESSAGE)
+                .setPriority(Notification.PRIORITY_HIGH)
+                .setDefaults(Notification.DEFAULT_SOUND | Notification.DEFAULT_VIBRATE)
+                .setWhen(System.currentTimeMillis())
+                .setShowWhen(true);
+        nm.notify(nid, builder.build());
+        return true;
     }
 
     /** 震动提示：strong=true 用较长较强模式（训诫），否则短促一震。无权限/旧系统静默失败。 */
@@ -767,7 +791,7 @@ public class CompanionService extends Service {
             boolean strong = "strong".equalsIgnoreCase(level)
                     || (level.isEmpty() && (miss >= threshold || strongEmotion));
 
-            if (message.isEmpty()) message = CompanionEmotionState.message(ctx);
+            if (message.isEmpty()) message = CompanionEmotionState.checkinMessage(ctx); // 查岗拉回：盘问质问口吻
             if (title.isEmpty()) title = strong ? AppPrefs.companionName(ctx) + "要你回来" : AppPrefs.companionName(ctx) + "在等你";
 
             cfg.put("level", strong ? "strong" : "soft");
@@ -824,6 +848,8 @@ public class CompanionService extends Service {
 
     private static boolean showReminderNotification(Context ctx, String title, String message, int notificationId) {
         try {
+            // 上课全局静默总闸：横幅通知（含低电量/喝水/天气/生理期/下课/MCP send_notification 等）上课一律不弹。
+            if (ClassScheduleState.silenceIfInClass(ctx, "横幅通知(" + title + ")")) return false;
             if (Build.VERSION.SDK_INT >= 33 && ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false;
             NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm == null) return false;
@@ -926,30 +952,21 @@ public class CompanionService extends Service {
         if (!force && now - lastStateUploadMs < AppPrefs.STATE_UPLOAD_INTERVAL_MS) return;
         lastStateUploadMs = now;
         JSONObject state = LifeState.collect(ctx);
+        // 归电自动补弹：随生活状态上传定期检查；已限频，避免公开后端被状态上报打到 429。
+        // [FIX] 必须在 put companion_emotion 之前调用：evaluate 只读 state.current_package，
+        // 且历史上这里曾再次 state = LifeState.collect(ctx)，把刚放进去的 companion_emotion 整个冲掉，
+        // 导致服务端/MCP 永远读不到手机情绪。现只 collect 一次，后续所有镜像字段叠加到同一对象。
+        GuidianState.evaluate(ctx, state);
         // 陪伴对象情绪随状态一起上报，服务端据此做镜像，MCP 读到的和手机上是同一份。
         try { state.put("companion_emotion", CompanionEmotionState.snapshot(ctx)); } catch (Exception ignored) { }
-        // 归电自动补弹：随生活状态上传定期检查；已限频，避免公开后端被状态上报打到 429。
-        GuidianState.evaluate(ctx, state);
-        state = LifeState.collect(ctx);
         // 共同记忆以手机本机存储为唯一数据源：每次状态上报把记忆镜像到服务端，
         // 保证 /api/shared_memory 读取、网页与 MCP 检索看到的是手机上的最新记忆（可改可查）。
         try { state.put("shared_memory", SharedMemoryState.getItems(ctx)); } catch (Exception ignored) { }
         // [WATCH-PARTY] 手机端一起看房间状态（含本机吐槽/表情）镜像到服务端，MCP 侧 get_watch_party 可读到。
         try { state.put("watch_party", WatchPartyState.snapshot(ctx)); } catch (Exception ignored) { }
-        // [DESK-TOGGLE] 角标开关状态镜像到服务端，机端 MCP get_desk_state 可读取。
-        try { state.put("desk_toggles", DeskFeatureToggleStore.snapshot(ctx)); } catch (Exception ignored) { }
-        // [DESK] 角标明细（id/名字/内置图标索引/开关）镜像到服务端，机端可读桌面全貌。
-        try {
-            org.json.JSONArray badges = new org.json.JSONArray();
-            for (DeskFeatureStore.Feature f : DeskFeatureStore.all(ctx)) {
-                org.json.JSONObject b = new org.json.JSONObject();
-                b.put("id", f.id).put("name", f.name)
-                 .put("builtin_index", DeskIconPack.indexOf(ctx, f.id))
-                 .put("enabled", DeskFeatureToggleStore.isEnabled(ctx, f.id));
-                badges.put(b);
-            }
-            state.put("desk_badges", badges);
-        } catch (Exception ignored) { }
+        // [SYNC-FIX] 策略配置快照（查岗间隔/冷却/软件使用时长锁/弹窗时间等）随状态上报镜像到服务端，
+        // 保证 MCP 侧 get_tour_schedule / get_life_state 查询读到手机端写入后的最新值，而不是服务端旧 JSON。
+        try { state.put("policy", PolicyCommand.snapshot(ctx)); } catch (Exception ignored) { }
         postJson(serverUrl + "/api/device/state", token, state);
         ActiveReminder.evaluate(ctx, state);
         HomeMode.evaluate(ctx, state);

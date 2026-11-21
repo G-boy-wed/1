@@ -44,15 +44,6 @@ public class PullBackCard {
         return cfg.optBoolean("strong", false);
     }
 
-    /** 情绪弹窗文案随机微调：弱情绪时随机加尾句，强情绪保持原话以显认真。 */
-    private static String randomizeEmotionMessage(String tag, String base) {
-        if (base == null || base.trim().isEmpty()) return base;
-        if (CompanionEmotionState.isStrongTag(tag)) return base;
-        String[] tails = {"", "（别装没看见我哦）", "（回一句会怎样嘛）", "（我就在这儿等你）"};
-        int i = (int) ((System.currentTimeMillis() / 1000L) % tails.length);
-        return base + tails[i];
-    }
-
     /**
      * 弹窗类型标识：优先取调用方写入的 kind_label；
      * 没给时按 kind / from 推断（查岗拉回 / 分心查岗 / 情绪感知 / 主动聊天），
@@ -73,11 +64,9 @@ public class PullBackCard {
 
     /** 构建卡片视图；调用方负责把它放到屏幕的合适位置。 */
     public static View build(final Context ctx, final JSONObject cfg, final Listener listener) {
-        // 弹窗配色：设置页若单独覆盖了就用覆盖值，否则跟随归电主题。
-        String themeName = GuidianState.themeName(ctx);
-        String overrideTheme = PolicyStore.themeOverride(ctx);
-        if (overrideTheme != null && !overrideTheme.trim().isEmpty()) themeName = GuidianTheme.normalize(overrideTheme);
-        final GuidianTheme theme = GuidianTheme.from(themeName);
+        // [U3-FIX] 拉回弹窗统一跟随全局 UITheme，移除设置页旧版独立色板覆盖分支，
+        // 与中心弹窗/归电弹窗配色保持一致。
+        final GuidianTheme theme = GuidianTheme.fromContext(ctx);
         final boolean strong = isStrongLevel(cfg);
         final int accent = theme.accentFor(cfg.optString("tone", "gentle"));
         String companion = AppPrefs.companionName(ctx);
@@ -90,8 +79,12 @@ public class PullBackCard {
         int miss = cfg.optInt("miss_percent", 0);
         int intensity = cfg.optInt("intensity", 0);
         String message = cfg.optString("message", "");
-        if (message.trim().isEmpty()) message = CompanionEmotionState.message(ctx);
-        message = randomizeEmotionMessage(tag, message);
+        if (message.trim().isEmpty()) {
+            // 兜底文案按弹窗类型分发：查岗/想你/主动聊天/提醒各有独立口吻，不再千篇一律。
+            message = CompanionEmotionState.messageForKind(ctx, kindLabelOf(cfg));
+        }
+        // [A2-FIX] 移除按秒轮转的固定尾句：文案完全来自 CompanionEmotionState 的
+        // messageForKind / pickNoRepeat 随机不重复机制，弹窗不再拼接任何固定后缀。
 
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);

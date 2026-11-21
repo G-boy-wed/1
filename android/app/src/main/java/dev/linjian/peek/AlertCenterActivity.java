@@ -65,8 +65,11 @@ public class AlertCenterActivity extends Activity {
     public static void bind(View root, String kindLabel, String title, String message, String tone, String buttonText, final Runnable onDismiss) {
         if (root == null) return;
         Context ctx = root.getContext();
-        boolean angry = "angry".equalsIgnoreCase(tone);
-        GuidianTheme theme = GuidianTheme.from(GuidianState.themeName(ctx));
+        // [FIX] 强硬语气统一识别：angry/strict/harsh 都算「严厉管束」，触发红色背景叠加等强视觉。
+        // 之前只认 angry，导致 strict 语气虽有红字但卡片样式与普通弹窗几乎一样，训诫力度看不出来。
+        boolean angry = isFirmTone(tone);
+        // [THEME-INS] 弹窗配色统一跟随全局 UI 主题（含亮/暗），归电弹窗与掌心窗弹窗同一套色。
+        GuidianTheme theme = GuidianTheme.fromContext(ctx);
         int accent = theme.accentFor(tone);
 
         TextView t = root.findViewById(R.id.title);
@@ -133,6 +136,13 @@ public class AlertCenterActivity extends Activity {
                 Math.round(Color.red(from) * (1f - x) + Color.red(to) * x),
                 Math.round(Color.green(from) * (1f - x) + Color.green(to) * x),
                 Math.round(Color.blue(from) * (1f - x) + Color.blue(to) * x));
+    }
+
+    /** 强硬/管束语气统一判定：angry、strict、harsh 均视为「严厉」，渲染为红色强视觉。 */
+    public static boolean isFirmTone(String tone) {
+        if (tone == null) return false;
+        String t = tone.trim().toLowerCase(java.util.Locale.US);
+        return "angry".equals(t) || "strict".equals(t) || "harsh".equals(t) || "strong".equals(t);
     }
 
     /** 同色换透明度（弹窗类型徽标用）。 */

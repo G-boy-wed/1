@@ -121,7 +121,7 @@ public class PolicySettingsActivity extends Activity {
         g1.addView(rowNumber("拉回分级阈值（%）", "想你达到该值 → 强级弹窗（只能「回到软件」）；低于则软级（「回到软件 / 拒绝并填写理由」两选项）。默认 70。", PolicyStore.forceBackThreshold(this), 1, 100, v -> PolicyStore.setForceBackThreshold(this, v)));
         g1.addView(rowSwitch("拒绝理由必填", "软级弹窗拒绝拉回必须留理由才放你走；关闭则可空拒绝。", PolicyStore.declineReasonRequired(this), (v, c) -> PolicyStore.setDeclineReasonRequired(this, c)));
         g1.addView(rowText("拉回目标 App", "点「回到软件」要跳回的 App 包名。默认 com.psyche.kelivo。", PolicyStore.targetPackage(this), s -> PolicyStore.setTargetPackage(this, s)));
-        g1.addView(rowSpinner("弹窗主题", "跟随归电，或单独覆盖一套主题。", themeOptions(), themeOverrideIndex(), s -> PolicyStore.setThemeOverride(this, normalizeTheme(s))));
+        // [R2-FIX] 弹窗主题统一跟随全局 UITheme，移除已失效的"弹窗主题"覆盖设置项。
         g1.addView(rowSpinner("弹窗位置", "跟随归电，或单独覆盖（顶部/居中/底部）。", positionOptions(), positionOverrideIndex(), s -> PolicyStore.setPositionOverride(this, normalizePosition(s))));
         g1.addView(rowNumber("冷却时间（分钟）", "同类提醒最短间隔；改任意参数后冷却立即重算。默认 5。", PolicyStore.cooldownMinutes(this), 0, 240, v -> PolicyStore.setCooldown(this, v)));
         g1.addView(rowTimePair("安静时段", "这段时间里不主动打扰（支持跨零点，如 23:30→08:00）。", PolicyStore.quietStart(this), PolicyStore.quietEnd(this), s -> PolicyStore.setQuietStart(this, s), s -> PolicyStore.setQuietEnd(this, s)));
@@ -222,10 +222,6 @@ public class PolicySettingsActivity extends Activity {
         g12.addView(rowButton("保存记忆", "把上面写的记忆加入共同记忆。", "保存", v -> saveMemory()));
         // 修复「共同记忆无法查看和写入和更改」：全量列出记忆，每条可编辑/删除。
         g12.addView(buildMemoryList());
-
-        LinearLayout gOcr = card(container, "识图感知", "用读屏节点树从当前屏幕读取可见文字与状态；可随时关闭，关后本地与 MCP 都无法调用。", "ocr");
-        gOcr.addView(rowSwitch("开启识图感知", "关闭后不再读取屏幕文字，MCP 与本地都无法调用识图。默认开启。", PolicyStore.ocrEnabled(this), (v, c) -> PolicyStore.setOcrEnabled(this, c)));
-        gOcr.addView(rowButton("读取当前屏幕文字", "需要无障碍权限；读取后展示提取到的文字。", "读取", v -> runOcr()));
 
         LinearLayout gWeather = card(container, "天气地区", "家与常用地点，天气提醒按地区给出。", "weather");
         JSONObject wl = WeatherState.currentLocation(this);
@@ -331,7 +327,6 @@ public class PolicySettingsActivity extends Activity {
             case "reminder": return "主动提醒";
             case "schedule": return "课表作息";
             case "memory": return "共同记忆";
-            case "ocr": return "识图感知";
             case "weather": return "天气地区";
             case "homemode": return "回家模式";
             case "global": return "全局";
@@ -429,20 +424,7 @@ public class PolicySettingsActivity extends Activity {
         sv.post(() -> sv.scrollTo(0, top));
     }
 
-    // ============ 识图 / 天气 / 回家模式 详情 ============
-
-    private void runOcr() {
-        if (!PolicyStore.ocrEnabled(this)) {
-            AlertDialog.Builder b = new AlertDialog.Builder(this);
-            b.setTitle("识图感知已关闭").setMessage("当前已关闭识图感知。打开上方「开启识图感知」开关后即可读取屏幕文字。").setPositiveButton("知道了", null).show();
-            return;
-        }
-        try {
-            JSONObject r = OcrPlugin.extractLocal(this);
-            AlertDialog.Builder b = new AlertDialog.Builder(this);
-            b.setTitle("当前屏幕文字").setMessage(r == null ? "未读到内容（请确认已开启无障碍权限）" : r.toString()).setPositiveButton("知道了", null).show();
-        } catch (Exception e) { status("识图失败：" + ScreenshotService.shortMsg(e)); }
-    }
+    // ============ 天气 / 回家模式 详情 ============
 
     private void showWeatherLocations() {
         try {

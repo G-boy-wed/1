@@ -1,0 +1,50 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>掌心窗改动证据</title>
+<style>
+body{font-family:-apple-system,"PingFang SC",sans-serif;background:#faf7f9;color:#2f403b;margin:0;padding:18px;line-height:1.6}
+h1{font-size:20px;color:#2f403b}h2{font-size:15px;color:#b4532a;margin:22px 0 8px}
+.card{background:#fff;border-radius:12px;padding:14px 16px;margin-bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.05)}
+.tag{display:inline-block;background:#eef3f0;color:#3c6b5b;border-radius:6px;padding:2px 9px;font-size:11px;margin-left:8px}
+.ok{color:#2e7d5b;font-weight:600}
+pre{background:#f4f1f3;border-radius:8px;padding:10px;font-size:11px;overflow-x:auto;color:#444}
+code{font-family:ui-monospace,Menlo,monospace}
+.meta{font-size:12px;color:#7a8b85}
+</style></head><body>
+<h1>掌心窗改动证据 · 2026-11-22</h1>
+<div class="meta">编译通过 · v1/v2/v3 验签全 Verified · APK SHA-256: <code>39faf7b332725dd4f3e0e0b2682e22077e22e7ec4eb416bb44671b83ad7232ef</code></div>
+
+<h2>① 视频互动「一起看」移到守护页 + 开关</h2>
+<div class="card">
+<div class="tag">MainActivity.java</div>
+<p>陪伴页旧入口已移除；守护页新增「互动陪伴」分区，卡片带独立开关，关闭即禁止进入。</p>
+<pre><code>root.addView(label("互动陪伴", 9), marginBottom(6));
+root.addView(actionSettingBlockWithSwitch("一起看",
+  "...关闭即停用", R.drawable.ic_heart_wave,
+  WatchPartyState.enabled(this),
+  (c) -&gt; WatchPartyState.setEnabled(this, c),
+  this::openWatchParty), marginBottom(11));</code></pre>
+<p class="ok">✓ WatchPartyState 新增 enabled/setEnabled 持久化开关，默认开，关闭时 openWatchParty 拦截</p>
+</div>
+
+<h2>② 彻底删除「识图感知」</h2>
+<div class="card">
+<p>应用内：守护页/设置页入口、<code>OcrPlugin</code>、<code>ScreenOcrService</code>、命令分发、<code>PolicyStore.ocrEnabled</code>、元数据全部删除。</p>
+<p>服务端 MCP：删除 <code>peek_screen / latest_screen / get_screen_nodes / screen_ocr / analyze_image</code> 五个工具及映射/函数，129 → 124。</p>
+<p class="ok">✓ 全局零残留 · 保留 tap_text（点击操作）与课表图片导入（服务端视觉，不依赖本地 OCR）</p>
+</div>
+
+<h2>③ 彻底删除「插件分类」</h2>
+<div class="card">
+<p>删除守护页入口、<code>showPluginRegistryFromGuard()</code>、<code>PluginRegistry.java</code>、<code>get_plugin_registry</code> 命令分发。</p>
+<p class="ok">✓ 全局零残留</p>
+</div>
+
+<h2>④ 居中弹窗 bug：不再需要打开掌心窗</h2>
+<div class="card">
+<p>根因：无悬浮窗权限时代码直接 <code>startActivity</code>，Android 10+ 拦截后台启动，导致必须掌心窗前台才弹。</p>
+<p>修复为三通道：</p>
+<pre><code>1) 有悬浮窗权限 → AlertCenterOverlay 悬浮窗（盖住当前 App）
+2) 无悬浮窗权限 → fullScreenIntent 全屏通知 → 系统骑脸拉起 AlertCenterActivity 居中弹窗（无需掌心窗前台）
+3) 连通知权限都没有 → 才 startActivity 最后兜底</code></pre>
+<p class="ok">✓ 主通道（1/2）均不依赖掌心窗前台；fullScreenIntent 指向完整居中弹窗页</p>
+</div>
+</body></html>

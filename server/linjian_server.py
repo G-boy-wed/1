@@ -60,7 +60,7 @@ COMMAND_PRIORITY_USER = {
 }
 COMMAND_PRIORITY_STATE = {
     "peek", "get_screen_nodes", "get_life_state", "get_screen_break_state",
-    "get_lock_state", "get_focus_status", "get_guidian_state",
+    "get_lock_state", "get_guidian_state",
 }
 
 
@@ -82,13 +82,20 @@ KNOWN_APPS = {
     "京东": "com.jingdong.app.mall", "jd": "com.jingdong.app.mall",
 }
 SENSITIVE_PACKAGES = {"com.eg.android.AlipayGphone", "com.tencent.mm.plugin.wallet"}
-ALLOWED_ACTIONS = {"noop", "peek", "open_app", "home", "back", "recents", "screen_off", "turn_screen_off", "lock_screen", "phone_screen_off", "tap", "swipe", "set_alarm", "send_notification", "run_sequence", "save_known_app", "get_screen_nodes", "tap_text", "input_text", "lock_app", "unlock_app", "temporary_unlock_app", "extend_lock", "deny_unlock_request", "get_lock_state", "set_emergency_passphrase", "add_locked_app", "remove_locked_app", "list_lockable_apps", "screen_break_app", "start_screen_break", "screen_break", "end_screen_break", "stop_screen_break", "temporary_screen_break_release", "temporary_screen_release", "extend_screen_break", "deny_screen_break_release_request", "deny_break_release_request", "get_screen_break_state", "set_screen_break_passphrase", "add_screen_break_app", "remove_screen_break_app", "list_screen_break_apps", "get_focus_status", "get_life_state", "start_focus_mode", "end_focus_mode", "set_focus_plan", "reply_focus_request", "approve_focus_unlock", "deny_focus_unlock", "request_focus_unlock", "create_focus_request", "get_guidian_state", "set_guidian_config", "trigger_guidian", "mark_guidian_returned", "get_calendar_state", "upsert_calendar_event", "add_calendar_event", "delete_calendar_event", "create_diary_book", "list_diary_books", "rename_diary_book", "update_diary_book_cover", "write_diary_entry", "list_diary_entries", "read_diary_entry", "read_diary_entry_with_annotations", "add_diary_annotation", "list_diary_annotations", "mark_diary_annotations_seen", "delete_diary_annotation", "search_diary_entries", "update_diary_entry", "delete_diary_entry", "delete_diary_book",
+ALLOWED_ACTIONS = {"noop", "peek", "open_app", "home", "back", "recents", "screen_off", "turn_screen_off", "lock_screen", "phone_screen_off", "tap", "swipe", "set_alarm", "send_notification", "run_sequence", "save_known_app", "get_screen_nodes", "tap_text", "input_text", "lock_app", "unlock_app", "temporary_unlock_app", "extend_lock", "deny_unlock_request", "get_lock_state", "set_emergency_passphrase", "add_locked_app", "remove_locked_app", "list_lockable_apps", "screen_break_app", "start_screen_break", "screen_break", "end_screen_break", "stop_screen_break", "temporary_screen_break_release", "temporary_screen_release", "extend_screen_break", "deny_screen_break_release_request", "deny_break_release_request", "get_screen_break_state", "set_screen_break_passphrase", "add_screen_break_app", "remove_screen_break_app", "list_screen_break_apps", "get_life_state", "get_guidian_state", "set_guidian_config", "trigger_guidian", "mark_guidian_returned", "get_calendar_state", "upsert_calendar_event", "add_calendar_event", "delete_calendar_event", "create_diary_book", "list_diary_books", "rename_diary_book", "update_diary_book_cover", "write_diary_entry", "list_diary_entries", "read_diary_entry", "read_diary_entry_with_annotations", "add_diary_annotation", "list_diary_annotations", "mark_diary_annotations_seen", "delete_diary_annotation", "search_diary_entries", "update_diary_entry", "delete_diary_entry", "delete_diary_book",
 "show_center_alert", "force_back_to_chat", "start_tour", "stop_tour",
 "set_companion_emotion", "get_companion_emotion",
 "send_watch_whisper", "pause_media", "media_switch_screen", "get_live_media_context",
 "set_discipline_mode", "get_discipline_state", "trigger_discipline",
 "import_timetable", "parse_timetable", "screen_ocr",
-"add_shared_memory", "remove_shared_memory"}
+"add_shared_memory", "remove_shared_memory",
+"watch_party_start", "watch_party_sync", "watch_party_danmaku", "watch_party_reaction", "watch_party_end",
+"set_policy", "get_policy", "list_policy", "reset_policy",
+"get_class_schedule", "add_class_entry", "upsert_class_entry", "remove_class_entry",
+"edit_shared_memory",
+# [S9-FIX] 补齐 Android 端已实现但白名单缺失、会被 make_command 强制改成 noop 的 action。
+"write_companion_emotion", "get_shared_memory", "list_shared_memory", "wait",
+"get_phone_state", "get_senses_state", "record_user_emotion_tag"}
 
 def load_dotenv(path: Path) -> None:
     if not path.exists(): return
@@ -614,6 +621,36 @@ class State:
             self.save_shared_memory()
         return item
 
+    def db_shared_memory_delete(self, memory_id: str) -> bool:
+        """[N2-FIX] 从 SQLite 权威表删除一条记忆，并同步内存/JSON 镜像。"""
+        mid = str(memory_id or "")
+        if not mid:
+            return False
+        with self.db_lock, self._db_conn() as conn:
+            cur = conn.execute("DELETE FROM shared_memory WHERE id=?", (mid,))
+            conn.commit()
+            deleted = cur.rowcount > 0
+        with self.shared_memory_lock:
+            self.shared_memory = [x for x in self.shared_memory if x.get("id") != mid]
+            self.save_shared_memory()
+        return deleted
+
+    def db_shared_memory_sync(self, items: list) -> None:
+        """[N2-FIX] 用手机上报的全量快照对齐 SQLite 权威表（保证删除/编辑不"复活"）。"""
+        clean = [x for x in (items or []) if isinstance(x, dict) and x.get("id")]
+        keep_ids = [str(x.get("id")) for x in clean]
+        with self.db_lock, self._db_conn() as conn:
+            if keep_ids:
+                marks = ",".join("?" for _ in keep_ids)
+                conn.execute("DELETE FROM shared_memory WHERE id NOT IN (%s)" % marks, keep_ids)
+            else:
+                conn.execute("DELETE FROM shared_memory")
+            for x in clean:
+                conn.execute("INSERT OR REPLACE INTO shared_memory(id, author, text, timestamp) VALUES(?,?,?,?)",
+                             (str(x.get("id")), str(x.get("author") or ""), str(x.get("text") or ""),
+                              str(x.get("timestamp") or x.get("updated_at") or now_iso())))
+            conn.commit()
+
     def _load_discipline(self) -> dict:
         # BE-14：默认就带 custom_text，保证读取函数永远有该字段。
         default = {"enabled": False, "mode": "gentle", "level": 0, "updated_at": "", "custom_text": ""}
@@ -854,10 +891,20 @@ def enqueue_command(state: "State", data: dict) -> dict:
     except Exception:
         pass
     # 与 Handler._queue 相同：peek 最多保留 3 个，避免堆积。
+    # [N12-FIX] 只有真正入队的命令才写 history，避免产生永不分发的幽灵 pending；
+    # 并对 history 做容量上限（保留最新 2000 条），防长运行内存增长。
     with state.commands_lock:
-        if not (cmd.get("action") == "peek" and sum(1 for c in state.commands if c.get("action") == "peek") >= 3):
+        overflow_peek = cmd.get("action") == "peek" and sum(1 for c in state.commands if c.get("action") == "peek") >= 3
+        if not overflow_peek:
             state.commands.append(cmd)
-        state.command_history[cmd.get("id", "")] = dict(cmd)
+            state.command_history[cmd.get("id", "")] = dict(cmd)
+            if len(state.command_history) > 2000:
+                oldest = sorted(state.command_history.keys(),
+                                key=lambda k: str(state.command_history[k].get("created_at", "")))[:len(state.command_history) - 2000]
+                for k in oldest:
+                    state.command_history.pop(k, None)
+        else:
+            cmd["skipped_reason"] = "peek_overflow"
     return cmd
 
 
@@ -992,7 +1039,10 @@ class Handler(BaseHTTPRequestHandler):
         if not raw:
             return {}
         try:
-            return json.loads(raw.decode("utf-8"))
+            parsed = json.loads(raw.decode("utf-8"))
+            # [N11-FIX] 非法/非 object 的 JSON（如 []、"x"、123）统一当作空对象，
+            # 避免各 POST 端点对 list/str 调 .get() 抛 AttributeError 断连。
+            return parsed if isinstance(parsed, dict) else {}
         except Exception:
             return {}
 
@@ -1028,7 +1078,7 @@ class Handler(BaseHTTPRequestHandler):
                              "mcp_endpoints": ["/mcp (POST Streamable HTTP)", "/sse (GET)", "/messages (POST)", "--mcp-stdio"],
                              "shared_memory_db": "sqlite", "cors": True,
                              "guidian": True, "calendar": True, "diary": True, "diary_storage": "phone_local",
-                             "app_gate": True, "focus_tools": True, "diary_rename_fix": True,
+                             "app_gate": True, "focus_tools": False, "diary_rename_fix": True,
                              "diary_write_fallback": True, "diary_annotation_tools": True,
                              "diary_annotation_whitelist_fix": True})
             return
@@ -1177,10 +1227,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, build_companion_emotion(self.state, device_id)); return
         if path == "/api/tour/state":
             if not self._require_token(): return
-            with self.state.tour_lock:
-                events = list(self.state.event_log[-20:])
-            self._json(200, {"ok": True, "schedule": load_tour_schedule(self.state), "recent_events": events,
-                             "usage_sessions": {k: (v.get("package") if v else "") for k, v in self.state.usage_sessions.items()}}); return
+            ts = self.tour_state(qs.get("device_id", [DEFAULT_DEVICE])[0] or DEFAULT_DEVICE)
+            ts["usage_sessions"] = {k: (v.get("package") if v else "") for k, v in self.state.usage_sessions.items()}
+            self._json(200, ts); return
         # v0.4.0：共同记忆专用接口（SQLite 权威源），供手机前端/网页直接读写。
         if path == "/api/shared_memory/list":
             if not self._require_token(): return
@@ -1331,9 +1380,13 @@ class Handler(BaseHTTPRequestHandler):
             # 手机上报的共同记忆 → 更新服务端镜像（手机本机存储为唯一数据源，这里是只读副本）。
             shared_memory = data.get("shared_memory")
             if isinstance(shared_memory, list):
+                snap = [it for it in shared_memory if isinstance(it, dict)][-200:]
                 with self.state.shared_memory_lock:
-                    self.state.shared_memory = [it for it in shared_memory if isinstance(it, dict)][-200:]
+                    self.state.shared_memory = snap
                     self.state.save_shared_memory()
+                # [N2-FIX] 用手机全量快照对齐 SQLite 权威表，删除/编辑后不再从 DB "复活"。
+                try: self.state.db_shared_memory_sync(snap)
+                except Exception: pass
             # [WATCH-PARTY] 手机端即时推送的一起看状态 → 同步到 MCP 引擎的房间状态（MCP 可读到手机侧吐槽）。
             watch_party = data.get("watch_party")
             if isinstance(watch_party, dict):
@@ -1507,6 +1560,9 @@ class Handler(BaseHTTPRequestHandler):
                                 "note": "记忆写入已下发到手机，由掌心窗本机存储执行。"}); return
             if action in ("remove", "delete"):
                 rid = str(data.get("id") or "")
+                # [N2-FIX] 立即从服务端 SQLite 权威表删除，避免只发设备命令导致读端"复活"。
+                try: self.state.db_shared_memory_delete(rid)
+                except Exception: pass
                 cmd = make_command(DEFAULT_DEVICE, "remove_shared_memory", "", "",
                                    {"id": rid, "explicit": True})
                 self._queue(cmd)
@@ -2313,16 +2369,6 @@ class McpBackend:
     def guidian_state(self, device_id: str = DEFAULT_DEVICE) -> dict:
         return (self.state.device_states.get(device_id) or {}).get("guidian_state") or {}
 
-    def desk_state(self, device_id: str = DEFAULT_DEVICE) -> dict:
-        """掌心窗桌面镜像：角标明细 + 开关状态（来自手机端周期上报）。"""
-        raw = self.state.device_states.get(device_id) or {}
-        badges = raw.get("desk_badges")
-        toggles = raw.get("desk_toggles")
-        if not isinstance(badges, list) and not isinstance(toggles, dict):
-            return {}
-        return {"badges": badges if isinstance(badges, list) else [],
-                "toggles": toggles if isinstance(toggles, dict) else {}}
-
     def usage_snapshot(self, device_id: str = DEFAULT_DEVICE) -> dict:
         return build_usage_snapshot(self.state, device_id)
 
@@ -2332,10 +2378,33 @@ class McpBackend:
     def companion_emotion(self, device_id: str = DEFAULT_DEVICE) -> dict:
         return build_companion_emotion(self.state, device_id)
 
-    def tour_state(self) -> dict:
+    def tour_state(self, device_id: str = DEFAULT_DEVICE) -> dict:
         with self.state.tour_lock:
-            events = list(self.state.event_log[-20:])
-        return {"ok": True, "schedule": load_tour_schedule(self.state), "recent_events": events}
+            all_events = list(self.state.event_log)
+        # [FIX] schedule 已按 device 取，events 也要按 device 过滤，避免多设备上报时串数据。
+        # 无 device_id 字段的历史/通用事件予以保留。
+        events = [e for e in all_events
+                  if not e.get("device_id") or e.get("device_id") == device_id][-20:]
+        sched = dict(load_tour_schedule(self.state))
+        # [SYNC-FIX] 手机端写入的策略配置随状态上报镜像在 device_states.policy。
+        # 查询时优先用手机这份覆盖服务端旧 JSON，保证「写入后读得到新值」。
+        raw = self.state.device_states.get(device_id) or {}
+        phone_policy = raw.get("policy")
+        if isinstance(phone_policy, dict):
+            phone_to_tour = {
+                "random_upper_min": "check_in_interval_minutes",
+                "cooldown_min": "cooldown_minutes",
+                "force_back_threshold": "force_back_miss_threshold",
+            }
+            for k, v in phone_policy.items():
+                sk = phone_to_tour.get(k, k)
+                if sk in sched or sk in ("enabled", "quiet_start", "quiet_end", "check_in_interval_minutes",
+                                         "cooldown_minutes", "force_back_miss_threshold", "checkin_enabled"):
+                    sched[sk] = v
+            # 手机端 checkin_enabled 映射到 tour 的 enabled
+            if "checkin_enabled" in phone_policy:
+                sched["enabled"] = phone_policy["checkin_enabled"]
+        return {"ok": True, "schedule": sched, "recent_events": events}
 
     def tour_schedule_update(self, data: dict) -> dict:
         sched = dict(load_tour_schedule(self.state))
@@ -2364,15 +2433,22 @@ class McpBackend:
     def shared_search(self, keyword: str) -> list:
         return self.state.db_shared_memory_search(keyword)
 
-    def shared_write(self, text: str, author: str = "用户") -> dict:
+    def shared_write(self, text: str, author: str = "用户", device_id: str = "") -> dict:
+        # [S10-FIX] 双向同步到指定设备（不再硬编码 DEFAULT_DEVICE），多设备镜像都能更新。
+        target = str(device_id or DEFAULT_DEVICE)
         item = self.state.db_shared_memory_write(text, author)
         # 双向同步到手机本机（best-effort）
         try:
-            enqueue_command(self.state, {"action": "add_shared_memory", "device_id": DEFAULT_DEVICE,
+            enqueue_command(self.state, {"action": "add_shared_memory", "device_id": target,
                             "payload": {"text": text, "author": author, "id": item["id"], "explicit": True}})
         except Exception:
             pass
-        return {"ok": True, "memory": item, "persisted": True, "source": "sqlite"}
+        return {"ok": True, "memory": item, "persisted": True, "source": "sqlite", "device_id": target}
+
+    def record_user_emotion_tag(self, tag: str, note: str = "") -> dict:
+        # [S3-FIX] 写「用户/来访者状态标签」，与陪伴对象情绪(companion_emotion)彻底分离。
+        record_emotion_tag(self.state, tag, note)
+        return {"ok": True, "tag": tag, "note": note}
 
     def activity_list(self, device_id="", date="", source="", limit=50) -> list:
         return self.state.list_activity_events(device_id, date, source, limit)
@@ -2407,6 +2483,59 @@ class McpBackend:
         shot = self.latest_shot()
         return {"ok": True, "visible_text": text, "has_screenshot": bool(shot),
                 "note": "返回可见结构化文本；图片视觉推理需在后端接入视觉模型。"}
+
+    def image_analyze(self, data: dict) -> dict:
+        """[S2-FIX] analyze_image 真正实现：接收 base64/url -> 落盘截图目录 -> best-effort OCR。
+        无图、下载失败或无 OCR 引擎时给出明确回执，不再静默返回空成功。"""
+        b64 = str(data.get("image_base64") or "").strip()
+        url = str(data.get("image_url") or "").strip()
+        raw = b""
+        if b64:
+            if "," in b64 and b64[:5].lower() == "data:":
+                b64 = b64.split(",", 1)[1]
+            try:
+                raw = base64.b64decode(b64)
+            except Exception as e:
+                return {"ok": False, "error": "bad_base64", "message": str(e)}
+        elif url:
+            try:
+                import urllib.request as _ur
+                with _ur.urlopen(url, timeout=15) as _r:
+                    raw = _r.read(MAX_UPLOAD_BYTES)
+            except Exception as e:
+                return {"ok": False, "error": "image_download_failed", "message": str(e)}
+        if not raw or len(raw) < 100:
+            return {"ok": False, "error": "no_image",
+                    "message": "未提供有效的 image_base64/image_url（或图片过小）。"}
+        if len(raw) > MAX_UPLOAD_BYTES:
+            return {"ok": False, "error": "image_too_large"}
+        ext = ".png" if raw[:8] == b"\x89PNG\r\n\x1a\n" else ".jpg"
+        dest = self.state.shots_dir / ("img_%d%s" % (int(time.time() * 1000), ext))
+        try:
+            dest.write_bytes(raw)
+        except Exception as e:
+            return {"ok": False, "error": "save_failed", "message": str(e)}
+        # best-effort：有 tesseract + pytesseract 时做本地 OCR，否则返回明确说明。
+        ocr_text = ""
+        engine = "none"
+        try:
+            import shutil
+            if shutil.which("tesseract"):
+                from PIL import Image  # type: ignore
+                import pytesseract  # type: ignore
+                ocr_text = pytesseract.image_to_string(Image.open(dest))
+                engine = "tesseract"
+        except Exception:
+            engine = "none"
+        # 保留与 ocr_analyze 一致的可见文本字段
+        fields = {k: v for k, v in data.items() if k not in ("image_base64", "image_url", "action", "device_id", "wait_seconds")}
+        text = str(fields.get("text") or fields.get("visible_text") or "")
+        visible = (text + "\n" + ocr_text).strip()
+        note = ("已保存图片并完成本地 OCR。" if engine != "none"
+                else "图片已保存到服务端截图目录，但后端未内置 OCR 引擎；"
+                     "如需文字识别请用 screen_ocr（手机无障碍节点结构化提取）或部署视觉模型。")
+        return {"ok": True, "saved": True, "image_path": str(dest), "filename": dest.name,
+                "size": len(raw), "ocr_engine": engine, "visible_text": visible, "note": note}
 
     def health(self) -> dict:
         return {"ok": True, "service": "linjian-unified-python", "version": VERSION, "port": self.state.port}

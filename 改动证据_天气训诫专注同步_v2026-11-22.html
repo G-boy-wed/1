@@ -1,0 +1,45 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>掌心窗改动证据4</title>
+<style>
+body{font-family:-apple-system,"PingFang SC",sans-serif;background:#faf7f9;color:#2f403b;margin:0;padding:18px;line-height:1.65}
+h1{font-size:20px}h2{font-size:15px;color:#b4532a;margin:22px 0 8px}
+.card{background:#fff;border-radius:12px;padding:14px 16px;margin-bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.05)}
+.ok{color:#2e7d5b;font-weight:600}.err{color:#b4532a;font-weight:600}
+pre{background:#f4f1f3;border-radius:8px;padding:10px;font-size:11px;overflow-x:auto;color:#444}
+code{font-family:ui-monospace,Menlo,monospace}.meta{font-size:12px;color:#7a8b85}
+</style></head><body>
+<h1>掌心窗改动证据 · 天气/训诫/专注/同步 · 2026-11-22</h1>
+<div class="meta">编译通过 · v1/v2/v3 验签全 Verified · SHA-256: <code>SHA</code></div>
+
+<h2>① 天气弹窗显示正确地区</h2>
+<div class="card">
+<p><span class="err">根因</span>：弹窗标题/文案取的是城市名(current.city)或「当前地区」占位，不是你设的地区名。</p>
+<p><span class="ok">✓ 修复</span>：地址优先级 = 实时天气精确地址(geo_display/resolved_city) → 用户设的地区名(家/学校) → 城市名；只设地区名没填城市也能弹（旧代码 city 空就完全不弹）。</p>
+</div>
+
+<h2>② 训诫语气三点修复</h2>
+<div class="card">
+<p><span class="err">根因</span>：strict 语气只认 angry，被当普通弹窗渲染；主动找话术永远温柔；自定义文案丢语气标签。</p>
+<pre><code>(a) strict/harsh/strong 统一渲染为红色强视觉(isFirmTone)
+(b) 主动找/查岗话术训诫开启时带管束后缀(温柔"听话回来嘛"/严厉"别让我说第二遍")
+(c) 自定义训诫文案也拼【严厉管束】/【温柔提醒】标签</code></pre>
+<p class="ok">✓ 开训诫与不开训诫的弹窗提示词、视觉现在明显不同</p>
+</div>
+
+<h2>③ 彻底剔除专注模式</h2>
+<div class="card">
+<p>删除 <code>FocusMode.java</code> / <code>FocusLockActivity.java</code>，清理 CompanionService/LifeState/MainActivity/ScreenshotService 全部引用，删 Manifest 声明与 MCP 8 个专注工具。</p>
+<p><span class="ok">✓ MCP 工具 129→121；Android 源码 0 残留；APK dex 0 残留；launcher 仍为 MainActivity</span></p>
+<p class="meta">保留「今日专注」屏幕时间统计卡（独立视图，非专注锁定模式）。</p>
+</div>
+
+<h2>④ 写入后读不到新值</h2>
+<div class="card">
+<p><span class="err">根因</span>：手机端改了 policy 配置，但上报状态里没带这些配置；服务端 get_tour_schedule 读自己的旧 JSON，两边各存一份不同步。</p>
+<pre><code>手机端：状态上报新增 "policy" = PolicyCommand.snapshot()（完整配置）
+服务端：life_state 直接含 policy；tour_state 优先用手机上报 policy 覆盖旧 JSON
+        /api/tour/state 与 MCP get_tour_schedule 均走新逻辑</code></pre>
+<p class="ok">✓ 手机写入→上报→MCP 查询读到新值，闭环打通</p>
+</div>
+</body></html>
+EOF
+sed -i "s/SHA/ca959945ce5035e7f4454a3b0eb34a82ed06af85470f0265733319d8692396a6/" 改动证据_天气训诫专注同步_v2026-11-22.html && echo "证据已生成"

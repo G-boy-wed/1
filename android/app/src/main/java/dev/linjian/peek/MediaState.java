@@ -233,6 +233,9 @@ public class MediaState {
             boolean paused = false;
             for (MediaController c : controllers) {
                 if (c == null) continue;
+                // [N8-FIX] 只暂停「同屏伴看白名单」内的 App，避免误伤后台音乐/其他视频。
+                String pkg = c.getPackageName();
+                if (pkg == null || !isWatchablePackage(pkg)) continue;
                 PlaybackState ps = c.getPlaybackState();
                 if (ps == null) continue;
                 if (ps.getState() != PlaybackState.STATE_PLAYING && ps.getState() != PlaybackState.STATE_BUFFERING) continue;

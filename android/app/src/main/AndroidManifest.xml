@@ -60,9 +60,9 @@
         android:hardwareAccelerated="true"
         android:resizeableActivity="true">
 
-        <!-- 图1掌心窗桌面：新的主入口（音乐胶囊 + 时间天气 + 插件宫格 + 守护标签 + 一起听） -->
+        <!-- 掌心窗主入口：恢复原版 MainActivity（陪伴 / 守护 / 生活 / 设置 / 日记本） -->
         <activity
-            android:name=".PalmDeskActivity"
+            android:name=".MainActivity"
             android:exported="true"
             android:screenOrientation="portrait"
             android:resizeableActivity="true"
@@ -73,23 +73,6 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".MainActivity"
-            android:exported="true"
-            android:screenOrientation="portrait"
-            android:resizeableActivity="true"
-            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|density|uiMode" />
-
-
-        <activity
-            android:name=".FocusLockActivity"
-            android:exported="false"
-            android:resizeableActivity="true"
-            android:excludeFromRecents="true"
-            android:launchMode="singleTop"
-            android:showWhenLocked="true"
-            android:turnScreenOn="true"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
 
         <activity
             android:name=".LockActivity"

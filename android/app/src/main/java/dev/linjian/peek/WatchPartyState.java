@@ -23,11 +23,18 @@ public final class WatchPartyState {
 
     private static final String PREFS = "watch_party_store";
     private static final String KEY_ROOM = "room_v1";
+    private static final String KEY_ENABLED = "watch_party_enabled";
     private static final int MAX_ITEMS = 200;
 
     private WatchPartyState() { }
 
     private static SharedPreferences sp(Context ctx) { return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE); }
+
+    /** 「一起看」总开关，默认开启；关闭后守护页入口禁止进入房间。 */
+    public static boolean enabled(Context ctx) { return sp(ctx).getBoolean(KEY_ENABLED, true); }
+    public static void setEnabled(Context ctx, boolean on) {
+        try { sp(ctx).edit().putBoolean(KEY_ENABLED, on).commit(); } catch (Exception ignored) { }
+    }
 
     static String nowTime() { return new SimpleDateFormat("HH:mm", Locale.CHINA).format(new Date()); }
 
@@ -78,6 +85,10 @@ public final class WatchPartyState {
                 }
             }
             o.put("active", true);
+            // [U2-FIX] from_live 必须依据本次 payload 显式决定，缺省为 false，
+            // 否则会继承历史房间的旧值，导致对方/MCP 再开房间时本页误判"我方正在共享"。
+            // 本机真实共享请走 enableLive()（显式置 from_live=true）。
+            if (payload == null || !payload.has("from_live")) o.put("from_live", false);
             o.put("updated_at_ms", System.currentTimeMillis());
         } catch (Exception ignored) { }
         save(ctx, o);
@@ -100,7 +111,7 @@ public final class WatchPartyState {
     /** 结束房间。 */
     public static JSONObject end(Context ctx) {
         JSONObject o = room(ctx);
-        try { o.put("active", false); o.put("playing", false); o.put("updated_at_ms", System.currentTimeMillis()); }
+        try { o.put("active", false); o.put("playing", false); o.put("from_live", false); o.put("updated_at_ms", System.currentTimeMillis()); }
         catch (Exception ignored) { }
         save(ctx, o);
         return o;

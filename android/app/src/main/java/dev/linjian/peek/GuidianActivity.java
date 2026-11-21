@@ -54,7 +54,7 @@ public class GuidianActivity extends Activity {
             setShowWhenLocked(true);
             setTurnScreenOn(true);
         }
-        theme = GuidianTheme.from(GuidianState.themeName(this));
+        theme = GuidianTheme.fromContext(this); // [THEME-INS] 归电全屏页跟随全局 UI 主题
         applySystemBars();
         buildUi(getIntent() == null ? "" : getIntent().getStringExtra("prompt"));
     }
@@ -271,7 +271,10 @@ public class GuidianActivity extends Activity {
         final String target = GuidianState.targetPackage(this);
         handler.postDelayed(() -> {
             finish();
-            handler.postDelayed(() -> {
+            // [U4-FIX] 打开目标 App 用独立 Handler（不在 onDestroy 的 handler.removeCallbacksAndMessages(null)
+            // 清理范围内），否则 finish() 触发 onDestroy 会把这个 260ms 回调一并清掉，目标 App 打不开。
+            final Handler openHandler = new Handler(Looper.getMainLooper());
+            openHandler.postDelayed(() -> {
                 String result = target == null || target.trim().isEmpty() ? "package_empty" : CompanionService.openPackageResult(appCtx, target.trim());
                 DebugState.append(appCtx, "归电接通打开目标：" + result + "；target=" + (target == null ? "" : target));
                 if (!result.startsWith("opened_")) {

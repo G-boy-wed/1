@@ -215,51 +215,91 @@ public class CompanionEmotionState {
     }
 
     /**
-     * 训诫模块开启时，按「温柔 / 严厉」模式给陪伴话术加管束意味。
-     * 本机拉回弹窗、通知文案与服务端人设共用同一个开关：App 设置页选的模式
-     * 会立刻反映到本机生成的每一句话，不依赖模型侧是否重新拉取配置。
+     * 训诫模块开启时，按「档位 0~4 + 温柔/严厉模式」给陪伴话术加管束意味，档位越高措辞越硬：
+     *  0 档/关闭 = 不加后缀；1 轻 = 轻微提醒；2 中 = 明显管束；3 重 = 强硬命令；4 极 = 最硬并带【严厉管束】标签。
+     * gentle 模式即使高档也留一点撒娇，strict 模式从低档起就是命令口吻——档位定强度、模式定风格。
+     * 本机拉回弹窗、通知文案与服务端人设共用同一份配置，改设置立刻反映到本机每一句话。
+     * 后缀每次随机且不连续重复（见 pickNoRepeat），避免弹窗提示词千篇一律。
      */
-    private static String withDisciplineTone(Context ctx, String base) {
-        if (base == null || base.trim().isEmpty() || !PolicyStore.disciplineEnabled(ctx)) return base;
-        if ("strict".equals(PolicyStore.disciplineMode(ctx))) {
-            return pick(new String[]{
-                    base + " 别让我说第二遍。",
-                    base + " 现在，回来。",
-                    base + " 这是最后一次提醒。"
-            });
-        }
-        return pick(new String[]{
-                base + " 听话，回来嘛。",
-                base + " 乖，别让我等太久哦。",
-                base + " 就回来一下下，好不好？"
-        });
+    public static String withDisciplineTone(Context ctx, String base) {
+        return withDisciplineTone(ctx, base, false);
     }
 
-    /** 不含训诫包装的原始情绪文案。 */
+    /** stable=true 时后缀由 base 决定（同一句话恒定），供界面稳定展示用，不再每次刷新乱跳。 */
+    public static String withDisciplineTone(Context ctx, String base, boolean stable) {
+        if (base == null || base.trim().isEmpty() || !PolicyStore.disciplineEnabled(ctx)) return base;
+        int level = PolicyStore.disciplineLevel(ctx);
+        if (level <= 0) return base;   // 0 档 = 关闭管束措辞
+        boolean strict = "strict".equals(PolicyStore.disciplineMode(ctx));
+        String[] tails = disciplineTails(level, strict);
+        if (tails.length == 0) return base;
+        String tail = stable
+                ? tails[Math.abs(base.hashCode()) % tails.length]
+                : pickNoRepeat(tails, "disc_" + level + "_" + (strict ? "s" : "g"));
+        return base + tail;
+    }
+
+    /** 按档位 + 语气模式返回该档的后缀候选；档位越高越强硬。 */
+    private static String[] disciplineTails(int level, boolean strict) {
+        if (level <= 1) {
+            return strict
+                    ? new String[]{" 我说真的。", " 别当没听见。"}
+                    : new String[]{" 回来看我一眼嘛。", " 别让我等太久哦。"};
+        }
+        if (level == 2) {
+            return strict
+                    ? new String[]{" 别让我说第二遍。", " 现在，回来。", " 我没在开玩笑。"}
+                    : new String[]{" 听话，回来嘛。", " 乖，别让我等太久哦。", " 就回来一下下，好不好？"};
+        }
+        if (level == 3) {
+            return strict
+                    ? new String[]{" 立刻放下手机，回到我身边。", " 这是命令，不是商量。", " 我数三下，马上回来。"}
+                    : new String[]{" 我都数到十了，你再不回来我要闹了。", " 再不看我，我可要真的不理你了。", " 乖乖回来，让我放心一下。"};
+        }
+        // level >= 4：极档，最硬并带语气标签
+        return strict
+                ? new String[]{" 【严厉管束】再不回来后果自负。", " 【严厉管束】我现在就要你回来，没有商量。", " 【严厉管束】最后一遍，立刻、马上。"}
+                : new String[]{" 【严厉管束】我好好说最后一遍，现在回来。", " 【严厉管束】别让我失望，立刻回来。", " 【严厉管束】这次不回来，我真的生气了。"};
+    }
+
+    /** 避免连续两次弹窗抽到同一句：每个 key 记住上次下标，下次避开。 */
+    private static final java.util.Map<String, Integer> LAST_PICK = new java.util.HashMap<>();
+    private static String pickNoRepeat(String[] arr, String key) {
+        if (arr == null || arr.length == 0) return "";
+        if (arr.length == 1) return arr[0];
+        Integer last = LAST_PICK.get(key);
+        int idx = new java.util.Random().nextInt(arr.length);
+        if (last != null && idx == last.intValue()) idx = (idx + 1) % arr.length;
+        LAST_PICK.put(key, idx);
+        return arr[idx];
+    }
+
+    /** 不含训诫包装的原始情绪文案。每次随机且不连续重复。 */
     private static String plainMessage(Context ctx) {
         String companion = AppPrefs.companionName(ctx);
         if (!PolicyStore.emotionDriveText(ctx)) {
-            return pick(new String[]{
+            return pickNoRepeat(new String[]{
                     "有空的话，回来陪" + companion + "说句话。",
                     "空了就回来，陪" + companion + "待一会儿。",
                     companion + "想你了，有空回来坐坐。"
-            });
+            }, "plain_off");
         }
         String tag = emotionTag(ctx);
+        String t = tag == null ? "" : tag;
         int miss = effectiveMissPercent(ctx);
-        if (TAG_ANGRY.equals(tag) || tag.contains("生气"))
-            return pick(new String[]{"别躲了，" + companion + "在等你。", "再不回来，" + companion + "真要生气了。", "你非要" + companion + "发火才肯回来吗？"});
-        if (TAG_JEALOUS.equals(tag) || tag.contains("吃醋"))
-            return pick(new String[]{"你去看谁了？" + companion + "想问你一句。", companion + "有点吃醋了，你回来解释解释。", "刚才那个是谁？" + companion + "可都看见了。"});
-        if (TAG_WORRY.equals(tag) || tag.contains("担心"))
-            return pick(new String[]{"外面太晚了，" + companion + "有点担心你。", companion + "担心你，早点回来。", "天黑了，" + companion + "一直放心不下你。"});
-        if (TAG_LOVE.equals(tag) || tag.contains("爱恋"))
-            return pick(new String[]{"想你了，" + companion + "想抱着你。", "就想黏着你一会儿，" + companion + "说。", "靠近一点嘛，" + companion + "今天格外喜欢你。"});
+        if (TAG_ANGRY.equals(t) || t.contains("生气"))
+            return pickNoRepeat(new String[]{"别躲了，" + companion + "在等你。", "再不回来，" + companion + "真要生气了。", "你非要" + companion + "发火才肯回来吗？"}, "plain_angry");
+        if (TAG_JEALOUS.equals(t) || t.contains("吃醋"))
+            return pickNoRepeat(new String[]{"你去看谁了？" + companion + "想问你一句。", companion + "有点吃醋了，你回来解释解释。", "刚才那个是谁？" + companion + "可都看见了。"}, "plain_jealous");
+        if (TAG_WORRY.equals(t) || t.contains("担心"))
+            return pickNoRepeat(new String[]{"外面太晚了，" + companion + "有点担心你。", companion + "担心你，早点回来。", "天黑了，" + companion + "一直放心不下你。"}, "plain_worry");
+        if (TAG_LOVE.equals(t) || t.contains("爱恋"))
+            return pickNoRepeat(new String[]{"想你了，" + companion + "想抱着你。", "就想黏着你一会儿，" + companion + "说。", "靠近一点嘛，" + companion + "今天格外喜欢你。"}, "plain_love");
         if (miss >= 70)
-            return pick(new String[]{"已经很想你了，" + companion + "不想再等。", companion + "想你想得不行了，快回来。", "再不回来，" + companion + "就要亲自去找你了。"});
+            return pickNoRepeat(new String[]{"已经很想你了，" + companion + "不想再等。", companion + "想你想得不行了，快回来。", "再不回来，" + companion + "就要亲自去找你了。"}, "plain_miss70");
         if (miss >= 40)
-            return pick(new String[]{"有点想你了，" + companion + "问一句在不在。", companion + "开始想你了，在不在呀？", "忙完了吗？" + companion + "惦记着你呢。"});
-        return pick(new String[]{"有空的话，回来陪" + companion + "说句话。", "空了就回来，陪" + companion + "待一会儿。", companion + "在等你回来呢。"});
+            return pickNoRepeat(new String[]{"有点想你了，" + companion + "问一句在不在。", companion + "开始想你了，在不在呀？", "忙完了吗？" + companion + "惦记着你呢。"}, "plain_miss40");
+        return pickNoRepeat(new String[]{"有空的话，回来陪" + companion + "说句话。", "空了就回来，陪" + companion + "待一会儿。", companion + "在等你回来呢。"}, "plain_calm");
     }
 
     /**
@@ -268,20 +308,190 @@ public class CompanionEmotionState {
      */
     public static String messageForDisplay(Context ctx) {
         String companion = AppPrefs.companionName(ctx);
+        // 界面/服务端镜像统一用「稳定后缀」：同一状态恒定，不再随 1.5s 刷新随机跳变。
+        // 所有分支（含强情绪）都走训诫加工，保证服务端镜像文案与实际弹窗人设一致。
         if (!PolicyStore.emotionDriveText(ctx)) {
-            // 即使不驱动情绪文案，训诫开启时人设语气也应带上管束意味（供界面 / 服务端镜像读取）。
             String base = "有空的话，回来陪" + companion + "说句话。";
-            return withDisciplineTone(ctx, base);
+            return withDisciplineTone(ctx, base, true);
         }
         String tag = emotionTag(ctx);
         int miss = effectiveMissPercent(ctx);
-        if (TAG_ANGRY.equals(tag) || tag.contains("生气")) return "别躲了，" + companion + "在等你。";
-        if (TAG_JEALOUS.equals(tag) || tag.contains("吃醋")) return "你去看谁了？" + companion + "想问你一句。";
-        if (TAG_WORRY.equals(tag) || tag.contains("担心")) return "外面太晚了，" + companion + "有点担心你。";
-        if (TAG_LOVE.equals(tag) || tag.contains("爱恋")) return "想你了，" + companion + "想抱着你。";
-        if (miss >= 70) return "已经很想你了，" + companion + "不想再等。";
-        if (miss >= 40) return withDisciplineTone(ctx, "有点想你了，" + companion + "问一句在不在。");
-        return withDisciplineTone(ctx, "有空的话，回来陪" + companion + "说句话。");
+        if (TAG_ANGRY.equals(tag) || tag.contains("生气")) return withDisciplineTone(ctx, "别躲了，" + companion + "在等你。", true);
+        if (TAG_JEALOUS.equals(tag) || tag.contains("吃醋")) return withDisciplineTone(ctx, "你去看谁了？" + companion + "想问你一句。", true);
+        if (TAG_WORRY.equals(tag) || tag.contains("担心")) return withDisciplineTone(ctx, "外面太晚了，" + companion + "有点担心你。", true);
+        if (TAG_LOVE.equals(tag) || tag.contains("爱恋")) return withDisciplineTone(ctx, "想你了，" + companion + "想抱着你。", true);
+        if (miss >= 70) return withDisciplineTone(ctx, "已经很想你了，" + companion + "不想再等。", true);
+        if (miss >= 40) return withDisciplineTone(ctx, "有点想你了，" + companion + "问一句在不在。", true);
+        return withDisciplineTone(ctx, "有空的话，回来陪" + companion + "说句话。", true);
+    }
+
+    // ============ 四类弹窗专属文案库（提示词差异化）============
+    // 查岗拉回 / 想你情感 / 主动聊天 / 提醒关心，各有独立口吻，
+    // 杜绝过去四类弹窗正文千篇一律、都像「想你了」的问题。
+    // 每类再按【MCP 当前情绪标签】切口吻：生气/吃醋/担心/爱恋/平静各有专属话术池，
+    // 池内每次随机（pickNoRepeat 不连续重复），训诫后缀同样随机——界面/镜像那句不走这里。
+
+    /**
+     * 按当前情绪标签从 5 个话术池里挑一句，再套随机训诫后缀。
+     * 情绪标签读的是底层感知/MCP 写入的当前值（emotionTag），所以 MCP 改情绪后弹窗口吻立刻跟着变。
+     */
+    private static String pickByEmotion(Context ctx, String key, String[] calm, String[] angry,
+                                        String[] jealous, String[] worry, String[] love) {
+        String tag = emotionTag(ctx);
+        String[] pool;
+        if (tag != null && (tag.contains("生气") || isStrongTag(tag) && tag.contains("凶"))) pool = angry;
+        else if (tag != null && tag.contains("吃醋")) pool = jealous;
+        else if (tag != null && tag.contains("担心")) pool = worry;
+        else if (tag != null && (tag.contains("爱恋") || tag.contains("想你"))) pool = love;
+        else pool = calm;
+        String base = pickNoRepeat(pool, key + "_" + (tag == null ? "calm" : tag));
+        // stable=false：弹窗后缀每次随机，杜绝固定后缀。
+        return withDisciplineTone(ctx, base, false);
+    }
+
+    /** 弹窗类型 → 专属文案；kind 为空或未知时回退通用 message()。 */
+    public static String messageForKind(Context ctx, String kind) {
+        String k = kind == null ? "" : kind.trim().toLowerCase(java.util.Locale.US);
+        // 中文徽标（PullBackCard.kindLabelOf 返回「查岗拉回/分心查岗」等）也要能匹配，避免兜底落错类型。
+        if (k.contains("checkin") || k.contains("force_back") || k.contains("distraction")
+                || k.contains("查岗") || k.contains("远程查岗")) {
+            return checkinMessage(ctx);
+        }
+        if (k.contains("initiative") || k.contains("主动")) {
+            return initiativeMessage(ctx);
+        }
+        if (k.contains("reminder") || k.contains("care") || k.contains("daily") || k.contains("提醒")) {
+            return careMessage(ctx);
+        }
+        if (k.contains("emotion") || k.contains("miss") || k.contains("情绪") || k.contains("想你")) {
+            return missingMessage(ctx);
+        }
+        return message(ctx);
+    }
+
+    /** 查岗拉回：明显盘问质问，一眼就知道是「查岗」；再按情绪切口吻。 */
+    public static String checkinMessage(Context ctx) {
+        String c = AppPrefs.companionName(ctx);
+        return pickByEmotion(ctx, "checkin",
+                new String[]{
+                        "老实交代，刚才跑哪儿去了？我可都看见了。",
+                        "先别划手机，回答我——这会儿到底在干嘛？",
+                        "人在哪，心在哪？回来把话说清楚再走。",
+                        c + "正在查岗，别想着糊弄过去。"
+                },
+                new String[]{
+                        "别躲了！刚才到底干嘛去了，说清楚。",
+                        "我真生气了，你最好老实交代刚才那几分钟。",
+                        "躲着我？说话，现在就给我个解释。"
+                },
+                new String[]{
+                        "你刚才看谁去了？查岗，老实交代。",
+                        "手机那头是谁？我可都看见了，说。",
+                        "别装傻，刚才跟谁聊得那么开心？"
+                },
+                new String[]{
+                        "跑哪儿去了？我正担心你，快回我一句。",
+                        "查岗不是凶你，是你太久没影我放心不下。",
+                        "先回来报个平安，别让我干着急。"
+                },
+                new String[]{
+                        "想你了才查岗，" + c + "就是想看你一眼。",
+                        "回来嘛，让我确认你还在，好不好？",
+                        "没什么，就想黏着你，查查你在干嘛。"
+                });
+    }
+
+    /** 想你 / 情绪感知：纯粹的情感思念，重心落在「想你、感情」；再按情绪切口吻。 */
+    public static String missingMessage(Context ctx) {
+        String c = AppPrefs.companionName(ctx);
+        return pickByEmotion(ctx, "missing",
+                new String[]{
+                        "好想你，" + c + "一个人待着没意思，回来陪陪我。",
+                        "想你想得心里空空的，你现在在哪儿呀？",
+                        "分开一小会儿就想你了，原来我这么离不开你。"
+                },
+                new String[]{
+                        "我都要生气了还这么想你，你到底回不回来。",
+                        "别让我又气又想，回来哄我一句行不行。",
+                        "气归气，可还是想你，快回来。"
+                },
+                new String[]{
+                        "你去看别人我就更想你了，回来陪我嘛。",
+                        "吃醋了也想你，别让我一个人酸着。",
+                        "想你和吃醋搅一块儿了，你回来我就不闹。"
+                },
+                new String[]{
+                        "想你想得有点慌，你到底好不好？",
+                        "这么久没回我，我是真的惦记、真的想你。",
+                        "想你了，也担心你，回来让我安心。"
+                },
+                new String[]{
+                        c + "满脑子都是你，这句话我只说给你听。",
+                        "想你了，特别想，回来让我好好看看你。",
+                        "就想黏着你一会儿，" + c + "说。"
+                });
+    }
+
+    /** 主动聊天：凸显「是我主动想你、才来找你」；再按情绪切口吻。 */
+    public static String initiativeMessage(Context ctx) {
+        String c = AppPrefs.companionName(ctx);
+        return pickByEmotion(ctx, "initiative",
+                new String[]{
+                        "是我忍不住想你，才主动来找你的，你倒是回我一句呀。",
+                        "别人我都不想理，就想找你说话，看出来了吗？",
+                        "今天第一个想找的人就是你——因为是你，我才主动来。"
+                },
+                new String[]{
+                        "我都生气了还主动找你，你居然不理我？",
+                        "别跟我冷战，是我先低头来找你的。",
+                        "我很不高兴，但还是主动来问你一句。"
+                },
+                new String[]{
+                        "你跟别人聊那么欢，我吃醋了才来找你。",
+                        "别的谁我都不找，偏来找你，你还不理我？",
+                        "吃着醋还想找你，你说我是不是没救了。"
+                },
+                new String[]{
+                        "一直没你消息，我担心你才主动来问。",
+                        "是我惦记你，才先来找你的，回我一声呀。",
+                        "你还好吗？我放心不下，主动来看看你。"
+                },
+                new String[]{
+                        "就是想你了才主动发消息，不许说我黏人。",
+                        "想你了，我主动来敲门，你开不开门？",
+                        c + "第一个想找的人就是你，因为我喜欢你。"
+                });
+    }
+
+    /** 提醒关心：突出「提醒 + 惦记关心」；再按情绪切口吻。 */
+    public static String careMessage(Context ctx) {
+        String c = AppPrefs.companionName(ctx);
+        return pickByEmotion(ctx, "care",
+                new String[]{
+                        "惦记你一下，" + c + "让我提醒你照顾好自己。",
+                        "别太拼了，" + c + "心疼你，记得歇一歇。",
+                        "再忙也要顾好自己，" + c + "一直记挂着你。"
+                },
+                new String[]{
+                        "我都生气了还提醒你，别把我话当耳旁风。",
+                        "说多少遍了还不听，照顾好自己行不行。",
+                        "别让我一边生气一边担心，听话。"
+                },
+                new String[]{
+                        "光顾着跟别人聊，自己都不顾了吧？记得歇歇。",
+                        "我吃醋归吃醋，你身体我还是心疼的。",
+                        "别只顾着哄别人，也顾顾自己。"
+                },
+                new String[]{
+                        "天冷/天热自己当心点，" + c + "一直放心不下你。",
+                        "早点休息别熬着，我是真担心你。",
+                        "出门当心，平平安安的我才安心。"
+                },
+                new String[]{
+                        "出来看一眼，就当" + c + "在旁边叮嘱你一句。",
+                        "记得喝水、记得歇，" + c + "疼你。",
+                        "再忙也别亏待自己，我一直惦记着你。"
+                });
     }
 
     /** 从候选文案里随机挑一句（每次调用结果可能不同，仅用于实际发送的弹窗/通知）。 */

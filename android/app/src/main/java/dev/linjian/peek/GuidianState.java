@@ -252,26 +252,33 @@ public class GuidianState {
     public static JSONObject showPrompt(Context ctx, boolean force) {
         JSONObject out = new JSONObject();
         try {
+            // 上课全局静默总闸：归电整体（全屏Activity+通知+计数）上课期间一律不触发，下课自动恢复。
+            if (ClassScheduleState.silenceIfInClass(ctx, "归电触发")) return out.put("ok", false).put("reason", "class_silence");
             JSONObject can = canPrompt(ctx, force);
             if (!can.optBoolean("ok") && !force) return can;
             String prompt = pickPrompt(ctx);
-            SharedPreferences p = prefs(ctx);
-            int count = p.getInt(KEY_TODAY_COUNT, 0) + 1;
-            p.edit()
-                    .putString(KEY_TODAY_DATE, today())
-                    .putInt(KEY_TODAY_COUNT, count)
-                    .putLong(KEY_LAST_PROMPT_AT, System.currentTimeMillis())
-                    .putString(KEY_LAST_PROMPT_TEXT, prompt)
-                    .apply();
             Intent i = new Intent(ctx, GuidianActivity.class);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             i.putExtra("prompt", prompt);
             boolean started = false;
             try { ctx.startActivity(i); started = true; } catch (Exception e) { DebugState.append(ctx, "归电全屏启动被系统拦截：" + ScreenshotService.shortMsg(e)); }
             boolean notified = showFullScreenNotification(ctx, prompt);
+            // [A4-FIX] 只有确认至少一种出口真正弹出后才落盘计数与冷却，避免"没弹却白扣次数/锁冷却"。
+            int count = prefs(ctx).getInt(KEY_TODAY_COUNT, 0);
+            boolean shown = started || notified;
+            if (shown) {
+                SharedPreferences p = prefs(ctx);
+                count = p.getInt(KEY_TODAY_COUNT, 0) + 1;
+                p.edit()
+                        .putString(KEY_TODAY_DATE, today())
+                        .putInt(KEY_TODAY_COUNT, count)
+                        .putLong(KEY_LAST_PROMPT_AT, System.currentTimeMillis())
+                        .putString(KEY_LAST_PROMPT_TEXT, prompt)
+                        .apply();
+            }
             DebugState.append(ctx, "归电触发：" + prompt + "，全屏=" + started + "，通知=" + notified);
-            out.put("ok", started || notified); out.put("fullscreen_started", started); out.put("notification_sent", notified); out.put("prompt", prompt); out.put("today_count", count);
-            recordAutoCheck(ctx, System.currentTimeMillis(), 0, false, force ? "manual_prompt" : "prompt_shown", out.toString());
+            out.put("ok", shown); out.put("fullscreen_started", started); out.put("notification_sent", notified); out.put("prompt", prompt); out.put("today_count", count);
+            if (shown) recordAutoCheck(ctx, System.currentTimeMillis(), 0, false, force ? "manual_prompt" : "prompt_shown", out.toString());
         } catch (Exception e) { try { out.put("ok", false).put("error", ScreenshotService.shortMsg(e)); } catch (Exception ignored) { } }
         return out;
     }
@@ -417,6 +424,8 @@ public class GuidianState {
 
     private static boolean showFullScreenNotification(Context ctx, String prompt) {
         try {
+            // 上课全局静默总闸：归电来电式提醒上课期间也静默，下课自动恢复。
+            if (ClassScheduleState.silenceIfInClass(ctx, "归电来电提醒")) return false;
             if (Build.VERSION.SDK_INT >= 33 && ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false;
             NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm == null) return false;

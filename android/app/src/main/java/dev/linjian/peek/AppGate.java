@@ -321,13 +321,17 @@ public class AppGate {
         pkg = pkg.trim();
         if (!enabled(ctx)) return;
         long now = System.currentTimeMillis();
+        // [N3-FIX] 在 accountUsageSwitch 更新 lastForegroundPackage 之前捕获"是否刚切换到本 App"。
+        // one_time 放行只在真正进入时消费；同一 App 内的周期 tick 不再重复消费，
+        // 否则"只允许一次"会变成"最多用 20 秒"且使用途中被踢出。
+        boolean justEntered = !pkg.equals(lastForegroundPackage);
         try { accountUsageSwitch(ctx, pkg, now); } catch (Exception ignored) { }
         if (isProtectedPackage(ctx, pkg)) return;
         if (SELF_PACKAGE.equals(pkg)) return;
         try {
             JSONObject lock = activeLockFor(ctx, pkg, now);
             if (lock == null) return;
-            if (isTemporarilyAllowed(ctx, lock, now, true)) return;
+            if (isTemporarilyAllowed(ctx, lock, now, justEntered)) return;
             // 调度器每个 tick 也会调用本方法做周期性监测：若锁定界面（全屏页或悬浮遮罩）已在显示，
             // 不再重复弹一次，避免每 20 秒闪烁；同时刷新时间戳维持「正在拦截」状态。
             if (isLockActivityVisibleFor(pkg) || (overlayView != null && pkg.equals(visibleLockOverlayPackage))) {

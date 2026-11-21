@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>掌心窗 · 弹窗文案差异化 + 天气区县精确 验证报告</title>
+<style>
+  :root{--bg:#f5f6f8;--card:#fff;--ink:#1f2329;--sub:#6b7280;--line:#e5e7eb;--accent:#5b8def;--ok:#1a9c6b;--warn:#c2410c;--chip:#eef3ff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.6;padding:24px}
+  .wrap{max-width:920px;margin:0 auto}
+  h1{font-size:22px;margin:0 0 4px}
+  .meta{color:var(--sub);font-size:13px;margin-bottom:22px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:18px;box-shadow:0 2px 10px rgba(0,0,0,.03)}
+  h2{font-size:16px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+  .tag{font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;background:var(--chip);color:var(--accent)}
+  .oktag{background:#e7f7ef;color:var(--ok)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--sub);font-weight:600;background:#fafbfc}
+  tr:last-child td{border-bottom:none}
+  .badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:6px;font-weight:600;white-space:nowrap}
+  .b-check{background:#fdeaea;color:#c0392b}
+  .b-miss{background:#fdeef5;color:#c2185b}
+  .b-init{background:#eef0ff;color:#4b45b0}
+  .b-care{background:#e9f6ef;color:#1a7f5a}
+  code{background:#f2f4f7;padding:1px 5px;border-radius:4px;font-size:12px}
+  .pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:10px;background:#eef3ff;color:#3b6fd4}
+  .big{font-size:15px;font-weight:600;color:#0f172a}
+  .foot{color:var(--sub);font-size:12px;text-align:center;margin-top:8px}
+  .flow{font-size:12px;color:var(--sub)}
+  .flow b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>掌心窗 · 弹窗提示词差异化 + 天气区县精确 验证报告</h1>
+  <div class="meta">生成时间：2026-11-22 · 版本 v0.3.9.0 · APK SHA256 <code>8e40fa34…a56530e33151</code></div>
+
+  <div class="card">
+    <h2>一、四类弹窗提示词已经各不相同 <span class="tag oktag">编译通过 · 已生效</span></h2>
+    <p class="flow">根因：过去查岗拉回 / 想你情绪 / 分心查岗 / 主动聊天正文都调用同一个文案函数，清一色「想你了、回来坐坐」。现已拆成 <b>4 套独立文案库</b>，按弹窗类型分发，正文不再雷同。</p>
+    <table>
+      <tr><th>弹窗类型</th><th>徽标</th><th>新文案口吻（示例，随机其一）</th><th>触发位置</th></tr>
+      <tr>
+        <td><b>查岗拉回 / 分心查岗</b></td>
+        <td><span class="badge b-check">查岗</span></td>
+        <td>「老实交代，刚才跑哪儿去了？我可都看见了。」／「先别划手机，回答我——这会儿到底在干嘛？」</td>
+        <td><code>checkinMessage()</code></td>
+      </tr>
+      <tr>
+        <td><b>想你 / 情绪感知</b></td>
+        <td><span class="badge b-miss">想你</span></td>
+        <td>「好想你，一个人待着没意思，回来陪陪我。」／「满脑子都是你，这句话我只说给你听。」</td>
+        <td><code>missingMessage()</code></td>
+      </tr>
+      <tr>
+        <td><b>主动聊天</b></td>
+        <td><span class="badge b-init">主动</span></td>
+        <td>「是我忍不住想你，才主动来找你的，你倒是回我一句呀。」／「别人我都不想理，就想找你说话。」</td>
+        <td><code>initiativeMessage()</code></td>
+      </tr>
+      <tr>
+        <td><b>日常提醒（电量/喝水/休息/天气…）</b></td>
+        <td><span class="badge b-care">关心</span></td>
+        <td>正文后追加「惦记你一下，让我提醒你照顾好自己。」／「别太拼了，心疼你，记得歇一歇。」</td>
+        <td><code>careMessage()</code></td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>二、天气按正确区县取温度 + 穿衣提醒 <span class="tag oktag">接口实测通过</span></h2>
+    <p class="flow">根因：Open-Meteo 地名库没有中国区县条目，区县级检索恒为空，过去只取到<b>市中心</b>温度、区县名只是贴上去。现改用免费无需 key 的 <code>uapis.cn</code> 按区县名精确取<b>区县级实况温度</b>与<b>省·市·区县</b>三级地址；Open-Meteo 降级为网络失败兜底。用本机定位时也补齐区县名。</p>
+    <table>
+      <tr><th>设置（城市 / 区县）</th><th>命中查询</th><th>弹窗标题地址</th><th>区县温度</th><th>穿衣提醒正文</th></tr>
+      <tr><td>石家庄 / 长安区</td><td><code>石家庄市长安区</code></td><td class="big">河北省·石家庄市·长安区</td><td><b style="color:#c0392b">-3℃</b></td><td>…约 -3℃，今天 -7~0℃。温差明显，外套别嘴硬。</td></tr>
+      <tr><td>石家庄 / 正定县</td><td><code>石家庄市正定县</code></td><td class="big">河北省·石家庄市·正定县</td><td><b style="color:#c0392b">0℃</b></td><td>…约 0℃，今天 -4~3℃。温差明显，外套别嘴硬。</td></tr>
+      <tr><td>深圳 / 福田区</td><td><code>深圳市福田区</code></td><td class="big">广东省·深圳市·福田区</td><td><b style="color:#c0392b">17℃</b></td><td>…约 17℃，今天 13~20℃。正常出门就好。</td></tr>
+      <tr><td>石家庄 /（不填区县）</td><td><code>石家庄</code></td><td class="big">河北省·石家庄市</td><td><b style="color:#c0392b">0℃</b></td><td>…约 0℃，今天 -4~3℃。温差明显，外套别嘴硬。</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>三、构建与验签 <span class="tag oktag">v1 / v2 / v3 全通过</span></h2>
+    <table>
+      <tr><th>项目</th><th>结果</th></tr>
+      <tr><td>Java 编译</td><td>通过（1 warning：deprecated API，无错误）</td></tr>
+      <tr><td>固定公钥签名摘要</td><td><code>aea75c9b…8f002fb</code> 一致 ✓</td></tr>
+      <tr><td>v1 / v2 / v3 签名方案</td><td>全部 Verified ✓</td></tr>
+      <tr><td>update.json（根目录 + server）</td><td>sha256 已更新、JSON 合法 ✓</td></tr>
+      <tr><td>既有约束</td><td>上课全局静默、一起看、识图 5 工具、MCP 121 工具、专注模式已剔除 —— 均未改动 ✓</td></tr>
+    </table>
+  </div>
+
+  <div class="foot">APK：android/Zhangxinchuang-public-v0.3.9.0.apk（2.3 MB）</div>
+</div>
+</body>
+</html>

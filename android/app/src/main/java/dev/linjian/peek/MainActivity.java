@@ -130,6 +130,8 @@ public class MainActivity extends Activity {
     private GuardianRingView guardianRing;
     private long lastCompanionSyncAt = 0L;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
+    // [FIX] 无障碍设置引导的延迟回调需可取消，避免 12 秒内退出页面后仍刷新已停止的 Activity。
+    private final java.util.List<Runnable> a11yFollowups = new java.util.ArrayList<>();
 
     private final Runnable refreshTick = new Runnable() {
         @Override public void run() { serviceRunning = CompanionService.isRunning(); updateUI(); uiHandler.postDelayed(this, 1500); }
@@ -142,7 +144,6 @@ public class MainActivity extends Activity {
         buildMagazinePages();
         loadSettings();
         NowState.start(this);
-        FocusMode.reconcile(this); // BE-06：启动收敛专注状态（过期则清 until 并置 enabled=false）
 
         DebugState.append(this, "掌心窗公开版 v0.3.9.0 已打开");
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 13);
@@ -230,7 +231,6 @@ public class MainActivity extends Activity {
         if (quickGuardButton != null) quickGuardButton.setOnClickListener(v -> showTab("gate"));
         CompanionWindowState.recordJourney(this, "打开掌心窗", "回到今天的窗边");
         showTab("life");
-        applyLaunchIntent();
         applyBottomNavigationInsets();
         playOpeningWindowAnimation();
         checkForUpdates(false);
@@ -483,7 +483,8 @@ public class MainActivity extends Activity {
         companionAvatarView.setCircle(false);
         companionAvatarView.setCornerDp(23);
         companionAvatarView.setShowDot(true);
-        companionAvatarView.setColors(UITheme.current(this).card, UITheme.current(this).line, 0xFF78AE90);
+        // [U8-FIX] 在线圆点跟随主题派生，与归电页 theme.online 取色一致。
+        companionAvatarView.setColors(UITheme.current(this).card, UITheme.current(this).line, GuidianTheme.fromContext(this).online);
         Drawable companionFallback = getDrawable(R.drawable.ic_heart_wave).mutate();
         companionFallback.setTint(UITheme.current(this).primary);
         companionAvatarView.setFallback(companionFallback);
@@ -600,6 +601,19 @@ public class MainActivity extends Activity {
         root.addView(guardSettingBlock("归电", "很久没回来时，" + AppPrefs.companionName(this) + "来敲门", R.drawable.ic_clock, drawerGuidian), marginBottom(7));
         root.addView(actionSettingBlock("看见", "查看屏幕并回应此刻", R.drawable.ic_eye, this::testScreenshot), marginBottom(10));
         return root;
+    }
+
+    /** 打开「一起看」：共享本机正在播放的影视/短视频，双方可看进度、发弹幕与表情。守护页开关关闭时禁止进入。 */
+    private void openWatchParty() {
+        if (!WatchPartyState.enabled(this)) {
+            Toast.makeText(this, "「一起看」已关闭，请在守护页打开开关后再使用", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            startActivity(new Intent(this, WatchPartyActivity.class));
+        } catch (Exception e) {
+            Toast.makeText(this, "一起看打开失败：" + ScreenshotService.shortMsg(e), Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void showCompanionHomePage() {
@@ -1155,7 +1169,7 @@ public class MainActivity extends Activity {
 
         // 每张守护卡片右侧都带一个真实生效的开关：关掉即停用该能力，打开即恢复；
         // 开关写入的是各能力底层存储（与设置页、MCP 同一份数据），点卡片本体仍可进详细设置。
-        root.addView(label("查岗与管束", 9), marginBottom(6));
+        root.addView(groupLabel("查岗与管束"), marginBottom(6));
         root.addView(actionSettingBlockWithSwitch("查岗拉回", "查岗周期、拉回用户的分级与弹窗", R.drawable.ic_shield,
                 PolicyStore.checkinEnabled(this), (c) -> PolicyStore.setCheckinEnabled(this, c),
                 () -> openPolicySettings("checkin")), marginBottom(7));
@@ -1166,7 +1180,7 @@ public class MainActivity extends Activity {
                 PolicyStore.disciplineEnabled(this), (c) -> PolicyStore.setDisciplineEnabled(this, c),
                 () -> openPolicySettings("discipline")), marginBottom(11));
 
-        root.addView(label("情绪与陪伴", 9), marginBottom(6));
+        root.addView(groupLabel("情绪与陪伴"), marginBottom(6));
         root.addView(actionSettingBlockWithSwitch("情绪感知", "你对用户的情绪：达标自动弹窗、情绪标签与想你程度", R.drawable.ic_heart_wave,
                 PolicyStore.emotionPopupEnabled(this), (c) -> PolicyStore.setEmotionPopupEnabled(this, c),
                 () -> openPolicySettings("emotion")), marginBottom(7));
@@ -1174,18 +1188,20 @@ public class MainActivity extends Activity {
                 PolicyStore.initiativeEnabled(this), (c) -> PolicyStore.setInitiativeEnabled(this, c),
                 () -> openPolicySettings("initiative")), marginBottom(11));
 
-        root.addView(label("管束与提醒", 9), marginBottom(6));
+        root.addView(groupLabel("管束与提醒"), marginBottom(6));
         root.addView(actionSettingBlockWithSwitch("应用门禁", "锁 App 时长、自主添加受限应用；关闭即暂停拦截", R.drawable.ic_shield,
                 AppGate.enabled(this), (c) -> AppGate.setEnabled(this, c),
                 () -> openPolicySettings("appgate")), marginBottom(7));
         root.addView(actionSettingBlockWithSwitch("主动提醒", "电量、屏幕、喝水、休息、周期；一键开关全部提醒", R.drawable.ic_clock,
                 PolicyStore.anyPermEnabled(this), (c) -> PolicyStore.setAllPermEnabled(this, c),
                 () -> openPolicySettings("reminder")), marginBottom(7));
-        root.addView(actionSettingBlockWithSwitch("专注模式", "全机专注、应急放行与留言；关闭即解除全机锁定", R.drawable.ic_shield,
-                FocusMode.isOn(this), (c) -> FocusMode.toggleFromGuard(this, c),
-                this::showFocusModePanel), marginBottom(11));
 
-        root.addView(label("日子与作息", 9), marginBottom(6));
+        root.addView(groupLabel("互动陪伴"), marginBottom(6));
+        root.addView(actionSettingBlockWithSwitch("一起看", "和你爱的人同步看电影、短视频，实时吐槽；关闭即停用", R.drawable.ic_heart_wave,
+                WatchPartyState.enabled(this), (c) -> WatchPartyState.setEnabled(this, c),
+                this::openWatchParty), marginBottom(11));
+
+        root.addView(groupLabel("日子与作息"), marginBottom(6));
         root.addView(actionSettingBlockWithSwitch("守护日历", "纪念日、节日和倒数日；关闭即停发横幅提醒", R.drawable.ic_clock,
                 CalendarState.enabled(this), (c) -> CalendarState.setEnabled(this, c),
                 this::showGuardianCalendarDetailPage), marginBottom(7));
@@ -1194,13 +1210,9 @@ public class MainActivity extends Activity {
                 () -> openPolicySettings("schedule")), marginBottom(7));
         root.addView(actionSettingBlockWithSwitch("共同记忆", "双方可改的共享记忆；关闭后进入只读保护", R.drawable.ic_heart_wave,
                 SharedMemoryState.enabled(this), (c) -> SharedMemoryState.setEnabled(this, c),
-                () -> openPolicySettings("memory")), marginBottom(7));
-        root.addView(actionSettingBlockWithSwitch("识图感知", "从当前屏幕读取文字", R.drawable.ic_eye,
-                PolicyStore.ocrEnabled(this), (c) -> PolicyStore.setOcrEnabled(this, c),
-                () -> openPolicySettings("ocr")), marginBottom(7));
-        root.addView(actionSettingBlock("插件分类", "全部扩展能力归类总览", R.drawable.ic_shield, this::showPluginRegistryFromGuard), marginBottom(11));
+                () -> openPolicySettings("memory")), marginBottom(11));
 
-        root.addView(label("地点与设备", 9), marginBottom(6));
+        root.addView(groupLabel("地点与设备"), marginBottom(6));
         root.addView(actionSettingBlockWithSwitch("天气地区", "家与常用地点；关闭即停发天气提醒", R.drawable.ic_cloud,
                 AppPrefs.get(this).getBoolean(AppPrefs.KEY_RULE_WEATHER, true), (c) -> AppPrefs.get(this).edit().putBoolean(AppPrefs.KEY_RULE_WEATHER, c).commit(),
                 () -> openPolicySettings("weather")), marginBottom(7));
@@ -1290,111 +1302,6 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             DebugState.append(this, "打开归电设置失败：" + ScreenshotService.shortMsg(e));
             toast(false);
-        }
-    }
-
-    /**
-     * 守护界面「插件分类」入口：只列没有独立卡片的扩展能力，避免与守护页卡片重复出现。
-     * 每个能力在 PluginRegistry 只登记一次；守护页已有可点卡片的能力在此只给计数，
-     * 不重复列出名称与说明（去重：一个能力、一个入口、一个标签）。
-     */
-    private void showPluginRegistryFromGuard() {
-        try {
-            JSONObject reg = PluginRegistry.categorizedJson();
-            int total = PluginRegistry.all().size();
-            int guardCards = 0, extensions = 0;
-            StringBuilder sb = new StringBuilder("插件分类 · 共 " + total
-                    + " 个能力，均只登记一次。\n守护页已提供可点卡片的能力在此不重复罗列，下面只列没有独立卡片的扩展能力。\n\n");
-            java.util.Iterator<String> it = reg.keys();
-            while (it.hasNext()) {
-                String cat = it.next();
-                org.json.JSONArray arr = reg.optJSONArray(cat);
-                if (arr == null) continue;
-                StringBuilder ext = new StringBuilder();
-                int cardCount = 0;
-                for (int i = 0; i < arr.length(); i++) {
-                    JSONObject o = arr.optJSONObject(i);
-                    if (o == null) continue;
-                    if (o.optString("guard_section", "").isEmpty()) {
-                        ext.append("· ").append(o.optString("name", ""))
-                                .append("：").append(o.optString("desc", "")).append("\n");
-                        extensions++;
-                    } else {
-                        cardCount++;
-                        guardCards++;
-                    }
-                }
-                sb.append("【").append(cat).append("】");
-                if (cardCount > 0) sb.append(" 守护页已有 ").append(cardCount).append(" 张可点卡片");
-                sb.append("\n");
-                sb.append(ext.length() > 0 ? ext : "（本类能力均已在守护页有可点卡片，不重复列出）\n");
-                sb.append("\n");
-            }
-            sb.append("合计：守护页可点卡片 ").append(guardCards)
-                    .append(" 项 · 仅此处可见的扩展能力 ").append(extensions).append(" 项。");
-            new AlertDialog.Builder(this).setTitle("插件分类").setMessage(sb.toString().trim())
-                    .setPositiveButton("知道了", null).show();
-        } catch (Exception e) {
-            Toast.makeText(this, "插件分类读取失败：" + ScreenshotService.shortMsg(e), Toast.LENGTH_LONG).show();
-        }
-    }
-
-    private void showFocusModePanel() {        try {
-            JSONObject state = FocusMode.config(this);
-            boolean active = state.optBoolean("active", false);
-            String info = FocusMode.pretty(this)
-                    + "\n\n应用门禁只锁指定 App；专注模式是全机专注，适合学习、睡觉或暂时离开手机。"
-                    + "\n\nMCP 工具：get_focus_status / start_focus_mode / end_focus_mode / set_focus_plan / reply_focus_request / approve_focus_unlock / deny_focus_unlock";
-            AlertDialog.Builder builder = new AlertDialog.Builder(this)
-                    .setTitle("专注模式")
-                    .setMessage(info)
-                    .setNegativeButton("关闭", null);
-
-            if (active) {
-                builder.setPositiveButton("查看锁定页", (dialog, which) -> FocusMode.startLockActivity(this));
-                builder.setNeutralButton("结束专注", (dialog, which) -> {
-                    try {
-                        FocusMode.handleCommand(this, new JSONObject().put("action", "end_focus_mode").put("reason", "manual_from_guard_page"));
-                        Toast.makeText(this, "专注模式已结束", Toast.LENGTH_SHORT).show();
-                        updateUI();
-                    } catch (Exception e) {
-                        Toast.makeText(this, "结束失败：" + ScreenshotService.shortMsg(e), Toast.LENGTH_LONG).show();
-                    }
-                });
-            } else {
-                builder.setPositiveButton("测试 5 分钟", (dialog, which) -> {
-                    try {
-                        JSONObject cmd = new JSONObject();
-                        cmd.put("action", "start_focus_mode");
-                        cmd.put("duration_minutes", 5);
-                        cmd.put("goal", "测试专注模式");
-                        cmd.put("message", "这 5 分钟先交给掌心窗守住。需要时可以留言给他，也有 1 次应急放行。");
-                        cmd.put("emergency_total", 1);
-                        cmd.put("emergency_minutes", 1);
-                        FocusMode.handleCommand(this, cmd);
-                        Toast.makeText(this, "已开启 5 分钟专注测试", Toast.LENGTH_SHORT).show();
-                    } catch (Exception e) {
-                        Toast.makeText(this, "开启失败：" + ScreenshotService.shortMsg(e), Toast.LENGTH_LONG).show();
-                    }
-                });
-                builder.setNeutralButton("保存默认规则", (dialog, which) -> {
-                    try {
-                        JSONObject cmd = new JSONObject();
-                        cmd.put("action", "set_focus_plan");
-                        cmd.put("goal", "先离开手机");
-                        cmd.put("message", "你提前把这段时间交给我了，我会帮你守住。");
-                        cmd.put("emergency_total", 1);
-                        cmd.put("emergency_minutes", 1);
-                        FocusMode.handleCommand(this, cmd);
-                        Toast.makeText(this, "专注模式默认规则已保存", Toast.LENGTH_SHORT).show();
-                    } catch (Exception e) {
-                        Toast.makeText(this, "保存失败：" + ScreenshotService.shortMsg(e), Toast.LENGTH_LONG).show();
-                    }
-                });
-            }
-            builder.show();
-        } catch (Exception e) {
-            Toast.makeText(this, "专注模式读取失败：" + ScreenshotService.shortMsg(e), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -1874,6 +1781,18 @@ public class MainActivity extends Activity {
     private LinearLayout editorialCard() { LinearLayout l = cardColumn(); l.setElevation(dp(.5f)); return l; }
     private LinearLayout horizontal() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.HORIZONTAL); l.setGravity(Gravity.CENTER_VERTICAL); return l; }
     private TextView label(String text, float size) { TextView v = new TextView(this); v.setText(text); v.setTextSize(size); v.setTextColor(UITheme.current(this).primary); v.setLetterSpacing(.05f); return v; }
+
+    /** [THEME-INS] 守护页分组标题：11sp Medium + 主题色，比普通 label 更清晰。 */
+    private TextView groupLabel(String text) {
+        TextView v = new TextView(this);
+        v.setText(text);
+        v.setTextSize(11);
+        v.setTypeface(v.getTypeface(), android.graphics.Typeface.BOLD);
+        v.setTextColor(UITheme.current(this).primary);
+        v.setLetterSpacing(.04f);
+        v.setPadding(dp(2), dp(2), 0, 0);
+        return v;
+    }
     private TextView title(String text, float size) { TextView v = new TextView(this); v.setText(text); v.setTextSize(size); v.setTextColor(UITheme.current(this).text); v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); return v; }
     private TextView body(String text, float size) { TextView v = new TextView(this); v.setText(text); v.setTextSize(size); v.setTextColor(UITheme.current(this).subtext); return v; }
     private TextView sectionHeading(String text) { TextView v = title(text, 14); v.setPadding(dp(3), dp(2), 0, 0); return v; }
@@ -1890,28 +1809,45 @@ public class MainActivity extends Activity {
      * 切换即时生效；点卡片本体仍进入对应设置。开关点击事件被消费，不会触发卡片的进入跳转。
      */
     private View actionSettingBlockWithSwitch(String name, String detail, int icon, boolean checked, java.util.function.Consumer<Boolean> onToggle, Runnable click) {
+        // [THEME-INS] 奶油白卡片流：更大的圆角图标底、更清晰的标题/说明层级、去掉箭头、开关跟随主题色。
+        UITheme th = UITheme.current(this);
         LinearLayout card = editorialCard();
-        card.setPadding(dp(14), dp(12), dp(14), dp(12));
+        card.setPadding(dp(15), dp(13), dp(15), dp(13));
         LinearLayout row = horizontal();
+        row.setGravity(Gravity.CENTER_VERTICAL);
         ImageView iv = new ImageView(this);
         iv.setImageResource(icon);
-        iv.setColorFilter(UITheme.current(this).primary);
-        iv.setBackground(UITheme.current(this).soft(18));
-        iv.setPadding(dp(8), dp(8), dp(8), dp(8));
+        iv.setColorFilter(th.primary);
+        iv.setBackground(th.soft(22));
+        iv.setPadding(dp(11), dp(11), dp(11), dp(11));
         iv.setTag("theme_icon");
-        row.addView(iv, new LinearLayout.LayoutParams(dp(38), dp(38)));
+        row.addView(iv, new LinearLayout.LayoutParams(dp(48), dp(48)));
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
-        copy.addView(title(name, 13));
-        copy.addView(body(detail, 8), matchWrapTop(2));
-        row.addView(copy, weightedWrap(1f, 11));
-        row.addView(label("›", 18));
+        TextView nameView = title(name, 14);
+        nameView.setTypeface(nameView.getTypeface(), android.graphics.Typeface.BOLD);
+        copy.addView(nameView);
+        // 说明压到 12 字内、字号提到 11sp，避免 8sp 小字堆一整行。
+        String shortDetail = detail.length() > 13 ? detail.substring(0, 12) + "…" : detail;
+        TextView detailView = body(shortDetail, 11);
+        detailView.setTextColor(th.subtext);
+        copy.addView(detailView, matchWrapTop(3));
+        row.addView(copy, weightedWrap(1f, 13));
         Switch sw = new Switch(this);
         sw.setChecked(checked);
         sw.setTag("guard_switch");
-        sw.setOnClickListener(v -> {
-            boolean on = sw.isChecked();
-            try { onToggle.accept(on); } catch (Exception e) { sw.setChecked(!on); Toast.makeText(this, "开关写入失败：" + ScreenshotService.shortMsg(e), Toast.LENGTH_SHORT).show(); return; }
+        setGuardSwitchTint(sw, checked, th);
+        final boolean[] suppress = {false}; // 写入失败回滚时抑制回调，避免递归
+        sw.setOnCheckedChangeListener((button, on) -> {
+            if (suppress[0]) return;
+            try { onToggle.accept(on); }
+            catch (Exception e) {
+                suppress[0] = true; sw.setChecked(!on); suppress[0] = false;
+                setGuardSwitchTint(sw, !on, th);
+                Toast.makeText(this, "开关写入失败：" + ScreenshotService.shortMsg(e), Toast.LENGTH_SHORT).show();
+                return;
+            }
+            setGuardSwitchTint(sw, on, th);
             Toast.makeText(this, name + (on ? " 已开启" : " 已关闭"), Toast.LENGTH_SHORT).show();
         });
         LinearLayout.LayoutParams swLp = new LinearLayout.LayoutParams(-2, -2);
@@ -1924,6 +1860,27 @@ public class MainActivity extends Activity {
         card.setFocusable(true);
         return card;
     }
+
+    /** 守护卡片开关的主题色着色（复用，避免写入失败回滚时重复代码）。 */
+    private void setGuardSwitchTint(Switch sw, boolean on, UITheme th) {
+        try { if (android.os.Build.VERSION.SDK_INT >= 21) {
+            sw.getThumbDrawable().setTintList(android.content.res.ColorStateList.valueOf(on ? th.primary : 0xFFB9BFC2));
+            sw.getTrackDrawable().setTintList(android.content.res.ColorStateList.valueOf(on ? th.primarySoft : 0xFFE4E7E9));
+        } } catch (Exception ignored) { }
+    }
+
+    /** [U1-FIX] 递归遍历视图树，按当前主题重新着色守护页所有 Switch。 */
+    private void retintGuardSwitches(View v, UITheme th) {
+        if (v == null) return;
+        if (v instanceof Switch && "guard_switch".equals(v.getTag())) {
+            setGuardSwitchTint((Switch) v, ((Switch) v).isChecked(), th);
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) retintGuardSwitches(g.getChildAt(i), th);
+        }
+    }
+
     private View quickAction(String name, String detail, int icon, Runnable click) { LinearLayout card = editorialCard(); card.setGravity(Gravity.CENTER); card.setPadding(dp(8), dp(11), dp(8), dp(9)); ImageView iv = new ImageView(this); iv.setImageResource(icon); iv.setColorFilter(UITheme.current(this).primary); card.addView(iv, new LinearLayout.LayoutParams(dp(28), dp(28))); TextView n = title(name, 12); n.setGravity(Gravity.CENTER); card.addView(n, matchWrapTop(5)); TextView d = body(detail, 8); d.setGravity(Gravity.CENTER); card.addView(d, matchWrapTop(2)); card.setOnClickListener(v -> click.run()); card.setClickable(true); return card; }
     private Button actionButton(String text, boolean primary) { Button b = new Button(this); b.setText(text); b.setTextSize(10); b.setAllCaps(false); b.setMinHeight(dp(29)); UITheme t = UITheme.current(this); b.setBackground(primary ? t.pill(true) : t.chip(false)); b.setTextColor(primary ? Color.WHITE : t.text); return b; }
     private Button iconButton(String text, String description) { Button b = actionButton(text, false); b.setContentDescription(description); b.setTextSize(16); b.setPadding(0, 0, 0, 0); return b; }
@@ -2394,55 +2351,6 @@ public class MainActivity extends Activity {
             bottomNav.requestApplyInsets();
         }
     }
-    @Override protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        setIntent(intent);
-        applyLaunchIntent();
-    }
-
-    /**
-     * 桌面第四页「旧功能入口」角标点击后，MainActivity 依据 Intent extra 直达对应页面。
-     * 支持：tab=see|gate|settings|life、diary=1（TA 的日记）、connection=1（展开连接设置抽屉）、
-     * calendar=1（守护日历详情）。
-     */
-    private void applyLaunchIntent() {
-        Intent in = getIntent();
-        if (in == null) return;
-        String tab = in.getStringExtra("tab");
-        if (tab == null) tab = "";
-        boolean diaryRequested = "diary".equals(tab) || in.getBooleanExtra("diary", false);
-        boolean calendarRequested = in.getBooleanExtra("calendar", false);
-        boolean connectionRequested = in.getBooleanExtra("connection", false);
-        boolean guidianRequested = in.getBooleanExtra("guidian", false);
-        if (tab.isEmpty() && !diaryRequested && !calendarRequested && !connectionRequested && !guidianRequested) return;
-        if ("see".equals(tab) && !diaryRequested) {
-            diaryPageOpen = false;
-            diaryContentOpen = false;
-            showCompanionHomePage();
-        }
-        if ("gate".equals(tab) && !calendarRequested) {
-            guardianCalendarDetailOpen = false;
-            showGuardHomePage();
-        }
-        if ("see".equals(tab) || "gate".equals(tab) || "settings".equals(tab) || "life".equals(tab)) {
-            showTab(tab);
-        }
-        if (diaryRequested) {
-            showTab("see");
-            showDiaryHomePage();
-        } else if (calendarRequested) {
-            showTab("gate");
-            showGuardianCalendarDetailPage();
-        } else if (guidianRequested) {
-            showTab("settings");
-            if (drawerGuidianButton != null) drawerGuidianButton.performClick();
-        } else if (connectionRequested) {
-            showTab("settings");
-            if (drawerConnection != null) drawerConnection.setVisibility(View.VISIBLE);
-            if (drawerConnectionButton != null) drawerConnectionButton.setText("连接设置  ˄");
-        }
-    }
-
     private void bindDrawer(Button b, View drawer, String title) {
         if (b == null || drawer == null) return;
         b.setText(title + "  ›");
@@ -2467,9 +2375,12 @@ public class MainActivity extends Activity {
     private void bindGuidianThemeButton(Button b, String name) {
         if (b == null) return;
         b.setOnClickListener(v -> {
+            // [THEME-INS] 归电/掌心窗弹窗已统一跟随全局主题，这里改为联动 UITheme，按钮真正生效。
             AppPrefs.get(this).edit().putString(GuidianState.KEY_THEME, GuidianTheme.normalize(name)).apply();
+            UITheme.setTheme(this, name); // 暮夜蓝紫/云海青灰/落日莓雾 都是 UITheme 合法名
+            applyVisualTheme();
             updateUI();
-            Toast.makeText(this, "归电主题已切换为 " + name + "，拉回弹窗同步跟着变", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "主题已切换为 " + name + "，归电弹窗与掌心窗弹窗同步跟着变", Toast.LENGTH_SHORT).show();
         });
     }
 
@@ -2489,6 +2400,8 @@ public class MainActivity extends Activity {
             getWindow().getDecorView().setSystemUiVisibility(flags);
         }
         styleTree(root, t, false);
+        // [U1-FIX] 主题切换后按当前主题重新着色守护页所有 Switch（styleTree 不再处理 Switch 背景）。
+        retintGuardSwitches(root, t);
         setTabSelected(tabLife, "life".equals(currentTab));
         setTabSelected(tabSee, "see".equals(currentTab));
         setTabSelected(tabGate, "gate".equals(currentTab));
@@ -2502,7 +2415,8 @@ public class MainActivity extends Activity {
             themeDarkToggleButton.setAllCaps(false);
             themeDarkToggleButton.setTextSize(11);
         }
-        styleGuidianThemeButton(guidianThemeDuskButton, t, "粉色"); styleGuidianThemeButton(guidianThemeCloudButton, t, "白色"); styleGuidianThemeButton(guidianThemeBerryButton, t, "黑色");
+        // [FIX] 归电主题按钮保存的是「暮夜蓝紫/云海青灰/落日莓雾」，重绘比对名必须一致，否则选中态恒显示未选中。
+        styleGuidianThemeButton(guidianThemeDuskButton, t, "暮夜蓝紫"); styleGuidianThemeButton(guidianThemeCloudButton, t, "云海青灰"); styleGuidianThemeButton(guidianThemeBerryButton, t, "落日莓雾");
         if (bottomNav != null) { bottomNav.setBackground(t.navBar()); bottomNav.setElevation(dp(.8f)); }
         if (heroCard != null) { heroCard.setBackground(t.hero()); heroCard.setElevation(dp(4)); }
         styleQuickCard(quickSeeButton, quickSeeIcon, quickSeeTitle, quickSeeDetail, quickSeeArrow, t);
@@ -2535,7 +2449,8 @@ public class MainActivity extends Activity {
         if (themeText != null) themeText.setTextColor(t.subtext);
         if (statusText != null) statusText.setTextColor(serviceRunning && isAccessibilityServiceEnabled() ? t.primary : t.subtext);
         if (companionAvatarView != null) {
-            companionAvatarView.setColors(t.card, t.line, 0xFF78AE90);
+            // [U8-FIX] 在线圆点跟随主题派生（换主题时同步变化）。
+            companionAvatarView.setColors(t.card, t.line, GuidianTheme.fromContext(this).online);
         }
         TextView[] companionText = new TextView[]{companionPresenceText, sharedWhisperMetaText, companionActionsPreview, todayJourneyText, guardOverviewText};
         for (TextView v : companionText) if (v != null) v.setTextColor(t.subtext);
@@ -2654,7 +2569,9 @@ public class MainActivity extends Activity {
             TextView tv = (TextView) v;
             tv.setIncludeFontPadding(false);
             tv.setTypeface(Typeface.create(tv.getTextSize() >= dp(17) ? "sans-serif-medium" : "sans-serif", Typeface.NORMAL));
-            if (tv instanceof Button && !(tv instanceof CheckBox)) {
+            // [U1-FIX] Switch 继承自 Button，但守护页开关有独立的卡片内布局与主题着色，
+            // 不能被当成普通按钮套上 chip 背景；CheckBox 与 Switch 都要排除。
+            if (tv instanceof Button && !(tv instanceof CheckBox) && !(tv instanceof Switch)) {
                 styleButton((Button) tv, t);
             } else if (tv instanceof EditText) {
                 tv.setTextColor(t.text); tv.setHintTextColor(t.subtext); tv.setTextSize(Math.min(13, tv.getTextSize() / getResources().getDisplayMetrics().scaledDensity));
@@ -2716,7 +2633,8 @@ public class MainActivity extends Activity {
 
     private void styleGuidianThemeButton(Button b, UITheme t, String name) {
         if (b == null) return;
-        boolean selected = name.equals(GuidianState.themeName(this));
+        // [THEME-INS] 选中态跟随当前全局主题；归电三按钮对应 UITheme 的三个同名预设。
+        boolean selected = name.equals(UITheme.currentBaseName(this));
         b.setBackground(t.chip(selected));
         b.setTextColor(selected ? t.primary : t.subtext);
         b.setMinHeight(dp(29));
@@ -2727,7 +2645,8 @@ public class MainActivity extends Activity {
     private int dp(float v) { return (int) (v * getResources().getDisplayMetrics().density + 0.5f); }
 
     @Override protected void onResume() { super.onResume(); serviceRunning = CompanionService.isRunning(); updateUI(); if (recentlyOpenedAccessibilitySettings()) scheduleAccessibilityFollowupChecks(); uiHandler.removeCallbacks(refreshTick); uiHandler.post(refreshTick); }
-    @Override protected void onPause() { saveConnectionSettingsOnly(true); uiHandler.removeCallbacks(refreshTick); super.onPause(); }
+    @Override protected void onPause() { saveConnectionSettingsOnly(true); uiHandler.removeCallbacks(refreshTick); cancelAccessibilityFollowups(); super.onPause(); }
+    @Override protected void onDestroy() { cancelAccessibilityFollowups(); uiHandler.removeCallbacks(refreshTick); super.onDestroy(); }
     @Override protected void onStop() { saveConnectionSettingsOnly(true); super.onStop(); }
 
     @Override public void onBackPressed() {
@@ -3122,10 +3041,22 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void cancelAccessibilityFollowups() {
+        for (Runnable r : a11yFollowups) uiHandler.removeCallbacks(r);
+        a11yFollowups.clear();
+    }
+
     private void scheduleAccessibilityFollowupChecks() {
+        cancelAccessibilityFollowups(); // 先清上一次残留，避免重复排队
         long[] delays = new long[] { 600L, 1500L, 3000L, 6000L, 12000L };
         for (long delay : delays) {
-            uiHandler.postDelayed(() -> { serviceRunning = CompanionService.isRunning(); updateUI(); }, delay);
+            Runnable r = () -> {
+                if (isFinishing() || isDestroyed()) return;
+                serviceRunning = CompanionService.isRunning();
+                updateUI();
+            };
+            a11yFollowups.add(r);
+            uiHandler.postDelayed(r, delay);
         }
     }
 
