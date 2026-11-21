@@ -1,5 +1,12 @@
 # GitHub 同步回执 v2026-11-22
 
+## 补充清理（03:50）
+
+- 最终核验上传版本时，发现 R2 清理弹窗主题僵尸设置后，`PolicyStore` 仍残留 `KEY_THEME_OVERRIDE` 常量与 `themeOverride()`/`setThemeOverride()` 两个无调用方法（dex 中 `theme_override` 字符串来源）。
+- 已彻底删除：常量、两个方法、reset 清空行，以及 `PolicySettingsActivity` 中已死的 `themeOptions()`/`themeOverrideIndex()`。
+- 重新编译验签通过（v1/v2/v3，公钥摘要 `8f89e9f8...` 一致），dex 确认无 `theme_override`，16 项修复特征全部保留。
+- 新 APK SHA：`849e978b33143e9add51bf3ce582cfb19fda26e2c75ddabc5a9227653abe626e`（2404183 字节），两个 update.json 与 Release 均已同步。此为当前最终版本。
+
 ## 同步结果
 
 - 仓库：`https://github.com/G-boy-wed/1.git`（分支 `main`）
@@ -12,17 +19,17 @@
 
 - Release：`v0.3.9.0` — 掌心窗 v0.3.9.0（公开版·签名安装包）
 - 旧资产（SHA `c05e29b9...`, 2441047 字节）已删除
-- 新资产已上传：`Zhangxinchuang-public-v0.3.9.0.apk`（SHA `5fb3b74c...`, 2404183 字节）
+- 新资产已上传：`Zhangxinchuang-public-v0.3.9.0.apk`（SHA `849e978b...`, 2404183 字节）
 - 下载链接：`https://github.com/G-boy-wed/1/releases/download/v0.3.9.0/Zhangxinchuang-public-v0.3.9.0.apk`
 
 ## 三方哈希一致性核对
 
 | 来源 | SHA-256 |
 |---|---|
-| 本地 APK | `5fb3b74ca18b9a13253ddbf62afd03f426aebeba525b84c76ee75033bfeaf61c` |
-| 根目录 update.json | `5fb3b74ca18b9a13253ddbf62afd03f426aebeba525b84c76ee75033bfeaf61c` |
-| server/update.json | `5fb3b74ca18b9a13253ddbf62afd03f426aebeba525b84c76ee75033bfeaf61c` |
-| GitHub Release APK（下载回读） | `5fb3b74ca18b9a13253ddbf62afd03f426aebeba525b84c76ee75033bfeaf61c` |
+| 本地 APK | `849e978b33143e9add51bf3ce582cfb19fda26e2c75ddabc5a9227653abe626e` |
+| 根目录 update.json | `849e978b33143e9add51bf3ce582cfb19fda26e2c75ddabc5a9227653abe626e` |
+| server/update.json | `849e978b33143e9add51bf3ce582cfb19fda26e2c75ddabc5a9227653abe626e` |
+| GitHub Release APK（下载回读） | `849e978b33143e9add51bf3ce582cfb19fda26e2c75ddabc5a9227653abe626e` |
 
 结论：四方哈希完全一致，交付闭环完成。
 

@@ -39,7 +39,6 @@ public final class PolicyStore {
     public static final String KEY_FORCE_BACK_THRESHOLD = PREFIX + "fb_threshold"; // 拉回分级阈值，默认 70
     public static final String KEY_DECLINE_REASON_REQUIRED = PREFIX + "decline_required"; // 拒绝理由必填，默认 false
     public static final String KEY_TARGET_PACKAGE = PREFIX + "target_package";   // 拉回目标 App，默认 com.psyche.kelivo
-    public static final String KEY_THEME_OVERRIDE = PREFIX + "theme_override";   // 弹窗主题覆盖（空=跟随归电）
     public static final String KEY_POSITION_OVERRIDE = PREFIX + "position_override"; // 弹窗位置覆盖（空=跟随归电）
     public static final String KEY_COOLDOWN = PREFIX + "cooldown_min";           // 冷却分钟，默认 5
     public static final String KEY_CHECKIN_ENABLED = PREFIX + "checkin_enabled"; // 是否开启查岗，默认 true
@@ -281,10 +280,6 @@ public final class PolicyStore {
         return (v == null || v.trim().isEmpty()) ? DEF_TARGET_PACKAGE : v.trim();
     }
     public static void setTargetPackage(Context ctx, String v) { putString(ctx, KEY_TARGET_PACKAGE, v, "拉回目标App"); }
-
-    /** 弹窗主题：空字符串表示跟随归电。 */
-    public static String themeOverride(Context ctx) { return getString(ctx, KEY_THEME_OVERRIDE, ""); }
-    public static void setThemeOverride(Context ctx, String v) { putString(ctx, KEY_THEME_OVERRIDE, v == null ? "" : v, "弹窗主题覆盖"); }
 
     /** 弹窗位置：空字符串表示跟随归电；否则 top/center/bottom。 */
     public static String positionOverride(Context ctx) { return getString(ctx, KEY_POSITION_OVERRIDE, ""); }
@@ -645,7 +640,6 @@ public final class PolicyStore {
         e.putString(KEY_QUIET_END, DEF_QUIET_END);
         e.putString(KEY_NIGHT_START, DEF_NIGHT_START);
         e.putString(KEY_NIGHT_END, DEF_NIGHT_END);
-        e.putString(KEY_THEME_OVERRIDE, "");
         e.putString(KEY_POSITION_OVERRIDE, "");
         e.apply();
         logChange(ctx, "用户", "一键恢复默认", "", "全部恢复默认");

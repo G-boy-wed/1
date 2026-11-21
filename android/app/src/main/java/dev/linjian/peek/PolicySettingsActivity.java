@@ -1038,19 +1038,6 @@ public class PolicySettingsActivity extends Activity {
         };
     }
 
-    private String[] themeOptions() {
-        List<String> list = new ArrayList<>();
-        list.add("跟随归电");
-        for (String t : GuidianTheme.themeNames()) list.add(t);
-        return list.toArray(new String[0]);
-    }
-    private int themeOverrideIndex() {
-        String o = PolicyStore.themeOverride(this);
-        if (o == null || o.isEmpty()) return 0;
-        String[] opts = themeOptions();
-        for (int i = 0; i < opts.length; i++) if (opts[i].equals(o)) return i;
-        return 0;
-    }
     private String[] positionOptions() { return new String[]{"跟随归电", "顶部", "居中", "底部"}; }
     private int positionOverrideIndex() {
         String o = PolicyStore.positionOverride(this);
