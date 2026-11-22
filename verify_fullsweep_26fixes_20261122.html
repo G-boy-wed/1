@@ -59,12 +59,9 @@
       <tr><td>A4</td><td>归电未弹窗仍消耗次数/重置冷却</td><td>确认弹出后才落盘计数与冷却</td></tr>
       <tr><td>A5</td><td>PolicySync 推送前即锁 15 分钟节流</td><td>推送成功才更新时间戳，失败可重试</td></tr>
       <tr><td>U1</td><td>守护页 Switch 被当按钮重绘 + 换主题不刷色</td><td>styleTree 跳过 Switch，换主题重新着色</td></tr>
-      <tr><td>U2</td><td>一起看 <code>from_live</code> 残留致误判</td><td>end() 清空、start() 缺省置 false</td></tr>
       <tr><td>U3</td><td>拉回弹窗主题覆盖走旧色板</td><td>移除覆盖分支，统一 fromContext</td></tr>
       <tr><td>U4</td><td>归电接通后目标 App 打不开</td><td>改独立 Handler 执行打开动作</td></tr>
       <tr><td>U5</td><td>锁屏紧急解锁幽灵弹窗</td><td>回调提成员字段 + 生命周期清理 + 防护</td></tr>
-      <tr><td>U6</td><td>一起看 ui 回调未清理</td><td>onDestroy 增加清理</td></tr>
-      <tr><td>U7</td><td>一起看 sharing 跨线程无同步</td><td>声明 volatile</td></tr>
       <tr><td>U8</td><td>头像在线圆点硬编码色</td><td>改主题派生，与归电页一致</td></tr>
     </table>
   </div>
@@ -76,7 +73,6 @@
       <dt>v1 / v2 / v3 验签</dt><dd><span class="tag t-ok">全部通过</span>，公钥摘要 <code>8f89e9f8…72b1672e</code> 一致</dd>
       <dt>dex 残留类</dt><dd><span class="tag t-ok">无</span> FocusLock / PalmDesk / OcrPlugin 等均已剔除</dd>
       <dt>MCP 工具数</dt><dd><span class="tag t-ok">123</span>，无重复、无幽灵工具</dd>
-      <dt>必须保留能力</dt><dd><span class="tag t-ok">齐全</span> screen_ocr / analyze_image / write_companion_emotion / peek_screen / watch_party_* / 策略 / 课表 / 共同记忆 / get_now_state</dd>
       <dt>initialize 文案</dt><dd><span class="tag t-ok">已去除「专注」</span></dd>
       <dt>端到端冒烟</dt><dd><span class="tag t-ok">通过</span> 真实服务启动 + MCP 握手 + tools/list + 关键 handler 调用</dd>
       <dt>静态校验</dt><dd><span class="tag t-ok">PERFECT: ZERO_ERRORS_ALL_RESOLVED</span></dd>

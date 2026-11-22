@@ -126,15 +126,26 @@ public class WeatherLive {
      * 每天最多一次、接口很快，放后台线程反而来不及给弹窗用，故这里同步执行并写缓存。
      */
     public static JSONObject ensureFresh(Context ctx, String city, String district) {
+        return ensureFresh(ctx, city, district, 0, 0);
+    }
+
+    /**
+     * [WEATHER-FIX] 弹窗链路专用：带 GPS 坐标时走坐标级精确查询（与卡片链路一致），
+     * 彻底解决"用户已保存定位、弹窗却按地名降级查询"导致查不出最正确天气的问题。
+     */
+    public static JSONObject ensureFresh(Context ctx, String city, String district, double lat, double lon) {
         Context app = ctx.getApplicationContext();
         city = clean(city); district = clean(district);
-        if (city.isEmpty() && district.isEmpty()) return null;
-        JSONObject cached = cached(app, city, district);
-        if (cached != null && cached.optBoolean("ok") && isFresh(app, city, district, DEFAULT_FRESH_MS)) return cached;
+        boolean hasCoords = lat != 0 || lon != 0;
+        if (city.isEmpty() && district.isEmpty() && !hasCoords) return null;
+        // [WEATHER-FIX] 缓存 key 纳入坐标：定位移动后 key 变化，不再 45 分钟显示旧地点天气。
+        String key = hasCoords ? coordsCacheKey(lat, lon, city, district) : cacheKey(city, district);
+        JSONObject cached = cachedByKey(app, key);
+        if (cached != null && cached.optBoolean("ok") && isFreshByKey(app, key, DEFAULT_FRESH_MS)) return cached;
         try {
-            JSONObject result = fetch(city, district);
+            JSONObject result = hasCoords ? fetchByCoords(lat, lon, city, district) : fetch(city, district);
             AppPrefs.get(app).edit()
-                    .putString(KEY_CITY, cacheKey(city, district))
+                    .putString(KEY_CITY, key)
                     .putString(KEY_JSON, result.toString())
                     .putLong(KEY_AT, System.currentTimeMillis())
                     .apply();
@@ -143,6 +154,31 @@ public class WeatherLive {
             DebugState.append(app, "天气弹窗预取失败：" + ScreenshotService.shortMsg(e));
             return cached;
         }
+    }
+
+    /** [WEATHER-FIX] 坐标缓存 key：经纬度取整到 0.01°（约 1km），叠加地名，定位移动即换 key。 */
+    private static String coordsCacheKey(double lat, double lon, String city, String district) {
+        return "@coord:" + String.format(Locale.US, "%.2f", lat) + "," + String.format(Locale.US, "%.2f", lon)
+                + "|" + clean(city) + "|" + clean(district);
+    }
+
+    private static JSONObject cachedByKey(Context ctx, String key) {
+        try {
+            SharedPreferences p = AppPrefs.get(ctx);
+            if (!key.equals(p.getString(KEY_CITY, ""))) return null;
+            String json = p.getString(KEY_JSON, "");
+            if (json == null || json.trim().isEmpty()) return null;
+            return new JSONObject(json);
+        } catch (Exception e) { return null; }
+    }
+
+    private static boolean isFreshByKey(Context ctx, String key, long freshMs) {
+        try {
+            SharedPreferences p = AppPrefs.get(ctx);
+            if (!key.equals(p.getString(KEY_CITY, ""))) return false;
+            long at = p.getLong(KEY_AT, 0);
+            return at > 0 && (System.currentTimeMillis() - at) <= Math.max(60_000L, freshMs);
+        } catch (Exception e) { return false; }
     }
 
     private static JSONObject fetch(String city) throws Exception {
@@ -233,10 +269,10 @@ public class WeatherLive {
                     String cityName = named.optString("resolved_city", "");
                     if (!cityName.isEmpty() && !"当前位置".equals(cityName)) {
                         out.put("resolved_city", cityName);
-                        out.put("admin2", cityName); // [FIX] 与 fetchUapis 语义一致：admin2 存城市名，district 存区县
                     }
                     String distName = named.optString("district", "");
-                    if (!distName.isEmpty()) out.put("district", distName);
+                    if (!distName.isEmpty()) { out.put("district", distName); out.put("admin2", distName); } // [WEATHER-FIX] admin2=区县
+                    else if (!d.isEmpty()) out.put("admin2", d);
                     out.put("adcode", named.optString("adcode", ""));
                     out.put("geo_source", "device_coords+uapis_name");
                 }
@@ -285,16 +321,17 @@ public class WeatherLive {
                 out.put("resolved_city", cityName.isEmpty() ? c : cityName);
                 out.put("province", province);
                 out.put("admin1", province);
-                out.put("admin2", cityName);
+                // [WEATHER-FIX] admin2 统一为区县名（与 district 一致），不再混用城市名。
+                out.put("admin2", distName.isEmpty() ? d : distName);
                 out.put("district", distName.isEmpty() ? d : distName);
                 out.put("adcode", clean(resp.optString("adcode", "")));
                 out.put("country", "中国");
                 out.put("temperature", (int) Math.round(temp));
                 out.put("temperature_raw", temp);
                 out.put("condition", condition.isEmpty() ? "晴" : condition);
-                // uapis 只返回实况温度，没有日最高/最低；不编造区间，标记由 advice 省略假区间。
+                // [WEATHER-FIX] uapis 实况只给温度/天气，无最高最低、无降水概率。
+                // 不再编造 precipitation_probability=80，避免 advice 据此假报"带伞"。
                 out.put("range_estimated", true);
-                out.put("precipitation_probability", condition.contains("雨") || condition.contains("雪") ? 80 : 0);
                 out.put("report_time", clean(resp.optString("report_time", "")));
                 out.put("updated_at_ms", System.currentTimeMillis());
                 // 省·市·区县（用户选定格式），精确到区县，不再只显示城市名。
@@ -437,9 +474,11 @@ public class WeatherLive {
 
     public static String cardText(JSONObject weather, String name) {
         if (weather == null || !weather.optBoolean("ok")) return "天气\n待刷新";
+        // [WEATHER-FIX] 优先用完整 geo_display（省·市·区县），确保标注到最正确区县。
+        String geo = weather.optString("geo_display", "");
         String city = weather.optString("resolved_city", weather.optString("queried_city", name));
         String district = weather.optString("district", "");
-        String where = district.isEmpty() ? city : (district + "·" + city);
+        String where = (geo.isEmpty() ? (district.isEmpty() ? city : district + "·" + city) : geo);
         String condition = weather.optString("condition", "天气");
         int temp = weather.optInt("temperature", 0);
         return where + " · " + condition + "\n" + temp + "℃";
@@ -450,15 +489,15 @@ public class WeatherLive {
         String n = (name == null || name.trim().isEmpty()) ? "当前地区" : name.trim();
         String condition = weather.optString("condition", "");
         int temp = weather.optInt("temperature", 0);
-        int rain = weather.optInt("precipitation_probability", 0);
-        // [FIX] 只有真实日最高/最低时才显示区间；uapis 实况无区间，绝不编造 ±3/4℃ 的假温差。
+        // [WEATHER-FIX] 不再读取编造的 precipitation_probability；带伞只依据真实天气现象(雨/雪)。
+        // 只有真实日最高/最低时才显示区间；uapis 实况无区间，绝不编造 ±3/4℃ 的假温差。
         boolean hasRange = !weather.optBoolean("range_estimated", false)
                 && weather.has("temp_max") && weather.has("temp_min");
         int max = hasRange ? weather.optInt("temp_max", temp) : temp;
         int min = hasRange ? weather.optInt("temp_min", temp) : temp;
         String head = n + "现在" + condition + "，约 " + temp + "℃"
                 + (hasRange ? "，今天 " + min + "~" + max + "℃" : "") + "。";
-        if (rain >= 50 || condition.contains("雨") || condition.contains("雪")) return "出门建议：" + head + "伞拿上，别淋湿。";
+        if (condition.contains("雨") || condition.contains("雪")) return "出门建议：" + head + "伞拿上，别淋湿。";
         // 无区间时用当前温度判断冷热；有区间时沿用原来的最高/温差逻辑。
         if (hasRange ? max >= 32 : temp >= 30) return "出门建议：" + head + "今天偏热，水杯和防晒都带着。";
         if (hasRange ? (min <= 8 || Math.abs(max - min) >= 10) : temp <= 8)

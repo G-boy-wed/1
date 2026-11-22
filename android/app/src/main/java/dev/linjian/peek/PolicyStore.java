@@ -76,7 +76,6 @@ public final class PolicyStore {
     public static final String KEY_DISTRACTION_LOOP_TIMES = PREFIX + "dist_loop_times";     // 来回次数阈值，默认 2
     public static final String KEY_DISTRACTION_LOOP_WINDOW = PREFIX + "dist_loop_window";   // 来回时间窗口(秒)，默认 90
     public static final String KEY_DISCIPLINE_MODE = PREFIX + "disc_mode";       // 训诫语气 gentle / strict，默认 gentle
-    public static final String KEY_DISCIPLINE_TEXT = PREFIX + "disc_text";        // 陪伴对象直出训诫文案（空则用默认）
 
     // —— 每日弹窗去重（天气首次解锁 / 日历解锁横幅，每天最多弹一次）——
     public static final String KEY_WEATHER_ALERT_DATE = PREFIX + "weather_alert_date";
@@ -119,8 +118,8 @@ public final class PolicyStore {
     // —— 默认值 ——
     private static final boolean DEF_MASTER = true;
     // [STRENGTH+] 查岗/想你/训诫使用强度增强基线（新安装直接生效；老用户见强度升级迁移）。
-    private static final int DEF_RANDOM_UPPER = 35;   // 60 -> 35：查岗间隔上限缩短，更频繁
-    private static final int DEF_RANDOM_LOWER = 5;    // 8 -> 5：下限缩短
+    private static final int DEF_RANDOM_UPPER = 60;   // [POPUP-RANDOM-FIX] 恢复 8-60 分钟随机区间（原被改成 35/5）
+    private static final int DEF_RANDOM_LOWER = 8;    // [POPUP-RANDOM-FIX] 下限 8 分钟，避免连续挨着弹
     private static final int DEF_THRESHOLD = 55;      // 70 -> 55：更容易触发强拉回
     private static final boolean DEF_DECLINE_REQUIRED = false;
     private static final String DEF_TARGET_PACKAGE = "com.psyche.kelivo";
@@ -178,7 +177,7 @@ public final class PolicyStore {
 
     // ============ [STRENGTH+] 一次性使用强度升级迁移 ============
     private static final String KEY_STRENGTH_VERSION = PREFIX + "strength_version";
-    private static final int STRENGTH_VERSION = 2;
+    private static final int STRENGTH_VERSION = 3; // [POPUP-RANDOM-FIX] v3: 间隔恢复 8-60 分钟随机
 
     /**
      * 老用户升级：把查岗/想你/训诫的使用强度提升到新基线。
@@ -189,9 +188,9 @@ public final class PolicyStore {
         try {
             if (sp(ctx).getInt(KEY_STRENGTH_VERSION, 0) >= STRENGTH_VERSION) return;
             SharedPreferences.Editor e = sp(ctx).edit();
-            // 查岗：仅当仍是旧默认（60/8/70/5）时提升
-            if (sp(ctx).getInt(KEY_RANDOM_UPPER, -1) == 60) e.putInt(KEY_RANDOM_UPPER, 35);
-            if (sp(ctx).getInt(KEY_RANDOM_LOWER, -1) == 8) e.putInt(KEY_RANDOM_LOWER, 5);
+            // [POPUP-RANDOM-FIX] v3: 间隔统一恢复为 8-60 分钟随机（覆盖历史 35/5 迁移值）
+            e.putInt(KEY_RANDOM_UPPER, DEF_RANDOM_UPPER);
+            e.putInt(KEY_RANDOM_LOWER, DEF_RANDOM_LOWER);
             if (sp(ctx).getInt(KEY_FORCE_BACK_THRESHOLD, -1) == 70) e.putInt(KEY_FORCE_BACK_THRESHOLD, 55);
             if (sp(ctx).getInt(KEY_COOLDOWN, -1) == 5) e.putInt(KEY_COOLDOWN, 3);
             // 想你：旧默认（起始8/增长2~5/回落4）
@@ -346,14 +345,6 @@ public final class PolicyStore {
     }
     public static void setDisciplineMode(Context ctx, String v) {
         putString(ctx, KEY_DISCIPLINE_MODE, "strict".equalsIgnoreCase(v) ? "strict" : "gentle", "训诫语气模式");
-    }
-
-    /** 陪伴对象直出训诫文案：文案由陪伴对象编写，禁止轻浮兜底。空字符串表示使用默认严厉文案。 */
-    public static String disciplineText(Context ctx) {
-        return getString(ctx, KEY_DISCIPLINE_TEXT, "");
-    }
-    public static void setDisciplineText(Context ctx, String v) {
-        putString(ctx, KEY_DISCIPLINE_TEXT, v == null ? "" : v, "训诫文案");
     }
 
     /** 每日天气/日历弹窗去重：返回今天是否已弹过（基于本地日期）。 */

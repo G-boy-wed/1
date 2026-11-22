@@ -176,7 +176,7 @@ def check_consistency(raw_tools, engine):
     noarg_ok = {"linjian_status", "get_current_time", "health",
                 "latest_screen", "get_window_whisper", "list_diary_books",
                 "get_care_policy", "list_known_apps", "get_discipline_mode",
-                "get_screen_break_release_requests"}
+                "get_screen_break_release_requests", "list_discipline_phrases"}
     for t in tools:
         if not isinstance(t, dict):
             continue

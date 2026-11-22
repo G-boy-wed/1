@@ -24,7 +24,34 @@ public final class PopupMutex {
     private static volatile String owner = "";
     private static long lastShownAt = 0;
 
+    // [POPUP-RANDOM-FIX] 全局中心弹窗节奏：任意弹窗触发后，下一次最早在 8-60 分钟随机后。
+    // 查岗/情绪弹窗等所有「中心弹窗」共用这条闸门，保证：(1) 间隔 8-60 分钟随机；(2) 不会同时弹多个。
+    private static long nextCenterAlertAt = 0;
+
     private PopupMutex() { }
+
+    /** 生成 8-60 分钟之间的随机毫秒数。 */
+    public static long randomCenterIntervalMs() {
+        int lo = 8, hi = 60;
+        int min = lo + (int) (Math.random() * (hi - lo + 1));
+        return (long) min * 60_000L;
+    }
+
+    /** [POPUP-RANDOM-FIX] 是否允许触发下一个中心弹窗（全局节奏闸门）。 */
+    public static boolean canTriggerCenterAlert(long nowWallClock) {
+        return nowWallClock >= nextCenterAlertAt;
+    }
+
+    /** [POPUP-RANDOM-FIX] 任意中心弹窗触发后调用：登记并推进下一次为 8-60 分钟后。 */
+    public static void markCenterAlertTriggered(long nowWallClock) {
+        nextCenterAlertAt = nowWallClock + randomCenterIntervalMs();
+        lastShownAt = nowWallClock;
+    }
+
+    /** 距下次允许触发还剩多少毫秒（诊断用）。 */
+    public static long msUntilNextCenterAlert(long nowWallClock) {
+        return Math.max(0, nextCenterAlertAt - nowWallClock);
+    }
 
     /**
      * 展示前调用：移除其它通道的悬浮窗，把自己登记为当前占用者。

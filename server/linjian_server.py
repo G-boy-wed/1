@@ -86,10 +86,9 @@ ALLOWED_ACTIONS = {"noop", "peek", "open_app", "home", "back", "recents", "scree
 "show_center_alert", "force_back_to_chat", "start_tour", "stop_tour",
 "set_companion_emotion", "get_companion_emotion",
 "send_watch_whisper", "pause_media", "media_switch_screen", "get_live_media_context",
-"set_discipline_mode", "get_discipline_state", "trigger_discipline",
+"set_discipline_mode", "get_discipline_state", "trigger_discipline", "sync_discipline_phrases",
 "import_timetable", "parse_timetable", "screen_ocr",
 "add_shared_memory", "remove_shared_memory",
-"watch_party_start", "watch_party_sync", "watch_party_danmaku", "watch_party_reaction", "watch_party_end",
 "set_policy", "get_policy", "list_policy", "reset_policy",
 "get_class_schedule", "add_class_entry", "upsert_class_entry", "remove_class_entry",
 "edit_shared_memory",
@@ -1078,7 +1077,7 @@ class Handler(BaseHTTPRequestHandler):
                              "mcp_endpoints": ["/mcp (POST Streamable HTTP)", "/sse (GET)", "/messages (POST)", "--mcp-stdio"],
                              "shared_memory_db": "sqlite", "cors": True,
                              "guidian": True, "calendar": True, "diary": True, "diary_storage": "phone_local",
-                             "app_gate": True, "focus_tools": False, "diary_rename_fix": True,
+                             "app_gate": True, "diary_rename_fix": True,
                              "diary_write_fallback": True, "diary_annotation_tools": True,
                              "diary_annotation_whitelist_fix": True})
             return
@@ -1094,15 +1093,6 @@ class Handler(BaseHTTPRequestHandler):
             device_id = qs.get("device_id", [DEFAULT_DEVICE])[0] or DEFAULT_DEVICE
             # BE-11/12/13：与 get_live_media_context 共用同一读取函数（含 last_events / 超时兜底）。
             self._json(200, build_media_context(self.state, device_id)); return
-        if path == "/api/watch_party":
-            # [WATCH-PARTY] 双人共同观看房间状态读取（手机端一起看页可主动拉取/对齐）。
-            if not self._require_token(): return
-            try:
-                engine = getattr(self.state, "mcp_engine", None)
-                wp = engine.local.watchparty_state() if engine else {}
-                self._json(200, {"ok": True, "watch_party": wp}); return
-            except Exception as e:
-                self._json(200, {"ok": False, "error": str(e)}); return
         if path == "/api/companion/state":
             if not self._require_token(): return
             limit = max(1, min(50, int(qs.get("limit", ["20"])[0] or 20)))
@@ -1366,7 +1356,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/device/state":
             if not self._require_token(): return
             data = self._read_json(); device_id = data.get("device_id") or DEFAULT_DEVICE
-            # [SYNC-FIX] 字段级合并而非整体覆盖：手机端局部上报（如仅 watch_party / 仅某设置项）
+            # [SYNC-FIX] 字段级合并而非整体覆盖：手机端局部上报（如仅某设置项 / 仅某状态字段）
             # 不再把服务端已有的其它状态清空，修复“手机端更改软件不进行更改覆盖 / 互相覆盖丢失”。
             prev = dict(self.state.device_states.get(device_id) or {})
             prev.update(data)                      # 上报字段覆盖同名字段，未上报字段保留
@@ -1387,15 +1377,6 @@ class Handler(BaseHTTPRequestHandler):
                 # [N2-FIX] 用手机全量快照对齐 SQLite 权威表，删除/编辑后不再从 DB "复活"。
                 try: self.state.db_shared_memory_sync(snap)
                 except Exception: pass
-            # [WATCH-PARTY] 手机端即时推送的一起看状态 → 同步到 MCP 引擎的房间状态（MCP 可读到手机侧吐槽）。
-            watch_party = data.get("watch_party")
-            if isinstance(watch_party, dict):
-                engine = getattr(self.state, "mcp_engine", None)
-                try:
-                    if engine and hasattr(engine, "local"):
-                        engine.local.watchparty_update(watch_party)
-                except Exception:
-                    pass
             self._json(200, {"ok": True, "device_id": device_id}); return
         if path == "/api/device/report":
             if not self._require_token(): return

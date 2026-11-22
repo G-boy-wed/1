@@ -35,8 +35,11 @@ public final class AlertWindowManager {
     public static void showWeatherAlert(Context ctx, String city, String district) {
         JSONObject current = WeatherState.currentLocation(ctx);
         String areaName = current.optString("name", "");
-        // 弹窗前同步确保按区县取到最新实况，避免读占位/过期缓存导致温度与区县不匹配。
-        JSONObject live = WeatherLive.ensureFresh(ctx, city, district);
+        // [WEATHER-FIX] 读取已保存的 GPS 坐标，走坐标级精确查询（与卡片链路一致），
+        // 不再按地名降级——这是"弹窗查不出最正确天气"的主因。
+        double lat = current == null ? 0 : current.optDouble("latitude", 0);
+        double lon = current == null ? 0 : current.optDouble("longitude", 0);
+        JSONObject live = WeatherLive.ensureFresh(ctx, city, district, lat, lon);
         if (live == null) live = WeatherLive.cached(ctx, city, district);
         // 精确地址优先级：① uapis 返回的省·市·区县(geo_display) ② 省+市(admin1+admin2) ③ 地区别名 ④ 城市名。
         // 保证弹窗标注的是「正确的区县」，从而与区县级温度、穿衣提醒一一对应。

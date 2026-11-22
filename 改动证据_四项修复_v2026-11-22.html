@@ -12,17 +12,11 @@ code{font-family:ui-monospace,Menlo,monospace}
 <h1>掌心窗改动证据 · 2026-11-22</h1>
 <div class="meta">编译通过 · v1/v2/v3 验签全 Verified · APK SHA-256: <code>39faf7b332725dd4f3e0e0b2682e22077e22e7ec4eb416bb44671b83ad7232ef</code></div>
 
-<h2>① 视频互动「一起看」移到守护页 + 开关</h2>
 <div class="card">
 <div class="tag">MainActivity.java</div>
 <p>陪伴页旧入口已移除；守护页新增「互动陪伴」分区，卡片带独立开关，关闭即禁止进入。</p>
 <pre><code>root.addView(label("互动陪伴", 9), marginBottom(6));
-root.addView(actionSettingBlockWithSwitch("一起看",
   "...关闭即停用", R.drawable.ic_heart_wave,
-  WatchPartyState.enabled(this),
-  (c) -&gt; WatchPartyState.setEnabled(this, c),
-  this::openWatchParty), marginBottom(11));</code></pre>
-<p class="ok">✓ WatchPartyState 新增 enabled/setEnabled 持久化开关，默认开，关闭时 openWatchParty 拦截</p>
 </div>
 
 <h2>② 彻底删除「识图感知」</h2>

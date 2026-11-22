@@ -36,8 +36,6 @@
 
 ## 四、MCP 核对与新增
 
-核对结论：原 129 个工具中日记/陪伴/守护/一起看齐全，但**桌面角标/图标/背景/文字没有专门工具**，机端无法改桌面。本轮补齐"机端与手机端双向可改"：
-
 - 新增手机端 `DeskCommand.java`，经命令通道处理：`desk_set_badge_icon` / `desk_set_badge_name` / `desk_set_old_icon` / `desk_set_old_name` / `desk_set_page_bg` / `desk_set_text` / `desk_reset` / `desk_get_state`。
 - `CompanionService.handleCommandBody` 增加 `desk_*` 命令分发。
 - MCP 工具 129 → **132**，新增：

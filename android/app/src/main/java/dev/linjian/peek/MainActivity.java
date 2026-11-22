@@ -384,21 +384,21 @@ public class MainActivity extends Activity {
 
         LinearLayout mosaic = new LinearLayout(this);
         mosaic.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout focus = editorialCard();
-        focus.setPadding(dp(16), dp(13), dp(16), dp(11));
-        focus.addView(label("今日专注", 9));
+        LinearLayout screenCard = editorialCard();
+        screenCard.setPadding(dp(16), dp(13), dp(16), dp(11));
+        screenCard.addView(label("屏幕使用", 9));
         overviewScreenText = title("-", 20);
-        focus.addView(overviewScreenText, matchWrapTop(5));
+        screenCard.addView(overviewScreenText, matchWrapTop(5));
         overviewScreenDetail = body("解锁次数读取中", 9);
-        focus.addView(overviewScreenDetail, matchWrapTop(3));
-        FocusProgressView focusProgress = new FocusProgressView(this);
-        LinearLayout.LayoutParams focusProgressLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(4));
-        focusProgressLp.topMargin = dp(14);
-        focus.addView(focusProgress, focusProgressLp);
-        LinearLayout focusColumn = new LinearLayout(this);
-        focusColumn.setOrientation(LinearLayout.VERTICAL);
-        focusColumn.addView(focus, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(154)));
-        mosaic.addView(focusColumn, weighted(1.25f, 0));
+        screenCard.addView(overviewScreenDetail, matchWrapTop(3));
+        FocusProgressView screenProgress = new FocusProgressView(this);
+        LinearLayout.LayoutParams screenProgressLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(4));
+        screenProgressLp.topMargin = dp(14);
+        screenCard.addView(screenProgress, screenProgressLp);
+        LinearLayout screenColumn = new LinearLayout(this);
+        screenColumn.setOrientation(LinearLayout.VERTICAL);
+        screenColumn.addView(screenCard, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(154)));
+        mosaic.addView(screenColumn, weighted(1.25f, 0));
         LinearLayout smalls = new LinearLayout(this);
         smalls.setOrientation(LinearLayout.VERTICAL);
         LinearLayout weather = smallStat("窗外", R.drawable.ic_cloud);
@@ -601,19 +601,6 @@ public class MainActivity extends Activity {
         root.addView(guardSettingBlock("归电", "很久没回来时，" + AppPrefs.companionName(this) + "来敲门", R.drawable.ic_clock, drawerGuidian), marginBottom(7));
         root.addView(actionSettingBlock("看见", "查看屏幕并回应此刻", R.drawable.ic_eye, this::testScreenshot), marginBottom(10));
         return root;
-    }
-
-    /** 打开「一起看」：共享本机正在播放的影视/短视频，双方可看进度、发弹幕与表情。守护页开关关闭时禁止进入。 */
-    private void openWatchParty() {
-        if (!WatchPartyState.enabled(this)) {
-            Toast.makeText(this, "「一起看」已关闭，请在守护页打开开关后再使用", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        try {
-            startActivity(new Intent(this, WatchPartyActivity.class));
-        } catch (Exception e) {
-            Toast.makeText(this, "一起看打开失败：" + ScreenshotService.shortMsg(e), Toast.LENGTH_SHORT).show();
-        }
     }
 
     private void showCompanionHomePage() {
@@ -1195,11 +1182,6 @@ public class MainActivity extends Activity {
         root.addView(actionSettingBlockWithSwitch("主动提醒", "电量、屏幕、喝水、休息、周期；一键开关全部提醒", R.drawable.ic_clock,
                 PolicyStore.anyPermEnabled(this), (c) -> PolicyStore.setAllPermEnabled(this, c),
                 () -> openPolicySettings("reminder")), marginBottom(7));
-
-        root.addView(groupLabel("互动陪伴"), marginBottom(6));
-        root.addView(actionSettingBlockWithSwitch("一起看", "和你爱的人同步看电影、短视频，实时吐槽；关闭即停用", R.drawable.ic_heart_wave,
-                WatchPartyState.enabled(this), (c) -> WatchPartyState.setEnabled(this, c),
-                this::openWatchParty), marginBottom(11));
 
         root.addView(groupLabel("日子与作息"), marginBottom(6));
         root.addView(actionSettingBlockWithSwitch("守护日历", "纪念日、节日和倒数日；关闭即停发横幅提醒", R.drawable.ic_clock,

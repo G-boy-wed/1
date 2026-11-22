@@ -61,7 +61,6 @@
   .sw.off{background:#d5d5d5}
   .sw.off:after{right:auto;left:2px}
   .changebtn{width:100%;background:var(--sub);color:var(--main);border:none;border-radius:14px;padding:12px;font-size:12px;margin-top:14px}
-  /* 一起听 */
   .mtitle{font-size:22px;font-weight:600;color:var(--main);margin-top:6px}
   .msub{font-size:11px;color:var(--weak);margin-top:2px}
   .nowcard{background:var(--card);border-radius:20px;padding:20px;margin-top:16px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,.04)}
@@ -96,7 +95,6 @@
       <div class="status"><span>19:27</span><span class="icons">◉ ▮▮▮ 5G 85%</span></div>
       <div class="content">
         <div class="top">
-          <div class="music"><div class="cover">🪴</div><div class="meta"><b>CosmicLove</b><span>掌心窗 · 一起听</span></div><div class="ctrl"><span>◀</span><span>▶</span><span>▶|</span></div></div>
           <div class="time-box"><div class="t">19:27</div><div class="w">☁ 24°C</div></div>
         </div>
         <div class="week"><div class="m">2026年11月</div><div class="days">
@@ -107,7 +105,6 @@
         <div class="grid" id="grid"></div>
         <div class="note"><div class="h">便签 · 今天想说的话</div><div class="b">把今天看见的你，轻轻写下来。点开守护与陪伴，慢慢说给我听。</div></div>
       </div>
-      <div class="dock"><div class="nav on"><span class="i">⌂</span>桌面</div><div class="nav"><span class="i">⚑</span>守护</div><div class="nav"><span class="i">♫</span>一起听</div><div class="nav"><span class="i">⚙</span>我的</div></div>
     </div>
     <div class="label">图1 · 掌心窗桌面</div>
   </div>
@@ -121,31 +118,24 @@
         <div id="guard"></div>
         <button class="changebtn">更改情感相册</button>
       </div>
-      <div class="dock"><div class="nav"><span class="i">⌂</span>桌面</div><div class="nav on"><span class="i">⚑</span>守护</div><div class="nav"><span class="i">♫</span>一起听</div><div class="nav"><span class="i">⚙</span>我的</div></div>
     </div>
     <div class="label">图2 · 守护标签</div>
   </div>
 
-  <!-- 一起听 -->
   <div>
     <div class="phone">
       <div class="status"><span>19:27</span><span class="icons">◉ ▮▮▮ 5G 85%</span></div>
       <div class="content">
-        <div class="mtitle">一起听</div><div class="msub">网易云同款 · 显示位置、头像与时间</div>
-        <div class="nowcard"><div class="disc">🪴</div><div class="song">CosmicLove</div><div class="artist">未知歌手 · 掌心窗</div><div class="bar"><i></i></div><div class="meta">◉ 绵阳 · 北川　⏱ 19:27 起一起听</div><div class="avatars"><div>你</div><div>T</div><div>我</div><div>A</div></div></div>
         <div class="gridtitle">热门歌曲（点选展示）</div>
         <div class="srow"><span class="num">1</span><div class="m"><b>起风了</b><span>买辣椒也用券</span></div><span>♫</span></div>
         <div class="srow"><span class="num">2</span><div class="m"><b>晴天</b><span>周杰伦</span></div><span>♫</span></div>
         <div class="srow"><span class="num">3</span><div class="m"><b>稻香</b><span>周杰伦</span></div><span>♫</span></div>
       </div>
-      <div class="dock"><div class="nav"><span class="i">⌂</span>桌面</div><div class="nav"><span class="i">⚑</span>守护</div><div class="nav on"><span class="i">♫</span>一起听</div><div class="nav"><span class="i">⚙</span>我的</div></div>
     </div>
-    <div class="label">网易云同款 · 一起听</div>
   </div>
 
   <div class="hint">按真实 APK 的排列结构还原 · 只还原排列，不参考配色</div>
 <script>
-  const plugs=[["✉","消息"],["▦","日历"],["❀","图片"],["☻","联系人"],["✎","便签"],["♡","心动"],["◎","查岗"],["⚑","门禁"],["◷","专注"],["♫","一起听"],["☁","天气"],["⚡","归电"],["▤","课表"],["★","记忆"],["✂","训诫"],["⏰","提醒"],["☾","夜间"],["☷","识图"],["⌂","回家"],["⚙","更多"]];
   document.getElementById('grid').innerHTML=plugs.map(p=>`<div class="plug"><div class="ic">${p[0]}</div><div class="nm">${p[1]}</div></div>`).join('');
   const groups=[
     ["基础守护",[["▤","屏幕日记",1],["⚑","外勤报告",1],["✉","email",1]]],

@@ -1,28 +1,67 @@
 package dev.linjian.peek;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
  * 训诫管束模块集中控制器（对应 PRD 模块一）。
  *
  *  - 多档位管束（0~4 档）与双语气（gentle 温柔 / strict 严厉），由 PolicyStore 持久化；
- *  - 陪伴对象可直出训诫文案（discipline_text），不强制兜底；
+ *  - [DISC-PHRASE-POOL] 训诫话术来自 MCP 写入的动态话术池（温柔池/严厉池分开），
+ *    弹窗按当前模式从对应池随机取整句；提示词不硬编码在底代码。已移除自定义文案。
  *  - 触发训诫：强行弹出「不可直接滑掉」的居中弹窗（仅按钮可关闭）+ 震动；
- *  - strict 模式 / 中档及以上（level>=3 强制强弹）联动应用门禁，把当前非白名单前台应用切入临时休息/锁屏；
- *  - 通过 handleCommand 接入后端命令：set_discipline_mode / get_discipline_state / trigger_discipline。
+ *  - strict 模式 / 中档及以上（level>=3 强制强弹）联动应用门禁；
+ *  - 通过 handleCommand 接入：set_discipline_mode / get_discipline_state / trigger_discipline / sync_discipline_phrases。
  */
 public final class DisciplineController {
 
+    // [DISC-PHRASE-POOL] 手机端话术池镜像（服务端下发权威数据，离线也能取用）。
+    private static final String POOL_PREFS = "peek_disc_phrases";
+    private static final String KEY_GENTLE = "gentle";
+    private static final String KEY_STRICT = "strict";
+
     private DisciplineController() { }
 
-    /** 设置训诫模式（档位、语气、陪伴对象直出文案）。 */
-    public static void setMode(Context ctx, int level, String mode, String text) {
+    /** 设置训诫模式（档位、语气）。自定义文案已移除。 */
+    public static void setMode(Context ctx, int level, String mode) {
         PolicyStore.setDisciplineLevel(ctx, level);
         PolicyStore.setDisciplineMode(ctx, mode);
-        if (text != null) PolicyStore.setDisciplineText(ctx, text);
         DebugState.append(ctx, "训诫模式已设置：level=" + level + " mode=" + normalizedMode(mode));
+    }
+
+    // ===== [DISC-PHRASE-POOL] 动态话术池：手机端镜像读写 =====
+    private static SharedPreferences poolPrefs(Context ctx) {
+        return ctx.getApplicationContext().getSharedPreferences(POOL_PREFS, Context.MODE_PRIVATE);
+    }
+
+    /** 从服务端同步话术池（MCP 下发）。 */
+    public static void syncPhrases(Context ctx, JSONArray gentle, JSONArray strict) {
+        poolPrefs(ctx).edit().putString(KEY_GENTLE, gentle == null ? "[]" : gentle.toString())
+                .putString(KEY_STRICT, strict == null ? "[]" : strict.toString()).apply();
+        DebugState.append(ctx, "训诫话术池已同步：温柔=" + (gentle == null ? 0 : gentle.length())
+                + " 严厉=" + (strict == null ? 0 : strict.length()));
+    }
+
+    private static String[] phrasePool(Context ctx, boolean strict) {
+        String json = poolPrefs(ctx).getString(strict ? KEY_STRICT : KEY_GENTLE, "[]");
+        try {
+            JSONArray arr = new JSONArray(json);
+            String[] out = new String[arr.length()];
+            for (int i = 0; i < arr.length(); i++) out[i] = arr.optString(i, "").trim();
+            return out;
+        } catch (Exception e) { return new String[0]; }
+    }
+
+    /** 取一句话术：整句语气区分，不连续重复。 */
+    private static String pickPhrase(Context ctx, boolean strict) {
+        String[] pool = phrasePool(ctx, strict);
+        if (pool.length == 0) return "";
+        if (pool.length == 1) return pool[0];
+        int idx = (int) (Math.random() * pool.length);
+        return pool[idx];
     }
 
     /** 当前训诫配置快照（供状态层 / MCP 读取）。 */
@@ -33,14 +72,14 @@ public final class DisciplineController {
             o.put("enabled", PolicyStore.disciplineEnabled(ctx));
             o.put("level", PolicyStore.disciplineLevel(ctx));
             o.put("mode", mode);
-            // Bug#1：text 不再直接吐空串。未配置自定义文案时，按 mode 返回可渲染的兜底文案，
-            // 前端共同拿到 text + tone_badge，就能把「严厉 / 温柔」渲染成两种明显不同的弹窗。
-            String custom = PolicyStore.disciplineText(ctx);
-            o.put("custom_text", custom == null ? "" : custom);
+            // [DISC-PHRASE-POOL] 文案来自动态话术池，无自定义文案字段。
+            boolean useStrict = "strict".equals(mode) || PolicyStore.disciplineLevel(ctx) >= 4;
             o.put("text", resolveDisciplineText(ctx, null));
             o.put("tone_badge", toneBadge(ctx));
-            o.put("tone_label", "strict".equals(mode) ? "严厉管束" : "温柔提醒");
-            o.put("text_is_fallback", custom == null || custom.trim().isEmpty());
+            o.put("tone_label", useStrict ? "严厉管束" : "温柔提醒");
+            o.put("text_is_fallback", phrasePool(ctx, useStrict).length == 0);
+            o.put("phrase_count_gentle", phrasePool(ctx, false).length);
+            o.put("phrase_count_strict", phrasePool(ctx, true).length);
             o.put("force_strong", PolicyStore.disciplineForceStrong(ctx));
             o.put("user_only", PolicyStore.disciplineUserOnly(ctx));
             o.put("badge", PolicyStore.disciplineBadge(ctx));
@@ -49,31 +88,28 @@ public final class DisciplineController {
     }
 
     /**
-     * Bug#1：统一文案解析（对应需求里的 resolveDisciplineText）。
-     *  - 陪伴对象配置过自定义文案 → 用它，有 reason 时附加一行说明；
-     *  - 未配置 → 按 mode 兜底：strict 用强硬话术，gentle 用温柔话术；
-     *  - customReason 非空时以「【原因】」开头，保证弹窗永远有内容、且力度可感知。
+     * [DISC-PHRASE-POOL] 统一文案解析：从动态话术池按当前模式取整句。
+     *  - 档位>=4 强制用严厉池（最高档=最严厉，解决"选最高档仍最温柔"）；
+     *  - 其余按 mode 选温柔池/严厉池；整句话语气区分，不加固定后缀；
+     *  - 池为空时用极简中性兜底（不硬编码任何温柔/严厉话术库），提示通过 MCP 写入话术；
+     *  - customReason 非空时以「【原因】」开头。
      */
     public static String resolveDisciplineText(Context ctx, String customReason) {
-        String configured = PolicyStore.disciplineText(ctx);
         String reason = customReason == null ? "" : customReason.trim();
-        if (configured != null && !configured.trim().isEmpty()) {
-            // [FIX] 自定义文案也必须带语气标签，否则 gentle/strict 用同一句自定义话术时完全看不出区别。
-            String body = reason.isEmpty() ? configured : configured + "\n（" + reason + "）";
-            return toneBadge(ctx) + " " + body;
-        }
         String reasonText = reason.isEmpty() ? "" : "【" + reason + "】\n";
-        String name = AppPrefs.userName(ctx);
-        if (name == null || name.trim().isEmpty()) name = "顾钰";
-        if ("strict".equals(PolicyStore.disciplineMode(ctx))) {
-            return reasonText + name + "，立刻把手机放下。不是在跟你商量，现在回我身边来。";
+        boolean useStrict = "strict".equals(PolicyStore.disciplineMode(ctx)) || PolicyStore.disciplineLevel(ctx) >= 4;
+        String phrase = pickPhrase(ctx, useStrict);
+        if (phrase.isEmpty()) {
+            // 中性兜底：不写死温柔/严厉话术；提示通过 MCP 的话术池工具写入。
+            return reasonText + "掌心窗提醒你回到身边（尚未配置管束话术，可让陪伴对象用 add_discipline_phrase 写入温柔/严厉话术）。";
         }
-        return reasonText + "宝宝乖，先不看了好不好？眼睛该酸了，过来抱一下。";
+        return reasonText + phrase;
     }
 
-    /** Bug#1：语气标签，前端把它拼进弹窗标题，令「严厉 / 温柔」一眼可辨。 */
+    /** 语气标签：按实际取用的池给出（档位>=4 或 strict 模式=严厉）。 */
     public static String toneBadge(Context ctx) {
-        return "strict".equals(PolicyStore.disciplineMode(ctx)) ? "【严厉管束】" : "【温柔提醒】";
+        boolean useStrict = "strict".equals(PolicyStore.disciplineMode(ctx)) || PolicyStore.disciplineLevel(ctx) >= 4;
+        return useStrict ? "【严厉管束】" : "【温柔提醒】";
     }
 
     /**
@@ -135,24 +171,25 @@ public final class DisciplineController {
             if ("set_discipline_mode".equals(action)) {
                 JSONObject p = cmd.optJSONObject("payload");
                 if (p == null) p = cmd;
-                // BE-14：payload 没带 text 时再退回顶层（命令可能被平铺），并兼容同义字段名。
                 int level = clamp(p.optInt("level", PolicyStore.disciplineLevel(ctx)), 0, 4);
                 String mode = normalizedMode(p.optString("mode", PolicyStore.disciplineMode(ctx)));
-                String text = null;
-                boolean textProvided = false;
-                for (String key : new String[]{"text", "custom_text", "discipline_text"}) {
-                    if (p.has(key)) { textProvided = true; text = p.optString(key, ""); break; }
-                    if (cmd.has(key)) { textProvided = true; text = cmd.optString(key, ""); break; }
-                }
                 if (p.has("enabled")) PolicyStore.setDisciplineEnabled(ctx, p.optBoolean("enabled", true));
                 PolicyStore.setDisciplineLevel(ctx, level);
                 PolicyStore.setDisciplineMode(ctx, mode);
-                // BE-14：传了 text（含空串）就一定写 custom_text；空串表示清空回退兜底，
-                // 旧逻辑把空串当 null 跳过，导致「清除自定义文案」失效、text_is_fallback 恒 true。
-                if (textProvided) PolicyStore.setDisciplineText(ctx, text == null ? "" : text.trim());
-                DebugState.append(ctx, "训诫模式由 MCP 设置：level=" + level + " mode=" + mode
-                        + (textProvided ? " custom_text=" + (text == null ? "" : text.trim()) : ""));
+                // [DISC-PHRASE-POOL] 自定义文案已移除；话术统一由动态话术池提供。
+                DebugState.append(ctx, "训诫模式由 MCP 设置：level=" + level + " mode=" + mode);
                 return config(ctx).put("ok", true).put("result", "discipline_saved");
+            }
+            if ("sync_discipline_phrases".equals(action)) {
+                // [DISC-PHRASE-POOL] 服务端下发权威话术池（温柔/严厉两池）到手机端镜像。
+                JSONObject p = cmd.optJSONObject("payload");
+                if (p == null) p = cmd;
+                JSONArray gentle = p.optJSONArray("gentle");
+                JSONArray strict = p.optJSONArray("strict");
+                syncPhrases(ctx, gentle, strict);
+                return out.put("ok", true).put("result", "phrases_synced")
+                        .put("gentle", gentle == null ? 0 : gentle.length())
+                        .put("strict", strict == null ? 0 : strict.length());
             }
             if ("trigger_discipline".equals(action)) {
                 return trigger(ctx, cmd.optString("reason", ""));

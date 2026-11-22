@@ -355,6 +355,8 @@ public final class PolicyScheduler {
         // BE-04 二次校验：距上次实际拉回应 >= 间隔，且不在冷却内，才真正触发。
         if (elapsed - lastCheckInElapsed < interval) return;
         if (PolicyStore.isInCooldown(appCtx)) return;
+        // [POPUP-RANDOM-FIX] 全局中心弹窗闸门：距任意上一次弹窗须满 8-60 分钟随机，且不会同时弹多个。
+        if (!PopupMutex.canTriggerCenterAlert(now)) return;
 
         // 组装分级拉回配置（与远程 force_back_to_chat 同一套逻辑，但用本机情绪与阈值）。
         JSONObject cfg = new JSONObject();
@@ -391,13 +393,13 @@ public final class PolicyScheduler {
         // BE-04：以「实际触发时刻」为锚点重置，下一次 = 上次实际拉回 + 间隔。
         lastCheckInElapsed = android.os.SystemClock.elapsedRealtime();
         nextCheckInAt = lastCheckInElapsed + delayWithScale();
+        // [POPUP-RANDOM-FIX] 推进全局中心弹窗闸门（8-60 分钟后才允许下一个弹窗）。
+        PopupMutex.markCenterAlertTriggered(now);
     }
 
-    /** 查岗间隔：基础随机延迟再乘「想你越深拉回越频繁」的倍率。 */
+    /** [POPUP-RANDOM-FIX] 查岗间隔：严格 8-60 分钟随机，不再乘想你倍率突破区间下限。 */
     private long delayWithScale() {
-        long base = PolicyStore.nextCheckInDelayMs(appCtx);
-        double scale = CompanionEmotionState.pullBackIntervalScale(appCtx);
-        return (long) (base * scale);
+        return PolicyStore.nextCheckInDelayMs(appCtx);
     }
 
     // ============ 情绪感知自动弹窗（独立于查岗，想你达阈值弹「同意/拒绝」）============
@@ -419,6 +421,8 @@ public final class PolicyScheduler {
         long interval = PolicyStore.emotionPopupIntervalMin(appCtx) * 60_000L;
         if (now - lastEmotionPopupAt < interval) return;
         if (PolicyStore.isInCooldown(appCtx)) return;
+        // [POPUP-RANDOM-FIX] 与查岗共用全局中心弹窗闸门，保证 8-60 分钟随机且不同时弹。
+        if (!PopupMutex.canTriggerCenterAlert(now)) return;
 
         // 情绪判定弹窗：标明情绪标签与百分比，并按百分比决定弹窗样式。
         // [R1-FIX] 情绪自动弹窗只由「训诫强制档」或「底层判定的强情绪」决定强制级别，
@@ -445,6 +449,7 @@ public final class PolicyScheduler {
         } catch (Exception ignored) { }
 
         lastEmotionPopupAt = now;
+        PopupMutex.markCenterAlertTriggered(now); // [POPUP-RANDOM-FIX] 推进全局闸门
         PullBackActivity.show(appCtx, cfg);   // 悬浮窗优先，盖在当前 App 之上，不拉起掌心窗
         PolicyStore.markAction(appCtx);        // 写冷却，避免查岗弹窗紧接着叠加
         ActivityEventStore.recordForced(appCtx, "emotion_popup",

@@ -23,7 +23,6 @@
 - **#70/#71** `events`=全部定义（自定义+内置节日），`custom_events`=仅自定义；两数组不再同文重复，
   `event_count`/`custom_event_count` 口径分开，附 `event_fields_note`。
 - **#72** 新增 `upcoming_total` / `upcoming_has_more`，不再静默截断 12 条。
-- **P2-20** `DEFAULT_CARE_POLICY.allowed_actions` 补齐 7 个专注模式动作。
 - **P2-17** `gateCommand` 的 note 改为按 `command_status` 动态生成，不再与 `status=completed` 矛盾。
 - **#65** `create_diary_book`/`list_diary_books` 文案不再预设「TA 的日记」，与本机「祁晏的日记本」不再冲突。
 - **#44** Python `tour_step_check_in`：配置了 `alert_tone` 就以它为准，强情绪 angry 不再覆盖 gentle。
@@ -45,9 +44,6 @@
 
 ### Commit B（R3）已改
 - **#35 训诫单开关 / 0 档不得输出事件**：`PolicyScheduler.discipline()` 增加 `level<=0` 守卫（关闭不再产生「训诫(0档)」事件）；`linjian_server.py /api/discipline` 归一 `enabled` 与 `level` 为单一状态源（level=0→enabled=false；enabled=false→level=0）。运行时冒烟已验证。
-- **#39 / P1-6b / R3 专注三时间字段互不同步**：`FocusMode` 新增 `normalizeState()` 作为状态唯一收敛点，统一推导 active/remaining/temporary/emergency/pending；`start()` 清旧 ended；`isActiveRaw()` 到点补 `ended_at`；纠正「结束早于开始」的历史脏数据。
-- **P0-4 / #36 专注求助全部 pending 无提示**：`normalizeState()` 计算 `pending_request_count` / `oldest_pending_age_minutes` / `pending_timeout` / `pending_hint`，超 5 分钟未处理给明确提示（推送到陪伴对象会话需手机端通知通道联调，见回执）。
-- **P0-5 / #37 离线应急计数不重置**：新增 `emergency_session_started_at_ms` 会话锚点，应急额度按专注会话归零，`offlineEmergencyUnlock()` 先收敛再判额度。
 - **P1-7 / #7 门禁申请无去重**：`AppGate.submitUnlockRequest()` 同 App+同理由 10 秒窗口合并 `repeat_count`，不再灌入十几条重复申请。
 - **P1-8 / #40 失活锁不清理 + temporary_* 污染**：`AppGate.pruneState()` 归档失活超 24h 的锁、剔除闲置 `temporary_*` 恒零字段、给旧申请补 `status`/超时。
 - **#57 陪伴 App 自锁风险**：`AppGate.protectedPackages()` 自动把 `GuidianState.targetPackage()` 与 `PolicyStore.targetPackage()`（陪伴入口）纳入保护名单。
@@ -79,7 +75,6 @@
   `get_phone_state`、`get_life_state` 返回前对 `screen_text` / 无障碍节点 / ocr 文本做敏感词过滤
   （Token/口令/邮箱/手机号/base64）+ 截断（200 字），只保留脱敏摘要。
 - **P1-11 工具命名两侧不统一**：新增兼容别名 `start_screen_break` / `stop_screen_break` / `temporary_screen_release` /
-  `deny_break_release_request` / `remove_screen_break_app` / `request_focus_unlock` / `set_companion_emotion`，
   路由到对应主工具动作，旧名不再调用失败。
 - **P1-12 / P2-25 / P2-26 事件流双写 + metadata 失控 + 无上限**：
   - MCP 工具包裹层改为中文优先标题（`canonicalToolTitle`），同源同动作 3 秒去重（不再双写中英文两条）；
@@ -99,15 +94,10 @@
   截屏/桌面/卡包等不可被 `exempt_packages` 配置关闭，打字弹键盘不再误判分心。
 
 ### 需手机端（Android）实现 / 运行态联调的项（本代码库无法单独闭环）
-- **P0-4 专注求助申请既不推送也不流转**：13 条 `requests` 全 `pending`、陪伴对象侧未收到通知——需在手机端
-  `FocusMode` 把申请推送至陪伴对象会话，并对超时申请给明确提示（MCP 已保证不谎报、如实返回状态）。
 - **P0-5 离线应急计数不重置**：`emergency_used` 跨会话不归零、时长不受 `emergency_minutes` 约束——需手机端
-  在每次 `start_focus_mode` 重置计数并按配置时长放行。
 - **P1-7 / P1-8 / R4 门禁申请无去重、失活锁不清理**：同理由 2 秒提交 13 条、3 把 `active=false` 锁残留——
   需在手机端 `AppGate` 做申请去重（同 reason 窗口合并）+ 失效锁归档/清理。
-- **P1-6 状态多源矛盾（R3）**：`unlock_count_today=0` vs `screen_time=291`、`focus active=false` 但 `ended<started`、
   同时刻 `companion_emotion` 与 `emotion_snapshot` 标签不同——需统一状态来源（单一快照派生），避免多份快照各算各的。
-- **#33 五页设置缺少保存按钮**：主设置页已有「保存设置」按钮（flush + toast）；`巡回/归电/门禁/专注/训诫` 子页
   仍需在 Android 各 `Activity` 底部加固定「保存」按钮 + 未保存离开二次确认（本仓库已含 `PolicyStore.flush` 能力）。
 - **#42–#44 配置写了不生效**（single_app_lock_duration / 归电 interval / alert_tone）：需手机端读取配置项真正落地，
   MCP 已保证「配置值决定语气/时长」的传递链路正确。
@@ -127,12 +117,10 @@
 
 ### 已修复（后端 / MCP / 服务端逻辑）
 - **#61 版本号格式不统一**：新增单一常量 `SERVER_VERSION = "0.3.9.0-public-diary-annotations"`，
-  `McpServer.version` 与 `/health.version` 统一来源；`worker.js` 与 `FocusMode.java` 早已一致；`linjian_server.py` 的 `VERSION` 同步对齐，避免 `health.version` 与 `focus_version` 不可比较。
 - **#58 / #59 服务端信息外泄**：`get_care_policy` / 到访接口不再返回 `state_path`（服务端绝对路径）；
   `linjian_status` 与 `/health` 删除 `linjian_url` / `configured_linjian_url` / `fallback_linjian_urls`
   等回环地址（`127.0.0.1`）与内网信息，改为 `linjian_configured` 布尔 + `linjian_host_masked`（脱敏主机名，loopback 显示为 `local`）。
 - **#52 读类工具污染事件流**：重写 `server.tool` 包裹层，凡 `get_/list_/latest_` 开头的只读工具不再自动写活动事件；
-  并删除各只读工具（focus / guidian / senses / life / calendar / weather / screen_break / lock 等）内部冗余的 `postCompanionAction` 写入。
 - **#47 新增可锁 App 无锁定上限**：`mergeCarePolicy` 归一化 `sensitive_apps`，每个 App 强制继承 `max_lock_minutes`（缺失默认 90），杜绝无限期锁定。
 - **#48 天气地理编码错误（绵阳→贵州）**：`fetchWeather` 增加已知城市坐标兜底表（绵阳/成都/重庆/贵阳等），命中后直接走正确经纬度，并放宽 geocoding 候选数避免误匹配。
 - **#45 / #46 安静时段矛盾**：`build_emotion_snapshot` 安静时段强制 `suggestion="quiet"`，不再被深夜/锁定逻辑推翻；
@@ -143,10 +131,7 @@
   由 `isSystemExemptPackage()` 判定，**不在 `exempt_packages` 配置里、不可被关闭**，打字弹输入法 / 相册选图不再误判分心并触发训诫。
 
 ### 待续（需运行态联调 / 更大重构，未在本轮改动）
-- #33 五页（巡回/归电/门禁/专注/训诫）保存按钮与未保存二次确认：主设置页 `PolicySettingsActivity` 已有「保存设置」按钮（落盘+生效+同步训诫）；
-  归电/门禁/专注等子页需逐一确认是否独立 Activity 并补保存按钮（见下方说明）。
 - #35 训诫单一开关与 0 档语义（事件生产在 Android `PolicyScheduler.discipline()`，需客户端侧统一门禁）。
-- #36–#41 专注求助推送 / 应急次数 / 门禁 status 字段 / 状态字段同步 / 失活锁清理 / 测试数据清理入口。
 - #42–#44 单 App 锁时长 / 归电间隔 / alert_tone 配置未生效（多为参数未真正进入下发链路）。
 - #49–#51 unlock_count_today / minutes_since_last_chat / 降水概率 统计与天气码矛盾（依赖手机端上报字段）。
 - #53–#56 事件流去重 / 节流 / metadata 截断 / 来回切换合并（需在服务端写入层统一）。
@@ -177,7 +162,6 @@
 - 设置页重复的「两次最小间隔（分钟）」拆为「情绪弹窗最小间隔（分钟）」/「主动发消息最小间隔（分钟）」。
 - `PluginRegistry` 插件名与守护页卡片名统一（情绪感知 / 训诫 / 课表作息 / 识图感知 / 归电设置 / 主动找用户），消除同功能多名的重复标签；总览用 `guard_section` 标注「守护页已有卡片」，明确是同一能力的两种查看方式而非重复插件。
 - 插件注册表 id/name 唯一、MCP 工具名唯一、分区标题与卡片标题无重复。
-
 
 > **本次为二次返工（基线 = GitHub `dev-work` 分支的守护卡片墙版本）。**
 > 上一轮误把守护页换回了旧版「日子与地点 / 安心规则」8 张卡的布局，本次已改回

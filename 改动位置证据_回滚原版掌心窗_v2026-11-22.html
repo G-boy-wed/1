@@ -53,7 +53,6 @@
 <div class="wrap">
   <header>
     <h1>改动位置证据 · 回滚原版掌心窗</h1>
-    <div class="sub">v2026-11-22 · 删除小手机角标 UI，恢复原版 MainActivity，保留视频互动「一起看」</div>
     <div class="badge">✓ 编译通过 · v1/v2/v3 验签 · 零残留</div>
   </header>
 
@@ -61,7 +60,6 @@
     <h2>三项需求边界（已逐项确认）</h2>
     <div class="vrow"><div class="vkey">原版基准</div><div class="vval">恢复小手机 UI 出现之前的掌心窗：<b>MainActivity 启动</b>，含陪伴 / 守护 / 生活 / 设置 / 日记本完整功能（v0.3.9.0 修改版形态）。</div></div>
     <div class="vrow"><div class="vkey">MCP 删除范围</div><div class="vval">删除所有和<b>桌面角标相关</b>的 MCP；保留掌心窗核心 MCP 接入与视频互动相关工具。</div></div>
-    <div class="vrow"><div class="vkey">一起看入口</div><div class="vval">放进原版掌心窗（陪伴页），不保留独立桌面角标。</div></div>
   </div>
 
   <h2 class="sec">一、Android 端改动位置</h2>
@@ -83,16 +81,8 @@
 
   <div class="card">
     <div class="path">MainActivity.java <span class="tag add">加入口</span> <span class="tag del">删桌面直达</span></div>
-    <div class="desc">在陪伴页「更多陪伴」区新增「一起看」入口（风格与其余入口统一）；移除桌面第四页角标专用的 onNewIntent()/applyLaunchIntent() 直达逻辑。天气定位等后续 bug 修复全部保留。</div>
-    <div class="lbl">新增：陪伴页一起看入口 + openWatchParty()</div>
-    <div class="code">root.addView(actionSettingBlock(<span class="hi">"一起看"</span>,
     <span class="hi">"和你爱的人同步看电影、短视频，实时吐槽"</span>,
-    R.drawable.ic_heart_wave, <span class="hi">this::openWatchParty</span>), marginBottom(10));
 
-<span class="cm">/** 打开「一起看」：共享本机正在播放的影视/短视频，双方可看进度、发弹幕与表情。 */</span>
-private void openWatchParty() {
-    try { startActivity(new Intent(this, WatchPartyActivity.class)); }
-    catch (Exception e) { Toast.makeText(this, "一起看打开失败：" + ..., Toast.LENGTH_SHORT).show(); }
 }</div>
     <div class="lbl">删除：桌面角标直达逻辑（0 命中 = 已彻底删除）</div>
     <div class="code"><span class="rm">@Override protected void onNewIntent(Intent intent) {...}</span>
@@ -101,16 +91,11 @@ private void openWatchParty() {
   </div>
 
   <div class="card">
-    <div class="path">CompanionService.java <span class="tag del">删 desk 命令</span> <span class="tag keep">保留 watchparty</span></div>
-    <div class="desc">删除 desk_ 命令分发分支、状态上报里的 desk_toggles / desk_badges 镜像；保留 watch_party_* 命令与房间状态镜像。</div>
     <div class="code"><span class="rm">// [DESK] if (action.startsWith("desk_")) { DeskCommand.handleCommand(...) }</span>
 <span class="rm">// [DESK-TOGGLE] state.put("desk_toggles", ...)</span>
 <span class="rm">// [DESK] state.put("desk_badges", ...)</span>
 
 <span class="cm">// 保留 ↓</span>
-if ("watch_party_start".equals(action) || "watch_party_sync".equals(action) || ...) {
-    JSONObject rr = <span class="hi">WatchPartyState.handleCommand(ctx, cmd)</span>; ... }
-state.put(<span class="hi">"watch_party"</span>, WatchPartyState.snapshot(ctx));</div>
   </div>
 
   <div class="card">
@@ -140,21 +125,16 @@ state.put(<span class="hi">"watch_party"</span>, WatchPartyState.snapshot(ctx));
 <span class="rm">get_desk_state</span>   <span class="rm">reset_desk</span>
 
 <span class="cm">// 保留的 6 个视频互动工具：</span>
-watch_party_start / get_watch_party / watch_party_sync
-watch_party_danmaku / watch_party_reaction / watch_party_end</div>
   </div>
 
   <div class="card">
     <div class="path">server/mcp_engine.py <span class="tag del">删映射+函数</span></div>
-    <div class="desc">删除工具映射 4 项 + 四个处理函数；watchparty 工具链完整保留。</div>
     <div class="code"><span class="rm">"set_desk_badge": "_t_set_desk_badge",</span>
 <span class="rm">"set_desk_toggle": "_t_set_desk_toggle",</span>
 <span class="rm">"get_desk_state": "_t_get_desk_state",</span>
 <span class="rm">"reset_desk": "_t_reset_desk",</span>
 <span class="rm">def _t_set_desk_badge / _t_set_desk_toggle / _t_get_desk_state / _t_reset_desk: ...</span>
 
-<span class="cm"># 改动后：watch_party_end 之后直接是 run_preset（desk 项已消失）</span>
-"watch_party_end": "_t_watch_party_end",
 <span class="hi">"run_preset": "_t_run_preset",</span></div>
   </div>
 
@@ -180,7 +160,6 @@ def guidian_state(self, ...): return ...
       <tr><td>classes.dex 中 PalmDeskActivity</td><td class="ok">0 命中（已移除）</td></tr>
       <tr><td>Android java/manifest desk_/PalmDesk 残留</td><td class="ok">0 命中</td></tr>
       <tr><td>Server desk 相关残留</td><td class="ok">0 命中</td></tr>
-      <tr><td>MCP 工具数</td><td class="ok">129（desk 0，watchparty 6 全保留）</td></tr>
       <tr><td>MCP schema 校验</td><td class="ok">0 问题</td></tr>
       <tr><td>py_compile</td><td class="ok">mcp_engine.py / linjian_server.py 通过</td></tr>
     </table>

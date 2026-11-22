@@ -272,101 +272,53 @@ class LocalState:
         self.lock = Lock()
         self.care_path = self.dir / "care_state.json"
         self.visit_path = self.dir / "visit_state.json"
-        self.watchparty_path = self.dir / "watchparty_state.json"
         self.care = self._load(self.care_path, {"policy": dict(DEFAULT_CARE_POLICY), "history": []})
         self.visit = self._load(self.visit_path, {"policy": dict(DEFAULT_VISIT_POLICY), "visits": []})
-        # [WATCH-PARTY] 双人共同观看/吐槽房间状态（单一事实来源，MCP 与手机端共享）
-        self.watchparty = self._load(self.watchparty_path, self._default_watchparty())
+        # [DISC-PHRASE-POOL] 训诫动态话术池：温柔池/严厉池分开，整句话语气区分，提示词不写死在代码里。
+        self.phrases_path = self.dir / "discipline_phrases.json"
+        self.phrases = self._load(self.phrases_path, {"gentle": [], "strict": []})
 
+    # ---- [DISC-PHRASE-POOL] 动态训诫话术池（服务端权威） ----
     @staticmethod
-    def _default_watchparty() -> dict:
-        return {"active": False, "media": {}, "progress_ms": 0, "duration_ms": 0,
-                "playing": False, "member": {}, "partner": {}, "danmaku": [], "reactions": [],
-                "updated_at_ms": 0, "round": 0}
+    def _default_phrases() -> dict:
+        return {"gentle": [], "strict": []}
 
-    # ---- watch party ----
-    def watchparty_state(self) -> dict:
+    def phrases_state(self) -> dict:
         with self.lock:
-            return dict(self.watchparty)
+            return {"gentle": list(self.phrases.get("gentle") or []),
+                    "strict": list(self.phrases.get("strict") or [])}
 
-    @staticmethod
-    def _merge_events(old, incoming, key_fields=("at_ms", "text", "emoji")):
-        """合并弹幕/表情：按内容指纹去重、按时间排序，永不因一方上报空数组而吞掉另一方的互动。"""
-        items = []
-        seen = set()
-        for src in (old, incoming):
-            for e in (src or []):
-                if not isinstance(e, dict):
-                    continue
-                fp = tuple(str(e.get(k, "")) for k in key_fields) + (str(e.get("author", "")),)
-                if fp in seen:
-                    continue
-                seen.add(fp)
-                items.append(dict(e))
-        items.sort(key=lambda x: float(x.get("at_ms", 0) or 0))
-        return items[-200:]
-
-    def watchparty_update(self, patch: dict) -> dict:
+    def phrase_add(self, tone: str, text: str) -> dict:
+        tone = "strict" if str(tone).strip().lower() in ("strict", "严厉", "严厉管束") else "gentle"
+        text = str(text or "").strip()[:240]
+        if not text:
+            return {"ok": False, "error": "empty_text"}
         with self.lock:
-            wp = dict(self.watchparty)
-            patch = dict(patch or {})
-            for k in ("device_id", "action", "wait_seconds"):
-                patch.pop(k, None)
-            # 双方互动：合并而非覆盖。手机端每 1.5s 上报的 snapshot 常不含机端刚发的弹幕，
-            # 若整体覆盖会导致「发了弹幕/表情对方看不到、状态一直不更新」。
-            if "danmaku" in patch:
-                wp["danmaku"] = self._merge_events(wp.get("danmaku"), patch.pop("danmaku"))
-            if "reactions" in patch:
-                wp["reactions"] = self._merge_events(wp.get("reactions"), patch.pop("reactions"))
-            # member/partner：逐字段合并，空串不覆盖已有值（避免位置/头像被清空）。
-            for who in ("member", "partner"):
-                if who in patch and isinstance(patch[who], dict):
-                    merged = dict(wp.get(who) or {})
-                    for k, v in patch[who].items():
-                        if v not in (None, ""):
-                            merged[k] = v
-                    wp[who] = merged
-                    patch.pop(who)
-            for k, v in patch.items():
-                wp[k] = v
-            wp["round"] = int(wp.get("round", 0) or 0) + 1
-            wp["updated_at_ms"] = int(time.time() * 1000)
-            self.watchparty = wp
-            self._save(self.watchparty_path, wp)
-            return dict(wp)
+            pool = self.phrases.setdefault(tone, [])
+            if text not in pool:
+                pool.append(text)
+            self.phrases[tone] = pool[-200:]
+            self._save(self.phrases_path, self.phrases)
+            return {"ok": True, "tone": tone, "text": text, "count": len(self.phrases[tone])}
 
-    def watchparty_add_danmaku(self, entry: dict) -> dict:
+    def phrase_remove(self, tone: str, text: str) -> dict:
+        tone = "strict" if str(tone).strip().lower() in ("strict", "严厉", "严厉管束") else "gentle"
         with self.lock:
-            wp = dict(self.watchparty)
-            items = list(wp.get("danmaku") or [])
-            e = dict(entry or {})
-            e.setdefault("at_ms", int(time.time() * 1000))
-            e.setdefault("author", "我")
-            items.append(e)
-            if len(items) > 200:
-                items = items[-200:]
-            wp["danmaku"] = items
-            wp["round"] = int(wp.get("round", 0) or 0) + 1
-            wp["updated_at_ms"] = int(time.time() * 1000)
-            self.watchparty = wp
-            self._save(self.watchparty_path, wp)
-            return dict(wp)
+            pool = [x for x in (self.phrases.get(tone) or []) if x != text]
+            self.phrases[tone] = pool
+            self._save(self.phrases_path, self.phrases)
+            return {"ok": True, "tone": tone, "removed": text, "count": len(pool)}
 
-    def watchparty_add_reaction(self, entry: dict) -> dict:
+    def phrases_clear(self, tone: str = "") -> dict:
         with self.lock:
-            wp = dict(self.watchparty)
-            items = list(wp.get("reactions") or [])
-            e = dict(entry or {})
-            e.setdefault("at_ms", int(time.time() * 1000))
-            items.append(e)
-            if len(items) > 200:
-                items = items[-200:]
-            wp["reactions"] = items
-            wp["round"] = int(wp.get("round", 0) or 0) + 1
-            wp["updated_at_ms"] = int(time.time() * 1000)
-            self.watchparty = wp
-            self._save(self.watchparty_path, wp)
-            return dict(wp)
+            if tone and str(tone).strip().lower() in ("strict", "严厉"):
+                self.phrases["strict"] = []
+            elif tone and str(tone).strip().lower() in ("gentle", "温柔"):
+                self.phrases["gentle"] = []
+            else:
+                self.phrases = {"gentle": [], "strict": []}
+            self._save(self.phrases_path, self.phrases)
+            return {"ok": True, "cleared": tone or "all"}
 
     @staticmethod
     def _load(path: Path, default: dict) -> dict:
@@ -964,16 +916,14 @@ class McpEngine:
         "analyze_image": "_t_analyze_image",
         "set_tour_schedule": "_t_tour_schedule",
         "set_discipline_mode": "_t_discipline_mode",
+        # [DISC-PHRASE-POOL] 动态训诫话术池（温柔/严厉两池，提示词不写死在底代码）
+        "add_discipline_phrase": "_t_phrase_add",
+        "remove_discipline_phrase": "_t_phrase_remove",
+        "list_discipline_phrases": "_t_phrase_list",
+        "clear_discipline_phrases": "_t_phrase_clear",
         "write_emotion_tag": "_t_emotion_tag",
         "write_companion_emotion": "_t_companion_emotion_write",
         "companion_media_interact": "_t_media_interact",
-        # [WATCH-PARTY] 双人共同观看/吐槽
-        "watch_party_start": "_t_watch_party_start",
-        "get_watch_party": "_t_watch_party_get",
-        "watch_party_sync": "_t_watch_party_sync",
-        "watch_party_danmaku": "_t_watch_party_danmaku",
-        "watch_party_reaction": "_t_watch_party_reaction",
-        "watch_party_end": "_t_watch_party_end",
         "run_preset": "_t_run_preset",
         "get_screen_break_state": "_t_generic_gate_read",
         "get_lock_state": "_t_generic_gate_read",
@@ -1353,6 +1303,47 @@ class McpEngine:
             pass
         return _text({"ok": True, "discipline": disc, "device_command_queued": True})
 
+    # ---- [DISC-PHRASE-POOL] 动态训诫话术池 handler ----
+    def _push_phrases_to_phone(self, args: dict) -> bool:
+        """把服务端权威话术池下发到手机端镜像，保证弹窗离线也能取到最新话术。"""
+        try:
+            pool = self.local.phrases_state()
+            self.ctx.enqueue({"action": "sync_discipline_phrases", "device_id": self._device(args),
+                              "payload": {"gentle": pool["gentle"], "strict": pool["strict"]}})
+            return True
+        except Exception:
+            return False
+
+    def _t_phrase_add(self, args: dict) -> dict:
+        tone = str(args.get("tone") or args.get("style") or "gentle")
+        text = str(args.get("text") or args.get("phrase") or "")
+        res = self.local.phrase_add(tone, text)
+        if not res.get("ok"):
+            return _error(res)
+        queued = self._push_phrases_to_phone(args)
+        return _text({"ok": True, "phrase": res, "device_command_queued": queued,
+                      "readable": "已加入%s话术池：%s（当前该池 %d 条）" % (res["tone"], res["text"], res["count"])})
+
+    def _t_phrase_remove(self, args: dict) -> dict:
+        tone = str(args.get("tone") or "gentle")
+        text = str(args.get("text") or args.get("phrase") or "")
+        res = self.local.phrase_remove(tone, text)
+        queued = self._push_phrases_to_phone(args)
+        return _text({"ok": True, "removed": res, "device_command_queued": queued})
+
+    def _t_phrase_list(self, args: dict) -> dict:
+        pool = self.local.phrases_state()
+        readable = "温柔池(%d条)：%s\n严厉池(%d条)：%s" % (
+            len(pool["gentle"]), "；".join(pool["gentle"]) or "（空）",
+            len(pool["strict"]), "；".join(pool["strict"]) or "（空）")
+        return _text({"ok": True, "phrases": pool, "readable": readable})
+
+    def _t_phrase_clear(self, args: dict) -> dict:
+        tone = str(args.get("tone") or "")
+        res = self.local.phrases_clear(tone)
+        queued = self._push_phrases_to_phone(args)
+        return _text({"ok": True, "cleared": res, "device_command_queued": queued})
+
     def _t_emotion_tag(self, args: dict) -> dict:
         # [S3-FIX] write_emotion_tag 写的是「用户/来访者状态标签」（如 撒娇/低落/嘴硬），
         # 不是「陪伴对象情绪」。走服务端 record_emotion_tag 专用路径，绝不再下发
@@ -1378,195 +1369,6 @@ class McpEngine:
             return _error({"ok": False, "error": "companion_emotion_failed", "message": str(e)})
 
     # ---------------- [WATCH-PARTY] 双人共同观看/吐槽 ----------------
-    def _wp_local(self) -> "LocalState":
-        return self.local
-
-    def _t_watch_party_start(self, args: dict) -> dict:
-        device_id = self._device(args)
-        # 用户诉求：一起看 = 「我在手机端同意后，对方/机器端就能和我一起看我手机上正在看的抖音/电影」，
-        # 不是单独开播放器上传视频。因此默认从手机真实媒体会话(media_context)读取我正在看的内容。
-        live_ms = {}
-        live_available = False
-        try:
-            ctx_media = self.ctx.media_context(device_id) or {}
-            if ctx_media.get("available") or ctx_media.get("has_session"):
-                live_ms = ctx_media.get("media_state") or {}
-                live_available = bool(live_ms)
-        except Exception:
-            pass
-        title = str(args.get("media_title") or args.get("title") or "").strip()
-        author = str(args.get("media_author") or args.get("author") or "").strip()
-        cover = str(args.get("media_cover") or args.get("cover") or "").strip()
-        # 未显式给出媒体信息时，用真实媒体兜底（title→app/包名，author→artist/author/app）。
-        if live_available and not title:
-            title = str(live_ms.get("title") or live_ms.get("app") or "").strip()
-        if live_available and not author:
-            author = str(live_ms.get("author") or live_ms.get("artist") or live_ms.get("app") or "").strip()
-        if live_available and not cover:
-            cover = str(live_ms.get("app") or "").strip()
-        duration = int(args.get("duration_ms", 0) or 0)
-        progress = int(args.get("progress_ms", 0) or 0)
-        playing = bool(args.get("playing", True))
-        if live_available:
-            if duration <= 0:
-                duration = int(live_ms.get("duration_ms") or live_ms.get("total_duration") or 0 or 0)
-            if progress <= 0:
-                progress = int(live_ms.get("position_ms") or live_ms.get("current_position") or 0 or 0)
-            playing = bool(live_ms.get("is_playing", playing))
-        media = {
-            "title": title, "author": author, "cover": cover,
-            "app": str(live_ms.get("app") or "").strip(),
-            "package": str(live_ms.get("package") or "").strip(),
-            "content_type": str(live_ms.get("content_type") or "").strip(),
-            "duration_ms": duration,
-            "source": "live_media" if (live_available and not args.get("media_title")) else "declared",
-            "live_available": live_available,
-        }
-        member = {
-            "position": str(args.get("position") or "").strip(),
-            "avatar": str(args.get("avatar") or "").strip(),
-            "time": datetime.now(timezone(timedelta(hours=8))).strftime("%H:%M"),
-        }
-        partner = {
-            "position": str(args.get("partner_position") or "").strip(),
-            "avatar": str(args.get("partner_avatar") or "").strip(),
-        }
-        try:
-            wp = self._wp_local().watchparty_update({
-                "active": True, "media": media, "progress_ms": progress,
-                "duration_ms": duration, "playing": playing,
-                "member": member, "partner": partner, "danmaku": [], "reactions": [],
-            })
-        except Exception as e:
-            return _error({"ok": False, "error": "watch_party_start_failed", "message": str(e)})
-        try:
-            self.ctx.enqueue({"action": "watch_party_start", "device_id": device_id, "payload": dict(wp)})
-            queued = True
-        except Exception:
-            queued = False
-        if not title and not live_available:
-            readable = ("已开启一起看房间，但手机当前没有正在播放的抖音/电影。"
-                        "请在手机上打开视频并同意共享，或直接告诉我片名。")
-        else:
-            readable = "已开启一起看：正在共享你手机上的《%s》%s" % (
-                title or "本机内容", (" · " + author) if author else "")
-        return _text({"ok": True, "active": True, "media": media, "member": member, "partner": partner,
-                      "device_command_queued": queued, "live_media_used": live_available,
-                      "readable": readable})
-
-    def _t_watch_party_get(self, args: dict) -> dict:
-        try:
-            wp = self._wp_local().watchparty_state()
-        except Exception:
-            wp = {}
-        # 若房间来自「共享本机真实媒体」，实时再读一次手机媒体进度——对方看到的是我此刻真正的进度，
-        # 而不是发起瞬间的快照。这样才是「和我一起看」而非看一段录好的静止状态。
-        try:
-            media = dict(wp.get("media") or {})
-            if media.get("source") == "live_media" or wp.get("from_live"):
-                ctx_media = self.ctx.media_context(self._device(args)) or {}
-                if ctx_media.get("available") or ctx_media.get("has_session"):
-                    live_ms = ctx_media.get("media_state") or {}
-                    p = int(live_ms.get("position_ms") or live_ms.get("current_position") or 0 or 0)
-                    d = int(live_ms.get("duration_ms") or live_ms.get("total_duration") or 0 or 0)
-                    if p > 0: wp["progress_ms"] = p
-                    if d > 0: wp["duration_ms"] = d
-                    wp["playing"] = bool(live_ms.get("is_playing", wp.get("playing", False)))
-                    t = str(live_ms.get("title") or "").strip()
-                    if t: media["title"] = t
-                    a = str(live_ms.get("author") or live_ms.get("artist") or "").strip()
-                    if a: media["author"] = a
-                    media["live_available"] = True
-                    wp["media"] = media
-        except Exception:
-            pass
-        # 实时补齐我方时间
-        mem = dict(wp.get("member") or {})
-        mem["time"] = datetime.now(timezone(timedelta(hours=8))).strftime("%H:%M")
-        wp["member"] = mem
-        prog = int(wp.get("progress_ms", 0) or 0); dur = int(wp.get("duration_ms", 0) or 0)
-        pct = round(prog * 100.0 / dur, 1) if dur > 0 else 0
-        danmaku = list(wp.get("danmaku") or [])[-20:]
-        reactions = list(wp.get("reactions") or [])[-20:]
-        wp["progress_percent"] = pct
-        wp["danmaku"] = danmaku
-        wp["reactions"] = reactions
-        readable = ("未开启一起看。可先调用 watch_party_start。" if not wp.get("active") else
-                    "一起看《%s》进度 %s%%（%d/%d ms），弹幕 %d 条，表情 %d 个；我方 %s，对方 %s。" % (
-                        (wp.get("media") or {}).get("title", ""), pct, prog, dur,
-                        len(danmaku), len(reactions), mem.get("position") or "本机",
-                        (wp.get("partner") or {}).get("position") or "对方"))
-        return _text({"ok": True, "watch_party": wp, "readable": readable})
-
-    def _t_watch_party_sync(self, args: dict) -> dict:
-        device_id = self._device(args)
-        patch = {}
-        if "progress_ms" in args and args.get("progress_ms") is not None:
-            patch["progress_ms"] = int(args.get("progress_ms", 0) or 0)
-        if "playing" in args and args.get("playing") is not None:
-            patch["playing"] = bool(args.get("playing"))
-        try:
-            wp = self._wp_local().watchparty_update(patch)
-        except Exception as e:
-            return _error({"ok": False, "error": "watch_party_sync_failed", "message": str(e)})
-        try:
-            self.ctx.enqueue({"action": "watch_party_sync", "device_id": device_id,
-                              "payload": {"progress_ms": wp.get("progress_ms", 0), "playing": wp.get("playing", False)}})
-            queued = True
-        except Exception:
-            queued = False
-        return _text({"ok": True, "queued": queued, "progress_ms": wp.get("progress_ms", 0),
-                      "playing": wp.get("playing", False), "round": wp.get("round", 0)})
-
-    def _t_watch_party_danmaku(self, args: dict) -> dict:
-        device_id = self._device(args)
-        text = str(args.get("text") or args.get("message") or "").strip()
-        if not text:
-            return _error({"ok": False, "error": "empty_text"})
-        author = str(args.get("author") or "我").strip()
-        try:
-            wp = self._wp_local().watchparty_add_danmaku({"text": text[:240], "author": author})
-        except Exception as e:
-            return _error({"ok": False, "error": "danmaku_failed", "message": str(e)})
-        try:
-            self.ctx.enqueue({"action": "watch_party_danmaku", "device_id": device_id,
-                              "payload": {"text": text[:240], "author": author}})
-            queued = True
-        except Exception:
-            queued = False
-        return _text({"ok": True, "queued": queued, "text": text[:240], "author": author,
-                      "danmaku_count": len(wp.get("danmaku") or [])})
-
-    def _t_watch_party_reaction(self, args: dict) -> dict:
-        device_id = self._device(args)
-        emoji = str(args.get("emoji") or args.get("reaction") or "❤️").strip()
-        author = str(args.get("author") or "我").strip()
-        try:
-            wp = self._wp_local().watchparty_add_reaction({"emoji": emoji[:8], "author": author})
-        except Exception as e:
-            return _error({"ok": False, "error": "reaction_failed", "message": str(e)})
-        try:
-            self.ctx.enqueue({"action": "watch_party_reaction", "device_id": device_id,
-                              "payload": {"emoji": emoji[:8], "author": author}})
-            queued = True
-        except Exception:
-            queued = False
-        return _text({"ok": True, "queued": queued, "emoji": emoji[:8], "author": author,
-                      "reaction_count": len(wp.get("reactions") or [])})
-
-    def _t_watch_party_end(self, args: dict) -> dict:
-        device_id = self._device(args)
-        try:
-            wp = self._wp_local().watchparty_update({"active": False, "playing": False})
-        except Exception as e:
-            return _error({"ok": False, "error": "watch_party_end_failed", "message": str(e)})
-        try:
-            self.ctx.enqueue({"action": "watch_party_end", "device_id": device_id, "payload": {}})
-            queued = True
-        except Exception:
-            queued = False
-        return _text({"ok": True, "active": False, "device_command_queued": queued, "readable": "已结束一起看。"})
-
     def _t_media_interact(self, args: dict) -> dict:
         # 工具 schema 的必填参数是 interaction；同时兼容旧的 op / mode / action。
         op = str(args.get("interaction") or args.get("op") or args.get("mode") or args.get("action") or "whisper").strip().lower()

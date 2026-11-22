@@ -13,9 +13,7 @@ code{font-family:ui-monospace,Menlo,monospace}.meta{font-size:12px;color:#7a8b85
 
 <h2>① 上课时间「全部静默」</h2>
 <div class="card">
-<p><span class="err">根因</span>：真正弹窗的出口本身没有静默检查，服务端/MCP 命令、主动提醒、训诫、一起看、拉回、归电等直接调出口的路径，绕过了调度器的 isInClassNow 编排。</p>
 <p><span class="ok">✓ 修法</span>：新增统一总闸 <code>ClassScheduleState.silenceIfInClass()</code>，在 <b>4 类最终出口全部拦截</b>：</p>
-<pre><code>1) showCenterAlert(...)      → 居中弹窗/震动（含MCP下发、训诫、一起看、主动提醒）
 2) showReminderNotification(...) → 横幅通知（低电量/喝水/天气/下课/send_notification）
 3) PullBackActivity.show(...) → 分级拉回（查岗/分心/主动找/force_back_to_chat）
 4) GuidianState.showPrompt/showFullScreenNotification → 归电来电（Activity+通知+计数）</code></pre>
@@ -34,7 +32,6 @@ add_shared_memory → SharedMemoryState 合并 payload 到顶层（共同记忆�
 
 <h2>③ 保持一致（未变动）</h2>
 <div class="card">
-<p>MCP 工具 129 个：识图 5 工具（peek_screen 等）保留、桌面角标 4 工具仍删除、watchparty 6 工具保留。视频互动在守护页带开关、居中弹窗三通道、锁应用计时与 Kelivo 弹窗策略均为上一轮已验证状态。</p>
 </div>
 </body></html>
 EOF

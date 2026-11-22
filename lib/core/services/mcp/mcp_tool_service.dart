@@ -485,10 +485,8 @@ class McpPruningPolicy {
     'get_current_time', 'linjian_status', 'get_window_whisper',
     // —— 共同记忆 ——
     'write_shared_memory', 'search_shared_memory', 'list_shared_memory',
-    // —— 专注 / 门禁 / 锁 / 休息 ——
-    'get_focus_status', 'start_focus_mode', 'end_focus_mode', 'set_focus_plan',
-    'reply_focus_request', 'approve_focus_unlock', 'deny_focus_unlock',
-    'request_focus_unlock', 'get_screen_break_state', 'get_lock_state',
+    // —— 门禁 / 锁 / 休息 ——（专注模式已彻底剔除）
+    'get_screen_break_state', 'get_lock_state',
     'screen_break_app', 'end_screen_break', 'lock_app', 'unlock_app',
     'start_screen_break', 'stop_screen_break', 'extend_screen_break',
     'get_screen_break_release_requests',
@@ -568,7 +566,7 @@ class McpToolService {
     'run_sequence', 'run_preset', 'tap_text', 'input_text', 'get_screen_nodes',
     'import_timetable', 'draft_xhs_comment', 'xhs_comment',
     'send_visible_comment_after_confirmation', 'get_live_media_context',
-    'companion_media_interact', 'trigger_discipline', 'set_focus_plan',
+    'companion_media_interact', 'trigger_discipline',
     'add_guardian_calendar_event',
   };
 

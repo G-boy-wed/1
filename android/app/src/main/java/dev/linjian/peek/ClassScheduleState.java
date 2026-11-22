@@ -126,7 +126,7 @@ public final class ClassScheduleState {
     /**
      * 上课全局静默总闸：所有会打扰用户的最终出口（居中弹窗/横幅通知/分级拉回/归电来电）
      * 统一在弹出前调用。返回 true 表示当前处于上课、应静默丢弃这次打扰。
-     * 放在出口层而非调度器编排层，才能覆盖服务端/MCP 命令、主动提醒、训诫、一起看等
+     * 放在出口层而非调度器编排层，才能覆盖服务端/MCP 命令、主动提醒、训诫等
      * 绕过调度器的直接调用路径，真正做到「上课时间掌心窗任何东西都不触发」。
      */
     public static boolean silenceIfInClass(Context ctx, String what) {

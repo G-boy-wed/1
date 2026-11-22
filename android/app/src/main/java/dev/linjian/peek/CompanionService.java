@@ -300,8 +300,9 @@ public class CompanionService extends Service {
                 return;
             }
 
-            // —— 训诫管束模块（DisciplineController）：set/get/trigger ——
-            if ("set_discipline_mode".equals(action) || "get_discipline_state".equals(action) || "trigger_discipline".equals(action)) {
+            // —— 训诫管束模块（DisciplineController）：set/get/trigger/话术池同步 ——
+            if ("set_discipline_mode".equals(action) || "get_discipline_state".equals(action)
+                    || "trigger_discipline".equals(action) || "sync_discipline_phrases".equals(action)) {
                 JSONObject rr = DisciplineController.handleCommand(ctx, cmd);
                 boolean ok = rr.optBoolean("ok", false);
                 String result = rr.optString("result", rr.toString());
@@ -355,17 +356,6 @@ public class CompanionService extends Service {
                 return;
             }
 
-            // [WATCH-PARTY] 双人共同观看/吐槽：服务端 MCP 下发的房间/进度/弹幕/表情命令落地本地状态。
-            if ("watch_party_start".equals(action) || "watch_party_sync".equals(action)
-                    || "watch_party_danmaku".equals(action) || "watch_party_reaction".equals(action)
-                    || "watch_party_end".equals(action)) {
-                JSONObject rr = WatchPartyState.handleCommand(ctx, cmd);
-                boolean ok = rr != null && rr.optBoolean("ok", false);
-                String result = rr != null ? rr.toString() : "watch_party_unhandled";
-                DebugState.append(ctx, "执行一起看命令 " + action + "：" + (ok ? "成功" : result));
-                try { reportCommand(ctx, serverUrl, token, id, ok, result); uploadStateThrottled(serverUrl, token, ctx, true); } catch (Exception ignored) { }
-                return;
-            }
 
             if ("run_sequence".equals(action)) {
                 executeSequence(ctx, id, cmd, serverUrl, token);
@@ -632,7 +622,7 @@ public class CompanionService extends Service {
      */
     public static void showCenterAlert(Context ctx, String title, String message, String tone, String buttonText, String kindLabel, boolean vibrate) {
         try {
-            // 上课全局静默总闸：任何居中弹窗（含服务端/MCP下发、训诫、一起看、主动提醒等）上课一律不弹、不震。
+            // 上课全局静默总闸：任何居中弹窗（含服务端/MCP下发、训诫、主动提醒等）上课一律不弹、不震。
             if (ClassScheduleState.silenceIfInClass(ctx, "居中弹窗(" + kindLabel + ")")) return;
             if (vibrate) vibrate(ctx, "strict".equalsIgnoreCase(tone) || "angry".equalsIgnoreCase(tone));
             final String t = (title == null || title.trim().isEmpty()) ? "掌心窗" : title.trim();
@@ -899,51 +889,33 @@ public class CompanionService extends Service {
         } catch (Exception e) { DebugState.append(ctx, "悬浮横幅通知异常：" + ScreenshotService.shortMsg(e)); return false; }
     }
 
+    /**
+     * [ALARM-SYS-FIX] 闹钟改为拉起本机系统时钟 App 设置，不再由掌心窗自己响铃。
+     * 通过 ACTION_SET_ALARM 预填时间/标签并打开时钟的新建闹钟页，用户在系统时钟里保存后，
+     * 闹钟即出现在系统闹钟列表中。多数 ROM 忽略 EXTRA_SKIP_UI，需用户手动保存，属预期行为。
+     */
     private static boolean setAlarm(Context ctx, int hour, int minute, String message, boolean vibrate, boolean skipUi) {
         if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return false;
         try {
-            Calendar c = Calendar.getInstance();
-            c.set(Calendar.HOUR_OF_DAY, hour);
-            c.set(Calendar.MINUTE, minute);
-            c.set(Calendar.SECOND, 0);
-            c.set(Calendar.MILLISECOND, 0);
-            if (c.getTimeInMillis() <= System.currentTimeMillis()) {
-                c.add(Calendar.DATE, 1); // 时间已过 → 顺延到次日，避免“设定即响/不响”
-            }
-            long triggerAt = c.getTimeInMillis();
-            AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
-            if (am == null) return false;
-            // BE-01/4：Android 12+ 精确闹钟需要 SCHEDULE_EXACT_ALARM 权限
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (!am.canScheduleExactAlarms()) {
-                    DebugState.append(ctx, "缺少 SCHEDULE_EXACT_ALARM 权限，跳转设置页授权（闹钟仍会尽力用 setAlarmClock 兜底）");
-                    try {
-                        Intent perm = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
-                        perm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        ctx.startActivity(perm);
-                    } catch (Exception ignored) { }
-                }
-            }
-            Intent i = new Intent(ctx, AlarmReceiver.class);
-            i.putExtra(AlarmReceiver.EXTRA_MESSAGE, message == null || message.length() == 0 ? "掌心窗闹钟" : message);
-            int piFlags = Build.VERSION.SDK_INT >= 23
-                    ? PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
-                    : PendingIntent.FLAG_UPDATE_CURRENT;
-            PendingIntent pi = PendingIntent.getBroadcast(ctx, 990000, i, piFlags);
-            // 优先用 setExactAndAllowWhileIdle(RTC_WAKEUP)：息屏/Doze 下也能精确唤醒响铃
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && am.canScheduleExactAlarms()) {
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi);
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-                // 无精确权限时降级：setAlarmClock 仍会在时钟 App 显示并尽量准时触发
-                AlarmManager.AlarmClockInfo info = new AlarmManager.AlarmClockInfo(triggerAt, pi);
-                am.setAlarmClock(info, pi);
-            } else {
-                am.set(AlarmManager.RTC_WAKEUP, triggerAt, pi);
-            }
+            Intent i = new Intent(AlarmClock.ACTION_SET_ALARM);
+            i.putExtra(AlarmClock.EXTRA_HOUR, hour);
+            i.putExtra(AlarmClock.EXTRA_MINUTES, minute);
+            String label = message == null || message.trim().isEmpty()
+                    ? ("掌心窗提醒 " + hour + ":" + String.format(Locale.CHINA, "%02d", minute))
+                    : message;
+            i.putExtra(AlarmClock.EXTRA_MESSAGE, label);
+            i.putExtra(AlarmClock.EXTRA_VIBRATE, vibrate);
+            // 不跳过 UI：确保打开时钟 App 的新建/编辑页，由用户确认保存（这样才会出现在系统闹钟列表）。
+            i.putExtra(AlarmClock.EXTRA_SKIP_UI, false);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(i);
             String when = hour + ":" + String.format(Locale.CHINA, "%02d", minute);
-            DebugState.append(ctx, "本地闹钟已设定（AlarmManager）：" + when + (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !am.canScheduleExactAlarms() ? "（已申请精确权限）" : ""));
+            DebugState.append(ctx, "[ALARM-SYS-FIX] 已拉起系统时钟设置闹钟：" + when + "（标签=" + label + "，需用户在系统时钟保存）");
             return true;
-        } catch (Exception e) { DebugState.append(ctx, "远程闹钟异常：" + ScreenshotService.shortMsg(e)); return false; }
+        } catch (Exception e) {
+            DebugState.append(ctx, "拉起系统时钟失败：" + ScreenshotService.shortMsg(e));
+            return false;
+        }
     }
 
     private static void uploadStateThrottled(String serverUrl, String token, Context ctx, boolean force) throws Exception {
@@ -962,8 +934,6 @@ public class CompanionService extends Service {
         // 共同记忆以手机本机存储为唯一数据源：每次状态上报把记忆镜像到服务端，
         // 保证 /api/shared_memory 读取、网页与 MCP 检索看到的是手机上的最新记忆（可改可查）。
         try { state.put("shared_memory", SharedMemoryState.getItems(ctx)); } catch (Exception ignored) { }
-        // [WATCH-PARTY] 手机端一起看房间状态（含本机吐槽/表情）镜像到服务端，MCP 侧 get_watch_party 可读到。
-        try { state.put("watch_party", WatchPartyState.snapshot(ctx)); } catch (Exception ignored) { }
         // [SYNC-FIX] 策略配置快照（查岗间隔/冷却/软件使用时长锁/弹窗时间等）随状态上报镜像到服务端，
         // 保证 MCP 侧 get_tour_schedule / get_life_state 查询读到手机端写入后的最新值，而不是服务端旧 JSON。
         try { state.put("policy", PolicyCommand.snapshot(ctx)); } catch (Exception ignored) { }
@@ -976,44 +946,6 @@ public class CompanionService extends Service {
         if (id == null || id.length() == 0) return;
         JSONObject report = new JSONObject(); report.put("device_id", AppPrefs.device(ctx)); report.put("command_id", id); report.put("ok", ok); report.put("result", result);
         postJson(serverUrl + "/api/device/report", token, report);
-    }
-
-    /**
-     * [WATCH-PARTY] 一起看界面本机操作（吐槽/表情/进度）即时上报房间状态。
-     * 房间状态已在 uploadStateThrottled 周期镜像；这里做一次即时推送，保证 MCP 侧 get_watch_party
-     * 立刻读到最新吐槽/表情，不必等下一个上报周期。
-     */
-    public static void handleWatchPartyLocal(final Context ctx, final String serverUrl, final String token,
-                                             final JSONObject actionPayload) {
-        new Thread(() -> {
-            try {
-                JSONObject state = new JSONObject();
-                state.put("device_id", AppPrefs.device(ctx));
-                state.put("watch_party", WatchPartyState.snapshot(ctx));
-                postJson(serverUrl + "/api/device/state", token, state);
-            } catch (Exception ignored) { }
-        }, "watchparty-report").start();
-    }
-
-    /** [WATCH-PARTY] 从服务端拉取权威房间状态（含对方发的弹幕/表情/进度）。 */
-    public static String getJson(String urlStr, String token) {
-        HttpURLConnection conn = null;
-        try {
-            conn = (HttpURLConnection) new URL(urlStr).openConnection();
-            conn.setRequestMethod("GET");
-            conn.setRequestProperty("X-Auth-Token", token);
-            conn.setConnectTimeout(6000);
-            conn.setReadTimeout(6000);
-            InputStream is = conn.getResponseCode() >= 400 ? conn.getErrorStream() : conn.getInputStream();
-            ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            if (is != null) {
-                byte[] buf = new byte[1024]; int n;
-                while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
-                is.close();
-            }
-            return new String(bos.toByteArray(), "UTF-8");
-        } catch (Exception ignored) { return ""; }
-        finally { if (conn != null) conn.disconnect(); }
     }
 
     private static String postJson(String urlStr, String token, JSONObject obj) throws Exception {

@@ -54,12 +54,9 @@
     <table>
       <tr><th style="width:36px">#</th><th style="width:56px">严重度</th><th>问题与修复</th></tr>
       <tr><td>1</td><td class="hi">高</td><td><b>情绪上报被覆盖</b>：put 完 companion_emotion 后又执行一次 <code>LifeState.collect()</code> 把字段冲掉 → 删掉重复 collect，服务端/MCP 现在能读到手机情绪。</td></tr>
-      <tr><td>2</td><td class="hi">高</td><td><b>一起看 MCP 失效</b>：5 个 <code>watch_party_*</code> + <code>set_policy</code> 不在服务端白名单，被降级成 noop → 已补入白名单（含 get/list/reset_policy）。</td></tr>
       <tr><td>3</td><td class="hi">高</td><td><b>日历写工具被拒</b>：4 个 MCP 日历写工具缺 explicit → 手机直接拒写 → 服务端对日历写 action 统一注入 explicit=true。</td></tr>
       <tr><td>4</td><td class="mid">中</td><td><b>课表必填错误</b>：import_timetable 把互斥的 ICS/JSON/截图输入写成必填 → 顶层 required 改为 []，三选一可正常调用。</td></tr>
-      <tr><td>5</td><td class="mid">中</td><td><b>一起看状态不同步</b>：房间 active 读了没用，对方结束后本页仍显示旧态 → refresh 用 active+from_live 回写共享态。</td></tr>
       <tr><td>6</td><td class="mid">中</td><td><b>日历天数不显示</b>：读 <code>daysLeft</code>，实际写入 <code>days_left</code> → 改读 days_left（保留旧键兜底），倒数恢复。</td></tr>
-      <tr><td>7</td><td class="low">低</td><td><b>初始进度设不了</b>：watch_party_start 读 schema 里没有的 progress_ms → 已在 schema 补该参数，调用方可设置初始进度。</td></tr>
       <tr><td>8</td><td class="low">低</td><td><b>夜间判断恒假</b>：HOUR_OF_DAY 取 0~23，<code>hour&gt;23</code> 永不成立 → 改 <code>hour&gt;=23</code>，23 点起不再弹天气/日历。</td></tr>
     </table>
   </div>
@@ -70,10 +67,8 @@
       <tr><td>编译</td><td class="ok">通过</td><td>Python py_compile（linjian_server.py / mcp_engine.py）通过；Android build.sh 通过</td></tr>
       <tr><td>签名验签</td><td class="ok">v1 / v2 / v3 全过</td><td>固定公钥摘要 8f89e9f8…b1672e 一致</td></tr>
       <tr><td>APK</td><td colspan="2"><code>/workspace/android/Zhangxinchuang-public-v0.3.9.0.apk</code> · SHA256 682f05fe…a11b6a7aa</td></tr>
-      <tr><td>既有约束</td><td class="ok">未破坏</td><td>上课静默、一起看、识图 5 工具、MCP 121 工具、专注模式已剔除、区县天气</td></tr>
       <tr><td>配置清单</td><td class="ok">已同步</td><td>根目录与 server 两个 update.json 的 SHA 与 changelog 均已更新</td></tr>
     </table>
-    <div class="note">改动文件：CompanionEmotionState.java、CompanionService.java、WatchPartyActivity.java、AlertWindowManager.java（Android）；linjian_server.py、mcp_engine.py、mcp_tools.json（Server）。</div>
   </div>
 </div>
 </body>

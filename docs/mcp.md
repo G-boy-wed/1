@@ -99,7 +99,6 @@ Render 一键部署时，`LINJIAN_URL` 会由 Blueprint 自动引用 server 的�
 - 没有日记本时自动创建默认「TA 的日记」再写入。
 - 多本日记且无法判断目标时返回 `choices`，提示用户选择，不会静默写错。
 
-
 ## TA 的日记
 
 日记本与正文默认只保存在手机本机，不进入生活状态上传。手机端服务需保持启动，MCP 才能按需读写。
@@ -204,7 +203,6 @@ Render 一键部署时，`LINJIAN_URL` 会由 Blueprint 自动引用 server 的�
 - `deny_unlock_request`：等同 `deny_screen_break_release_request`，拒绝恢复申请。
 - `list_lockable_apps`、`add_locked_app`、`remove_locked_app`、`set_emergency_passphrase`：旧版命名兼容。
 
-
 ## v0.3.8.6 小金库双向申请工具
 
 - `submit_companion_wallet_request`：陪伴者提交申请，等待用户处理。
@@ -232,7 +230,6 @@ Render 一键部署时，`LINJIAN_URL` 会由 Blueprint 自动引用 server 的�
 - `get_takeout_checkout_status`：读取自动点单进度。
 - `cancel_takeout_checkout`：取消自动点单任务。
 
-
 ## v0.3.8.6 新增工具暴露修复
 
 如果 `/health` 已显示小金库双向申请和外卖助手工具，但 AI 客户端工具面板没有暴露出来，请优先检查 MCP 服务是否已经重新部署到 `0.3.8.6`。
@@ -243,10 +240,5 @@ Render 一键部署时，`LINJIAN_URL` 会由 Blueprint 自动引用 server 的�
 - `/mcp-wallet`：小金库/外卖助手专用端点。连接地址示例：`https://你的-mcp-域名/mcp-wallet`。
 
 常用 action 示例：`submit_companion_wallet_request`、`list_companion_wallet_requests`、`save_user_wallet_request_result`、`get_takeout_state`、`prepare_takeout_checkout`。
-
-
-## v0.3.8.6 专注模式工具与日记本重命名修复
-
-专注模式必须在 MCP 工具列表中暴露：`get_focus_status`、`start_focus_mode`、`end_focus_mode`、`set_focus_plan`、`reply_focus_request`、`approve_focus_unlock`、`deny_focus_unlock`。用户说“帮我专注/锁手机/开专注模式/别让我玩手机”时优先调用 `start_focus_mode`；锁单个 App 才使用应用门禁。
 
 `rename_diary_book` 已支持缺少 `book_id` 时自动处理：传 `old_name + new_name` 可按名字匹配；如果手机端只有一本日记本，只传 `new_name` 也会自动重命名。用户要求改名时不要反复调用 `list_diary_books`。
