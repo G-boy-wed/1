@@ -62,8 +62,8 @@ public final class PolicySync {
                 try {
                     JSONObject dis = new JSONObject();
                     dis.put("enabled", PolicyStore.disciplineEnabled(app));
-                    dis.put("mode", PolicyStore.disciplineMode(app));
-                    dis.put("level", PolicyStore.disciplineLevel(app));
+                    // [DISC-NO-TIER] 档位/语气已删除；同步强度阈值口径供服务端参考。
+                    dis.put("strong_intensity_threshold", PolicyStore.DISC_STRONG_INTENSITY);
                     String r2 = request(base, token, "POST", "/api/discipline", dis.toString());
                     if (r2 != null && !r2.startsWith("ERROR")) anySuccess = true;
                 } catch (Exception ignored) { }

@@ -425,10 +425,9 @@ public final class PolicyScheduler {
         if (!PopupMutex.canTriggerCenterAlert(now)) return;
 
         // 情绪判定弹窗：标明情绪标签与百分比，并按百分比决定弹窗样式。
-        // [R1-FIX] 情绪自动弹窗只由「训诫强制档」或「底层判定的强情绪」决定强制级别，
-        // 不纳入 forceBackThreshold——否则触发阈值(70)>强制阈值(55)会让所有情绪弹窗都不可拒绝，
-        // "拒绝，再等会儿"软级分支彻底消失。miss 阈值口径仅用于查岗/分心拉回。
-        boolean strong = PolicyStore.disciplineForceStrong(appCtx) || EmotionPerception.isStrongNow(appCtx);
+        // [DISC-NO-TIER] 档位已删：强/软统一由情绪强度≥80（或底层判定的强情绪标签）决定，
+        // 不纳入 forceBackThreshold——避免"拒绝，再等会儿"软级分支彻底消失。miss 阈值口径仅用于查岗/分心拉回。
+        boolean strong = PolicyStore.disciplineStrongNow(appCtx) || EmotionPerception.isStrongNow(appCtx);
         JSONObject cfg = new JSONObject();
         try {
             String companion = AppPrefs.companionName(appCtx);
@@ -627,9 +626,9 @@ public final class PolicyScheduler {
         }
     }
 
-    /** 是否达到拉回阈值：优先看训诫高档位（加强管控强制拉回），否则由底层代码算出的想你程度与强情绪决定。 */
+    /** 是否达到拉回阈值：[DISC-NO-TIER] 优先看情绪强度≥80，否则由想你程度与强情绪决定。 */
     private boolean strongByThreshold() {
-        if (PolicyStore.disciplineForceStrong(appCtx)) return true;
+        if (PolicyStore.disciplineStrongNow(appCtx)) return true;
         // [A1-FIX] 与 evaluateCheckIn 口径统一：想你程度达到强制拉回阈值也应判为 strong，
         // 否则高想你值+平静情绪时情绪弹窗仍是 soft（可拒绝），削弱强制拉回。
         int miss = CompanionEmotionState.effectiveMissPercent(appCtx);
@@ -820,13 +819,12 @@ public final class PolicyScheduler {
     public static boolean inClassNow(Context ctx) { return ClassScheduleState.isInClassNow(ctx); }
 
     private void discipline(String cause, String detail) {
-        // #35：单一开关语义——总开关关闭或档位为 0 都视为「关闭」，不得产生任何训诫事件。
-        // 避免 enabled=false / level=0 时仍输出「训诫(0档)」污染事件流。
+        // [DISC-NO-TIER] 单一开关语义——总开关关闭即视为「关闭」，不得产生任何训诫事件。
         if (!PolicyStore.disciplineEnabled(appCtx)) return;
-        int level = PolicyStore.disciplineLevel(appCtx);
-        if (level <= 0) return;
-        ActivityEventStore.recordForced(appCtx, "discipline", "训诫(" + level + "档)", cause + "：" + detail);
-        DebugState.append(appCtx, "训诫插件触发 " + level + " 档，原因=" + cause);
+        boolean strong = PolicyStore.disciplineStrongNow(appCtx);
+        ActivityEventStore.recordForced(appCtx, "discipline", strong ? "训诫(强)" : "训诫", cause + "：" + detail);
+        DebugState.append(appCtx, "训诫触发（强度" + CompanionEmotionState.effectiveIntensity(appCtx)
+                + "/阈值" + PolicyStore.DISC_STRONG_INTENSITY + "），原因=" + cause);
     }
 
     // ============ 工具 ============

@@ -132,24 +132,49 @@ def fetch_weather(city: str, coords: dict | None = None) -> dict:
             hit = dict(override)
             source = "override"
         else:
-            try:
-                geo = _http_json("https://geocoding-api.open-meteo.com/v1/search?name=%s&count=3&language=zh&format=json" % urllib.parse.quote(q))
-                results = (geo or {}).get("results") or []
-                hit = results[0] if results else None
-            except Exception as e:
-                return {"ok": False, "error": "geocode_failed", "detail": str(e)}
+            # [WEATHER-FIX] 地理编码带重试；再用「剥离区/县后缀」的候选名兜底（朝阳区→朝阳、海淀区→海淀）。
+            def _geocode(name: str):
+                last = None
+                for _ in range(2):
+                    try:
+                        g = _http_json("https://geocoding-api.open-meteo.com/v1/search?name=%s&count=3&language=zh&format=json" % urllib.parse.quote(name))
+                        return (g or {}).get("results") or []
+                    except Exception as e:
+                        last = e
+                raise last if last else RuntimeError("geocode_failed")
+
+            candidates = [q]
+            stripped = re.sub(r"(市|区|县|旗|州|盟)$", "", q).strip()
+            if stripped and stripped != q:
+                candidates.append(stripped)
+            results = []
+            for cand in candidates:
+                try:
+                    results = _geocode(cand)
+                except Exception:
+                    results = []
+                if results:
+                    break
+            hit = results[0] if results else None
     if not hit:
         return {"ok": False, "error": "city_not_found", "city": city}
 
-    try:
-        lat = float(hit["latitude"]); lon = float(hit["longitude"])
-        url = ("https://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s"
-               "&current=temperature_2m,weather_code,wind_speed_10m"
-               "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max"
-               "&timezone=auto&forecast_days=2" % (lat, lon))
-        data = _http_json(url)
-    except Exception as e:
-        return {"ok": False, "error": "forecast_failed", "detail": str(e)}
+    # [WEATHER-FIX] forecast 请求超时自动重试 2 次（网络抖动是偶发 fetch 失败的主因）。
+    data = None
+    last_err = None
+    for _ in range(3):
+        try:
+            lat = float(hit["latitude"]); lon = float(hit["longitude"])
+            url = ("https://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s"
+                   "&current=temperature_2m,weather_code,wind_speed_10m"
+                   "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max"
+                   "&timezone=auto&forecast_days=2" % (lat, lon))
+            data = _http_json(url)
+            break
+        except Exception as e:
+            last_err = e
+    if data is None:
+        return {"ok": False, "error": "forecast_failed", "detail": str(last_err)}
 
     return {
         "ok": True,
@@ -509,7 +534,7 @@ READ_TOOLS = {
     "get_emotion_snapshot": "emotion_snapshot",
     "get_companion_emotion": "companion_emotion",
     "list_known_apps": "known_apps",
-    "get_discipline_mode": "discipline",
+    # [DISC-NO-TIER] get_discipline_mode 已删除（档位/语气工具移除）。
     "get_tour_schedule": "tour_state",
     "get_screen_break_release_requests": "unlock_requests",
     "get_live_media_context": "media_context",
@@ -915,6 +940,7 @@ class McpEngine:
         "peek_screen": "_t_peek_screen",
         "analyze_image": "_t_analyze_image",
         "set_tour_schedule": "_t_tour_schedule",
+        # [DISC-POOL-CHOOSE] set_discipline_mode 恢复：选当前卡池(gentle/strict)，非数字档位。
         "set_discipline_mode": "_t_discipline_mode",
         # [DISC-PHRASE-POOL] 动态训诫话术池（温柔/严厉两池，提示词不写死在底代码）
         "add_discipline_phrase": "_t_phrase_add",
@@ -1290,18 +1316,31 @@ class McpEngine:
         except Exception as e:
             return _error({"ok": False, "error": "tour_schedule_failed", "message": str(e)})
 
+    # [DISC-NO-TIER] _t_discipline_mode 已删除：档位/语气工具移除，训诫开关走 state 同步，话术走话术池工具。
+
+    # ---- [DISC-POOL-CHOOSE] 选当前卡池 handler ----
     def _t_discipline_mode(self, args: dict) -> dict:
-        # 服务端配置 + 设备命令双写
+        """[DISC-POOL-CHOOSE] 选当前话术卡池：gentle 温柔提醒 / strict 严厉管束（非数字档位）。"""
+        pool = str(args.get("pool") or args.get("mode") or args.get("tone") or "").strip().lower()
+        if pool in ("温柔", "温柔提醒", "gentle"):
+            pool = "gentle"
+        elif pool in ("严厉", "严厉管束", "strict"):
+            pool = "strict"
+        else:
+            return _error({"error": "invalid_pool", "detail": "pool 需为 gentle 或 strict"})
+        # 服务端状态记录 + 设备命令下发（手机端写入 KEY_DISCIPLINE_POOL）。
         try:
-            disc = self.ctx.discipline_update(args)
-        except Exception as e:
-            disc = {"ok": False, "error": str(e)}
-        flat = {k: v for k, v in args.items() if k not in ("action", "device_id", "wait_seconds")}
-        try:
-            self.ctx.enqueue({"action": "set_discipline_mode", "device_id": self._device(args), "payload": dict(flat)})
+            self.ctx.discipline_update({"pool": pool})
         except Exception:
             pass
-        return _text({"ok": True, "discipline": disc, "device_command_queued": True})
+        flat = {"pool": pool, "mode": pool}
+        try:
+            self.ctx.enqueue({"action": "set_discipline_mode", "device_id": self._device(args), "payload": flat})
+            queued = True
+        except Exception:
+            queued = False
+        return _text({"ok": True, "pool": pool, "device_command_queued": queued,
+                      "readable": "已切换训诫话术卡池：" + ("温柔提醒池" if pool == "gentle" else "严厉管束池")})
 
     # ---- [DISC-PHRASE-POOL] 动态训诫话术池 handler ----
     def _push_phrases_to_phone(self, args: dict) -> bool:

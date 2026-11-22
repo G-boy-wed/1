@@ -61,8 +61,13 @@ public final class PolicyStore {
     public static final String KEY_INITIATIVE_TEMPLATE = PREFIX + "init_template"; // 自定义模板
 
     // —— 训诫插件 ——
-    public static final String KEY_DISCIPLINE_ENABLED = PREFIX + "disc_enabled";  // 总开关，默认 false
-    public static final String KEY_DISCIPLINE_LEVEL = PREFIX + "disc_level";     // 0~4 档，默认 0
+    public static final String KEY_DISCIPLINE_ENABLED = PREFIX + "disc_enabled";  // 总开关，默认开启
+    // [DISC-POOL-CHOOSE] 当前选中的话术卡池：gentle=温柔提醒池 / strict=严厉管束池，默认 gentle。
+    // 手机设置页与 MCP set_discipline_mode 共用此单一配置源；触发时只从选中池随机取整句。
+    public static final String KEY_DISCIPLINE_POOL = PREFIX + "disc_pool";
+    // [DISC-NO-TIER] 数字档位(level)已移除；强/软判断统一走情绪强度阈值。
+    public static final int DISC_STRONG_INTENSITY = 80; // 情绪强度≥80：锁App + 弹窗不给拒绝
+    public static final int DISC_LOCK_MINUTES = 3;       // 训诫锁App固定3分钟
     public static final String KEY_DISCIPLINE_USER_ONLY = PREFIX + "disc_user_only"; // 仅用户本人能开，默认 true
     public static final String KEY_DISCIPLINE_BADGE = PREFIX + "disc_badge";     // 开启标志，默认 true
 
@@ -75,7 +80,6 @@ public final class PolicyStore {
     public static final String KEY_DISTRACTION_LOOP_ENABLED = PREFIX + "dist_loop_enabled"; // 「切出→切回」算分心，默认 true
     public static final String KEY_DISTRACTION_LOOP_TIMES = PREFIX + "dist_loop_times";     // 来回次数阈值，默认 2
     public static final String KEY_DISTRACTION_LOOP_WINDOW = PREFIX + "dist_loop_window";   // 来回时间窗口(秒)，默认 90
-    public static final String KEY_DISCIPLINE_MODE = PREFIX + "disc_mode";       // 训诫语气 gentle / strict，默认 gentle
 
     // —— 每日弹窗去重（天气首次解锁 / 日历解锁横幅，每天最多弹一次）——
     public static final String KEY_WEATHER_ALERT_DATE = PREFIX + "weather_alert_date";
@@ -136,8 +140,8 @@ public final class PolicyStore {
     private static final int DEF_INIT_INTERVAL = 12;  // 20 -> 12：主动找更频繁
     private static final int DEF_INIT_DAILY = 0;
     private static final String DEF_INIT_MODE = "free";
-    private static final boolean DEF_DISC_ENABLED = true;  // false -> true：训诫默认开启
-    private static final int DEF_DISC_LEVEL = 3;           // 0 -> 3：训诫高档位（强弹窗+门禁联动）
+    private static final boolean DEF_DISC_ENABLED = true;  // 训诫默认开启
+    private static final String DEF_DISC_POOL = "gentle";  // 默认温柔提醒池
     private static final boolean DEF_DISC_USER_ONLY = true;
     private static final boolean DEF_DISC_BADGE = true;
     private static final boolean DEF_DIST_ENABLED = true;
@@ -147,7 +151,6 @@ public final class PolicyStore {
     private static final boolean DEF_DIST_LOOP_ENABLED = true;
     private static final int DEF_DIST_LOOP_TIMES = 2;
     private static final int DEF_DIST_LOOP_WINDOW = 90;
-    private static final String DEF_DISC_MODE = "strict";  // gentle -> strict：训诫更严厉
     private static final boolean DEF_USAGE_LOCK_ENABLED = true;  // false -> true：使用时长自动锁默认开
     private static final int DEF_USAGE_LOCK_MIN = 45;
     private static final int DEF_USAGE_LOCK_DUR = 15;
@@ -206,8 +209,9 @@ public final class PolicyStore {
                 // 用户从未显式开启或仍保持关闭：这里提升为开启（强度增强意图）
                 if (!sp(ctx).contains(KEY_DISCIPLINE_ENABLED)) e.putBoolean(KEY_DISCIPLINE_ENABLED, true);
             }
-            if (sp(ctx).getInt(KEY_DISCIPLINE_LEVEL, -1) == 0) e.putInt(KEY_DISCIPLINE_LEVEL, 3);
-            if ("gentle".equals(sp(ctx).getString(KEY_DISCIPLINE_MODE, "gentle"))) e.putString(KEY_DISCIPLINE_MODE, "strict");
+            // [DISC-POOL-CHOOSE] 旧用户若没有卡池配置，补默认温柔池。
+            if (!sp(ctx).contains(KEY_DISCIPLINE_POOL)) e.putString(KEY_DISCIPLINE_POOL, DEF_DISC_POOL);
+            // [DISC-NO-TIER] 旧的 disc_level / disc_mode 迁移逻辑已移除（数字档位配置彻底删除）。
             // 使用时长自动锁：旧默认关闭 -> 开启
             if (!sp(ctx).contains(KEY_USAGE_LOCK_ENABLED)) e.putBoolean(KEY_USAGE_LOCK_ENABLED, true);
             e.putInt(KEY_STRENGTH_VERSION, STRENGTH_VERSION);
@@ -326,25 +330,23 @@ public final class PolicyStore {
     public static String initiativeTemplate(Context ctx) { return getString(ctx, KEY_INITIATIVE_TEMPLATE, ""); }
     public static void setInitiativeTemplate(Context ctx, String v) { putString(ctx, KEY_INITIATIVE_TEMPLATE, v, "主动找她模板"); }
 
-    // —— 训诫插件 ——
+    // —— 训诫插件 ——  [DISC-NO-TIER] 数字档位已删除；卡池选择见 disciplinePool；强/软走 DISC_STRONG_INTENSITY。
     public static boolean disciplineEnabled(Context ctx) { return getBool(ctx, KEY_DISCIPLINE_ENABLED, DEF_DISC_ENABLED); }
     public static void setDisciplineEnabled(Context ctx, boolean v) { putBool(ctx, KEY_DISCIPLINE_ENABLED, v, "训诫插件开关"); }
-    public static int disciplineLevel(Context ctx) { return getInt(ctx, KEY_DISCIPLINE_LEVEL, DEF_DISC_LEVEL); }
-    public static void setDisciplineLevel(Context ctx, int v) { putInt(ctx, KEY_DISCIPLINE_LEVEL, clamp(v, 0, 4), "训诫档位"); }
-    /** 训诫高档位（>=3）强制拉回：加强管控，所有拉回弹窗变为「只能回到软件」不可拒绝。 */
-    public static boolean disciplineForceStrong(Context ctx) {
-        return disciplineEnabled(ctx) && disciplineLevel(ctx) >= 3;
+    /** [DISC-POOL-CHOOSE] 当前选中的话术卡池：gentle 温柔 / strict 严厉。 */
+    public static String disciplinePool(Context ctx) {
+        return "strict".equalsIgnoreCase(getString(ctx, KEY_DISCIPLINE_POOL, DEF_DISC_POOL)) ? "strict" : "gentle";
+    }
+    public static void setDisciplinePool(Context ctx, String pool) {
+        putString(ctx, KEY_DISCIPLINE_POOL, "strict".equalsIgnoreCase(pool) ? "strict" : "gentle", "训诫话术卡池");
     }
     public static boolean disciplineUserOnly(Context ctx) { return getBool(ctx, KEY_DISCIPLINE_USER_ONLY, DEF_DISC_USER_ONLY); }
     public static boolean disciplineBadge(Context ctx) { return getBool(ctx, KEY_DISCIPLINE_BADGE, DEF_DISC_BADGE); }
     public static void setDisciplineBadge(Context ctx, boolean v) { putBool(ctx, KEY_DISCIPLINE_BADGE, v, "训诫开启标志"); }
 
-    // 训诫语气模式：gentle 温柔 / strict 严厉；开启后人设语气按所选模式变化。
-    public static String disciplineMode(Context ctx) {
-        return "strict".equalsIgnoreCase(getString(ctx, KEY_DISCIPLINE_MODE, DEF_DISC_MODE)) ? "strict" : "gentle";
-    }
-    public static void setDisciplineMode(Context ctx, String v) {
-        putString(ctx, KEY_DISCIPLINE_MODE, "strict".equalsIgnoreCase(v) ? "strict" : "gentle", "训诫语气模式");
+    /** [DISC-NO-TIER] 是否达到"强"档：情绪强度≥80（替代原高档位判定），用于锁App与弹窗不可拒绝。 */
+    public static boolean disciplineStrongNow(Context ctx) {
+        return disciplineEnabled(ctx) && CompanionEmotionState.effectiveIntensity(ctx) >= DISC_STRONG_INTENSITY;
     }
 
     /** 每日天气/日历弹窗去重：返回今天是否已弹过（基于本地日期）。 */
@@ -606,7 +608,7 @@ public final class PolicyStore {
         e.putInt(KEY_INITIATIVE_DAILY, DEF_INIT_DAILY);
         e.putString(KEY_INITIATIVE_MODE, DEF_INIT_MODE);
         e.putBoolean(KEY_DISCIPLINE_ENABLED, DEF_DISC_ENABLED);
-        e.putInt(KEY_DISCIPLINE_LEVEL, DEF_DISC_LEVEL);
+        e.putString(KEY_DISCIPLINE_POOL, DEF_DISC_POOL);
         e.putBoolean(KEY_DISCIPLINE_USER_ONLY, DEF_DISC_USER_ONLY);
         e.putBoolean(KEY_DISCIPLINE_BADGE, DEF_DISC_BADGE);
         e.putBoolean(KEY_DISTRACTION_ENABLED, DEF_DIST_ENABLED);
@@ -616,7 +618,6 @@ public final class PolicyStore {
         e.putBoolean(KEY_DISTRACTION_LOOP_ENABLED, DEF_DIST_LOOP_ENABLED);
         e.putInt(KEY_DISTRACTION_LOOP_TIMES, DEF_DIST_LOOP_TIMES);
         e.putInt(KEY_DISTRACTION_LOOP_WINDOW, DEF_DIST_LOOP_WINDOW);
-        e.putString(KEY_DISCIPLINE_MODE, DEF_DISC_MODE);
         e.putInt(KEY_DISTRACTION_COUNT, 0);
         e.putBoolean(KEY_USAGE_LOCK_ENABLED, DEF_USAGE_LOCK_ENABLED);
         e.putInt(KEY_USAGE_LOCK_MINUTES, DEF_USAGE_LOCK_MIN);

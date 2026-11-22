@@ -382,7 +382,8 @@ public class GuidianState {
         if (base == null) base = "";
         if (!PolicyStore.disciplineEnabled(ctx)) return base;
         String companion = AppPrefs.companionName(ctx);
-        boolean strict = "strict".equals(PolicyStore.disciplineMode(ctx)) || PolicyStore.disciplineLevel(ctx) >= 2;
+        // [DISC-NO-TIER] 档位已删：强/软统一走情绪强度≥80。
+        boolean strict = PolicyStore.disciplineStrongNow(ctx);
         if (strict) {
             return base + "（" + companion + "不是在跟你商量，是让你现在就回来。）";
         }

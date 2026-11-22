@@ -300,7 +300,8 @@ public class CompanionService extends Service {
                 return;
             }
 
-            // —— 训诫管束模块（DisciplineController）：set/get/trigger/话术池同步 ——
+            // —— 训诫管束模块（DisciplineController）：选卡池/get/trigger/话术池同步 ——
+            // [DISC-POOL-CHOOSE] set_discipline_mode 恢复：用来选当前卡池(gentle/strict)。
             if ("set_discipline_mode".equals(action) || "get_discipline_state".equals(action)
                     || "trigger_discipline".equals(action) || "sync_discipline_phrases".equals(action)) {
                 JSONObject rr = DisciplineController.handleCommand(ctx, cmd);
@@ -891,8 +892,9 @@ public class CompanionService extends Service {
 
     /**
      * [ALARM-SYS-FIX] 闹钟改为拉起本机系统时钟 App 设置，不再由掌心窗自己响铃。
-     * 通过 ACTION_SET_ALARM 预填时间/标签并打开时钟的新建闹钟页，用户在系统时钟里保存后，
-     * 闹钟即出现在系统闹钟列表中。多数 ROM 忽略 EXTRA_SKIP_UI，需用户手动保存，属预期行为。
+     * 通过 ACTION_SET_ALARM 预填时间/标签并打开时钟的新建闹钟页；拉起后用无障碍
+     * [ALARM-AUTO-SAVE] 延迟尝试自动点「保存/确定」，让机器人下发的闹钟尽量自己生效；
+     * 不同品牌时钟界面不同，自动点击失败时保留手动保存兜底。
      */
     private static boolean setAlarm(Context ctx, int hour, int minute, String message, boolean vibrate, boolean skipUi) {
         if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return false;
@@ -909,8 +911,11 @@ public class CompanionService extends Service {
             i.putExtra(AlarmClock.EXTRA_SKIP_UI, false);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             ctx.startActivity(i);
+            // [ALARM-AUTO-SAVE] 拉起时钟后，用无障碍延迟尝试自动点「保存/确定」；失败保留手动兜底。
+            ScreenshotService.requestAutoSaveAlarm();
             String when = hour + ":" + String.format(Locale.CHINA, "%02d", minute);
-            DebugState.append(ctx, "[ALARM-SYS-FIX] 已拉起系统时钟设置闹钟：" + when + "（标签=" + label + "，需用户在系统时钟保存）");
+            DebugState.append(ctx, "[ALARM-SYS-FIX] 已拉起系统时钟设置闹钟：" + when
+                    + "（标签=" + label + "，已排程无障碍自动点保存，失败需在系统时钟手动保存）");
             return true;
         } catch (Exception e) {
             DebugState.append(ctx, "拉起系统时钟失败：" + ScreenshotService.shortMsg(e));

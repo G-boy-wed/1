@@ -152,10 +152,10 @@ public class PolicySettingsActivity extends Activity {
         g3.addView(rowSpinner("生成方式", "自由生成（每次内容不同）或固定模板。", new String[]{"自由生成", "自定义模板"}, PolicyStore.initiativeMode(this).equals("template") ? 1 : 0, s -> PolicyStore.setInitiativeMode(this, s.equals("自定义模板") ? "template" : "free")));
         g3.addView(rowText("自定义模板", "生成方式选「自定义模板」时使用的文案。", PolicyStore.initiativeTemplate(this), s -> PolicyStore.setInitiativeTemplate(this, s)));
 
-        LinearLayout g4 = card(container, "训诫插件", "SM 小圈管束风格；仅你本人能开，默认关闭，分四档强度。", "discipline");
+        LinearLayout g4 = card(container, "训诫插件", "SM 小圈管束风格；仅你本人能开，默认关闭。不再设档位，强弱由你的情绪强度自动决定。", "discipline");
         g4.addView(rowSwitch("训诫总开关", "关闭则训诫完全不生效。默认关闭。仅用户本人可在手机端主动开启。", PolicyStore.disciplineEnabled(this), (v, c) -> PolicyStore.setDisciplineEnabled(this, c)));
-        g4.addView(rowSpinner("训诫档位", "0关闭/1轻/2中/3重/4极。档位越高措辞越硬。", new String[]{"0 关闭", "1 轻", "2 中", "3 重", "4 极"}, PolicyStore.disciplineLevel(this), s -> PolicyStore.setDisciplineLevel(this, parseLevel(s))));
-        g4.addView(rowSpinner("训诫语气模式", "温柔 / 严厉：接入小圈管束设定与话语，开启后人设语气按所选模式变化；写入底层并作用于陪伴话术。", new String[]{"温柔", "严厉"}, "strict".equals(PolicyStore.disciplineMode(this)) ? 1 : 0, s -> PolicyStore.setDisciplineMode(this, s.equals("严厉") ? "strict" : "gentle")));
+        g4.addView(rowSpinner("话术卡池", "选一个卡池，训诫时只从该池随机取整句话术。温柔提醒池=软语气，严厉管束池=硬语气。话术由陪伴对象通过 MCP 写入。", new String[]{"温柔提醒池", "严厉管束池"}, "strict".equals(PolicyStore.disciplinePool(this)) ? 1 : 0, s -> PolicyStore.setDisciplinePool(this, s.equals("严厉管束池") ? "strict" : "gentle")));
+        g4.addView(rowText("强弱判定", "不设数字档位：当你对我的情绪强度达到 " + PolicyStore.DISC_STRONG_INTENSITY + " 以上时，训诫自动转强（锁当前 App " + PolicyStore.DISC_LOCK_MINUTES + " 分钟、弹窗不可拒绝）；话术从上面选中的卡池随机取用。", "强度≥" + PolicyStore.DISC_STRONG_INTENSITY + " 转强", s -> { }));
         g4.addView(rowSwitch("强视觉警示标志", "打开后界面明确显示「训诫已开启」警示，让你随时知道状态。", PolicyStore.disciplineBadge(this), (v, c) -> PolicyStore.setDisciplineBadge(this, c)));
         g4.addView(rowText("说明", "SM 小圈训诫管束风格：仅本人可开、不设安全词、不写日志，但界面必须有明确开启标志。", "仅本人可开", s -> { }));
 
@@ -670,8 +670,8 @@ public class PolicySettingsActivity extends Activity {
     }
 
     /**
-     * 把本机训诫开关与语气模式同步给服务端，使陪伴对象通过 get_discipline_mode
-     * 读到的状态与 App 设置页一致（否则 AI 侧会一直沿用服务端默认语气）。
+     * 把本机训诫开关、当前卡池与强度阈值口径同步给服务端，使 AI 侧读到的状态与 App 设置页一致。
+     * [DISC-POOL-CHOOSE] 同步 pool(gentle/strict)；[DISC-NO-TIER] 不再同步数字档位。
      * 网络不可用 / 未配置服务器时静默跳过，本机设置依旧生效，不弹错误、不跳转。
      */
     private void syncDisciplineToServer() {
@@ -680,8 +680,8 @@ public class PolicySettingsActivity extends Activity {
             if (base == null || base.trim().isEmpty()) return;
             JSONObject body = new JSONObject();
             body.put("enabled", PolicyStore.disciplineEnabled(this));
-            body.put("mode", PolicyStore.disciplineMode(this));
-            body.put("level", PolicyStore.disciplineLevel(this));
+            body.put("pool", PolicyStore.disciplinePool(this));
+            body.put("strong_intensity_threshold", PolicyStore.DISC_STRONG_INTENSITY);
             final String payload = body.toString();
             new Thread(() -> request(base, token, "POST", "/api/discipline", payload), "discipline-sync").start();
         } catch (Exception ignored) { }

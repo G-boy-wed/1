@@ -175,8 +175,8 @@ def check_consistency(raw_tools, engine):
     # 1) & 2) 逐工具 schema 自检
     noarg_ok = {"linjian_status", "get_current_time", "health",
                 "latest_screen", "get_window_whisper", "list_diary_books",
-                "get_care_policy", "list_known_apps", "get_discipline_mode",
-                "get_screen_break_release_requests", "list_discipline_phrases"}
+                "get_care_policy", "list_known_apps",
+                "get_screen_break_release_requests", "list_discipline_phrases"}  # [DISC-NO-TIER] get_discipline_mode 已删除
     for t in tools:
         if not isinstance(t, dict):
             continue

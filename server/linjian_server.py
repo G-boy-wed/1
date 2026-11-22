@@ -86,7 +86,7 @@ ALLOWED_ACTIONS = {"noop", "peek", "open_app", "home", "back", "recents", "scree
 "show_center_alert", "force_back_to_chat", "start_tour", "stop_tour",
 "set_companion_emotion", "get_companion_emotion",
 "send_watch_whisper", "pause_media", "media_switch_screen", "get_live_media_context",
-"set_discipline_mode", "get_discipline_state", "trigger_discipline", "sync_discipline_phrases",
+"get_discipline_state", "trigger_discipline", "sync_discipline_phrases", "set_discipline_mode",  # [DISC-POOL-CHOOSE] set_discipline_mode 恢复选卡池
 "import_timetable", "parse_timetable", "screen_ocr",
 "add_shared_memory", "remove_shared_memory",
 "set_policy", "get_policy", "list_policy", "reset_policy",
@@ -220,39 +220,36 @@ def canonical_media_event(raw) -> str:
 # 读取(任何入口)都优先 custom_text，为空才按 mode 兜底。
 # ---------------------------------------------------------------------------
 DISCIPLINE_TEXT_KEYS = ("text", "custom_text", "discipline_text")
-_DISCIPLINE_FALLBACK = {
-    "strict": "顾钰，立刻把手机放下。不是在跟你商量，现在回我身边来。",
-    "gentle": "宝宝乖，先不看了好不好？眼睛该酸了，过来抱一下。",
-}
+# [DISC-NO-TIER] 档位/语气已删除：兜底只保留一句中性提示；实际话术由手机端动态话术池提供。
+_DISCIPLINE_FALLBACK = "掌心窗提醒你回到身边（话术由动态话术池提供）。"
 
 
 def resolve_discipline_text(disc: dict) -> tuple[str, bool]:
-    """返回 (最终文案, 是否兜底)。优先 custom_text；为空按 mode 兜底。"""
+    """返回 (最终文案, 是否兜底)。优先 custom_text；为空用单一中性兜底（不再按 mode 区分）。"""
     custom = str((disc or {}).get("custom_text") or "").strip()
     if custom:
         return custom, False
-    mode = str((disc or {}).get("mode") or "gentle").strip().lower()
-    if mode in ("strict", "严厉"):
-        mode = "strict"
-    else:
-        mode = "gentle"
-    return _DISCIPLINE_FALLBACK[mode], True
+    return _DISCIPLINE_FALLBACK, True
 
 
 def apply_discipline_update(disc: dict, data: dict) -> dict:
-    """BE-14 共用写入函数：合并 enabled/mode/level/text，维护 custom_text 与 text_is_fallback。"""
+    """[DISC-NO-TIER] 档位/语气已删除：仅合并 enabled + 自定义文案，不再写 mode/level。"""
     if not isinstance(data, dict):
         data = {}
     if "enabled" in data:
         disc["enabled"] = bool(data.get("enabled"))
-    if "mode" in data:
-        mode = str(data.get("mode") or "gentle").strip().lower()
-        disc["mode"] = "strict" if (mode == "strict" or mode == "严厉") else "gentle"
-    if "level" in data:
+    if "strong_intensity_threshold" in data:
         try:
-            disc["level"] = max(0, min(4, int(data.get("level"))))
+            disc["strong_intensity_threshold"] = max(0, min(100, int(data.get("strong_intensity_threshold"))))
         except (TypeError, ValueError):
             pass
+    # [DISC-POOL-CHOOSE] 当前话术卡池 gentle/strict。
+    if "pool" in data or "mode" in data:
+        pool = str(data.get("pool") or data.get("mode") or "").strip().lower()
+        if pool in ("温柔", "温柔提醒"): pool = "gentle"
+        elif pool in ("严厉", "严厉管束"): pool = "strict"
+        if pool in ("gentle", "strict"):
+            disc["pool"] = pool
     # 自定义文案：传了任一别名字段就写入（空串表示清空 → 回退兜底）。
     text_provided = False
     text_value = ""
@@ -264,12 +261,7 @@ def apply_discipline_update(disc: dict, data: dict) -> dict:
     if text_provided:
         disc["custom_text"] = text_value.strip()
     disc.setdefault("custom_text", "")
-    # #35：enabled 与 level 是同一开关的两种表达，状态源必须唯一。
-    if disc.get("level", 0) <= 0:
-        disc["enabled"] = False
-        disc["level"] = 0
-    if not disc.get("enabled", False):
-        disc["level"] = 0
+    # [DISC-NO-TIER] 不再用 level 反推 enabled（档位字段已废弃）。
     disc["updated_at"] = now_iso()
     return disc
 
@@ -652,7 +644,8 @@ class State:
 
     def _load_discipline(self) -> dict:
         # BE-14：默认就带 custom_text，保证读取函数永远有该字段。
-        default = {"enabled": False, "mode": "gentle", "level": 0, "updated_at": "", "custom_text": ""}
+        # [DISC-NO-TIER] 档位/语气字段保留仅为兼容旧落盘数据；新逻辑不再使用 mode/level。
+        default = {"enabled": False, "pool": "gentle", "strong_intensity_threshold": 80, "updated_at": "", "custom_text": ""}
         try:
             if self.discipline_path.exists():
                 loaded = json.loads(self.discipline_path.read_text(encoding="utf-8"))

@@ -9,12 +9,14 @@ import org.json.JSONObject;
 /**
  * 训诫管束模块集中控制器（对应 PRD 模块一）。
  *
- *  - 多档位管束（0~4 档）与双语气（gentle 温柔 / strict 严厉），由 PolicyStore 持久化；
- *  - [DISC-PHRASE-POOL] 训诫话术来自 MCP 写入的动态话术池（温柔池/严厉池分开），
- *    弹窗按当前模式从对应池随机取整句；提示词不硬编码在底代码。已移除自定义文案。
+ *  - [DISC-NO-TIER] 数字档位(level)已彻底删除，不显示档位、不加固定标签后缀；
+ *  - [DISC-POOL-CHOOSE] 训诫话术来自 MCP 写入的动态话术池：温柔提醒池/严厉管束池两份数据分开保存，
+ *    由用户选中当前卡池（手机设置页或 MCP set_discipline_mode），触发时只从选中池随机取整句。
+ *    提示词不硬编码在底代码，已移除自定义文案。
+ *  - 强/软判断统一走情绪强度阈值 DISC_STRONG_INTENSITY(≥80)：强度够高才锁 App + 弹窗不给拒绝；
+ *  - 锁 App 固定 DISC_LOCK_MINUTES(3) 分钟；
  *  - 触发训诫：强行弹出「不可直接滑掉」的居中弹窗（仅按钮可关闭）+ 震动；
- *  - strict 模式 / 中档及以上（level>=3 强制强弹）联动应用门禁；
- *  - 通过 handleCommand 接入：set_discipline_mode / get_discipline_state / trigger_discipline / sync_discipline_phrases。
+ *  - 通过 handleCommand 接入：get_discipline_state / trigger_discipline / sync_discipline_phrases。
  */
 public final class DisciplineController {
 
@@ -25,28 +27,22 @@ public final class DisciplineController {
 
     private DisciplineController() { }
 
-    /** 设置训诫模式（档位、语气）。自定义文案已移除。 */
-    public static void setMode(Context ctx, int level, String mode) {
-        PolicyStore.setDisciplineLevel(ctx, level);
-        PolicyStore.setDisciplineMode(ctx, mode);
-        DebugState.append(ctx, "训诫模式已设置：level=" + level + " mode=" + normalizedMode(mode));
-    }
-
     // ===== [DISC-PHRASE-POOL] 动态话术池：手机端镜像读写 =====
     private static SharedPreferences poolPrefs(Context ctx) {
         return ctx.getApplicationContext().getSharedPreferences(POOL_PREFS, Context.MODE_PRIVATE);
     }
 
-    /** 从服务端同步话术池（MCP 下发）。 */
+    /** 从服务端同步话术池（MCP 下发）。两池数据分开保存，取用只从当前选中池。 */
     public static void syncPhrases(Context ctx, JSONArray gentle, JSONArray strict) {
         poolPrefs(ctx).edit().putString(KEY_GENTLE, gentle == null ? "[]" : gentle.toString())
                 .putString(KEY_STRICT, strict == null ? "[]" : strict.toString()).apply();
         DebugState.append(ctx, "训诫话术池已同步：温柔=" + (gentle == null ? 0 : gentle.length())
-                + " 严厉=" + (strict == null ? 0 : strict.length()));
+                + " 严厉=" + (strict == null ? 0 : strict.length()) + "（当前卡池=" + PolicyStore.disciplinePool(ctx) + "）");
     }
 
-    private static String[] phrasePool(Context ctx, boolean strict) {
-        String json = poolPrefs(ctx).getString(strict ? KEY_STRICT : KEY_GENTLE, "[]");
+    /** 读取单个池。 */
+    private static String[] onePool(Context ctx, String key) {
+        String json = poolPrefs(ctx).getString(key, "[]");
         try {
             JSONArray arr = new JSONArray(json);
             String[] out = new String[arr.length()];
@@ -55,65 +51,67 @@ public final class DisciplineController {
         } catch (Exception e) { return new String[0]; }
     }
 
-    /** 取一句话术：整句语气区分，不连续重复。 */
-    private static String pickPhrase(Context ctx, boolean strict) {
-        String[] pool = phrasePool(ctx, strict);
+    /** [DISC-POOL-CHOOSE] 当前选中池：gentle 温柔提醒 / strict 严厉管束；只从该池抽取。 */
+    private static String[] chosenPool(Context ctx) {
+        String pool = PolicyStore.disciplinePool(ctx);
+        return onePool(ctx, "strict".equals(pool) ? KEY_STRICT : KEY_GENTLE);
+    }
+
+    /** 从当前选中池随机取整句（不连续重复）。 */
+    private static String pickPhrase(Context ctx) {
+        String[] pool = chosenPool(ctx);
         if (pool.length == 0) return "";
         if (pool.length == 1) return pool[0];
         int idx = (int) (Math.random() * pool.length);
-        return pool[idx];
+        String picked = pool[idx];
+        // 与上一句相同则顺延一位，避免连续重复；按池分开记 last，避免切池后误判。
+        String lastKey = "last_phrase_" + PolicyStore.disciplinePool(ctx);
+        String last = poolPrefs(ctx).getString(lastKey, "");
+        if (pool.length > 1 && picked.equals(last)) picked = pool[(idx + 1) % pool.length];
+        poolPrefs(ctx).edit().putString(lastKey, picked).apply();
+        return picked;
     }
 
-    /** 当前训诫配置快照（供状态层 / MCP 读取）。 */
+    /** 当前训诫配置快照（供状态层 / MCP 读取）——不暴露数字档位，只暴露卡池选择。 */
     public static JSONObject config(Context ctx) {
         JSONObject o = new JSONObject();
         try {
-            String mode = PolicyStore.disciplineMode(ctx);
+            String phrase = resolveDisciplineText(ctx, null);
+            String pool = PolicyStore.disciplinePool(ctx);
             o.put("enabled", PolicyStore.disciplineEnabled(ctx));
-            o.put("level", PolicyStore.disciplineLevel(ctx));
-            o.put("mode", mode);
-            // [DISC-PHRASE-POOL] 文案来自动态话术池，无自定义文案字段。
-            boolean useStrict = "strict".equals(mode) || PolicyStore.disciplineLevel(ctx) >= 4;
-            o.put("text", resolveDisciplineText(ctx, null));
-            o.put("tone_badge", toneBadge(ctx));
-            o.put("tone_label", useStrict ? "严厉管束" : "温柔提醒");
-            o.put("text_is_fallback", phrasePool(ctx, useStrict).length == 0);
-            o.put("phrase_count_gentle", phrasePool(ctx, false).length);
-            o.put("phrase_count_strict", phrasePool(ctx, true).length);
-            o.put("force_strong", PolicyStore.disciplineForceStrong(ctx));
+            // [DISC-POOL-CHOOSE] 当前选中卡池 gentle/strict；文案取自该池，不显示数字档位、不加标签。
+            o.put("pool", pool);
+            o.put("text", phrase);
+            o.put("text_is_fallback", chosenPool(ctx).length == 0);
+            o.put("phrase_count", chosenPool(ctx).length);
+            o.put("gentle_count", onePool(ctx, KEY_GENTLE).length);
+            o.put("strict_count", onePool(ctx, KEY_STRICT).length);
+            o.put("strong_intensity_threshold", PolicyStore.DISC_STRONG_INTENSITY);
+            o.put("lock_minutes", PolicyStore.DISC_LOCK_MINUTES);
             o.put("user_only", PolicyStore.disciplineUserOnly(ctx));
             o.put("badge", PolicyStore.disciplineBadge(ctx));
+            o.put("strong_now", PolicyStore.disciplineStrongNow(ctx));
         } catch (Exception ignored) { }
         return o;
     }
 
     /**
-     * [DISC-PHRASE-POOL] 统一文案解析：从动态话术池按当前模式取整句。
-     *  - 档位>=4 强制用严厉池（最高档=最严厉，解决"选最高档仍最温柔"）；
-     *  - 其余按 mode 选温柔池/严厉池；整句话语气区分，不加固定后缀；
-     *  - 池为空时用极简中性兜底（不硬编码任何温柔/严厉话术库），提示通过 MCP 写入话术；
+     * [DISC-POOL-CHOOSE] 统一文案解析：从当前选中卡池随机取整句，不显示数字档位、不加标签后缀。
+     *  - 选中池为空时用极简中性兜底（不硬编码任何温柔/严厉话术库），提示通过 MCP 写入话术；
      *  - customReason 非空时以「【原因】」开头。
      */
     public static String resolveDisciplineText(Context ctx, String customReason) {
         String reason = customReason == null ? "" : customReason.trim();
         String reasonText = reason.isEmpty() ? "" : "【" + reason + "】\n";
-        boolean useStrict = "strict".equals(PolicyStore.disciplineMode(ctx)) || PolicyStore.disciplineLevel(ctx) >= 4;
-        String phrase = pickPhrase(ctx, useStrict);
+        String phrase = pickPhrase(ctx);
         if (phrase.isEmpty()) {
-            // 中性兜底：不写死温柔/严厉话术；提示通过 MCP 的话术池工具写入。
-            return reasonText + "掌心窗提醒你回到身边（尚未配置管束话术，可让陪伴对象用 add_discipline_phrase 写入温柔/严厉话术）。";
+            return reasonText + "掌心窗提醒你回到身边（尚未配置管束话术，可让陪伴对象用 add_discipline_phrase 写入）。";
         }
         return reasonText + phrase;
     }
 
-    /** 语气标签：按实际取用的池给出（档位>=4 或 strict 模式=严厉）。 */
-    public static String toneBadge(Context ctx) {
-        boolean useStrict = "strict".equals(PolicyStore.disciplineMode(ctx)) || PolicyStore.disciplineLevel(ctx) >= 4;
-        return useStrict ? "【严厉管束】" : "【温柔提醒】";
-    }
-
     /**
-     * 触发一次训诫：不可滑掉居中弹窗 + 震动；strict/强档联动门禁锁当前前台。
+     * 触发一次训诫：不可滑掉居中弹窗 + 震动；情绪强度≥80 时联动门禁锁当前前台 App。
      * 返回执行结果 JSON。
      */
     public static JSONObject trigger(Context ctx, String reason) {
@@ -122,38 +120,33 @@ public final class DisciplineController {
             if (!PolicyStore.disciplineEnabled(ctx)) {
                 return out.put("ok", false).put("result", "discipline_disabled");
             }
-            // Bug#1：兜底文案 + 语气标签统一由 resolveDisciplineText / toneBadge 提供，
-            // 弹窗标题带标签，令 strict 与 gentle 视觉上完全不同（不再长得一模一样）。
+            // [LOCK-TIMING-FIX] 先抓真正的前台 App，再弹窗——避免弹窗把掌心窗拉到前台后
+            // currentPackage() 读到掌心窗自己而被"受保护App"拦截，导致永远锁不住真正的应用。
+            String pkg = ScreenshotService.currentPackage();
+            boolean strong = PolicyStore.disciplineStrongNow(ctx);
+
             String text = resolveDisciplineText(ctx, reason);
-            String mode = PolicyStore.disciplineMode(ctx);
-            boolean strictMode = "strict".equals(mode);
-            boolean strong = strictMode || PolicyStore.disciplineLevel(ctx) >= 2;
             String tone = strong ? "angry" : "gentle";
-            String title = toneBadge(ctx) + " 掌心窗管束";
-            // 不可直接滑掉的居中弹窗：仅按钮可关闭（Overlay 不响应外部滑掉），并伴随震动。
-            CompanionService.showCenterAlert(ctx, title, text, tone, "我错了",
-                    "训诫管束·" + (strictMode ? "严厉" : "温柔"), true);
+            String title = "掌心窗管束";
+            CompanionService.showCenterAlert(ctx, title, text, tone, "我错了", "训诫管束", true);
             out.put("ok", true).put("result", "discipline_shown")
-                    .put("level", PolicyStore.disciplineLevel(ctx))
-                    .put("mode", mode)
-                    .put("tone_badge", toneBadge(ctx))
+                    .put("strong", strong)
                     .put("text", text);
 
-            // Bug#1：strict 档位额外联动（弹窗 + 震动 + 门禁把前台非白名单 App 切入休息页）。
-            // 原来只有 level>=3 才联动；现在只要语气是 strict 就联动，符合「力度可感知」诉求。
-            if (strictMode || PolicyStore.disciplineForceStrong(ctx)) {
-                String pkg = ScreenshotService.currentPackage();
-                if (pkg != null && !pkg.trim().isEmpty()) {
-                    JSONObject lock = AppGate.handleCommand(ctx, new JSONObject()
-                            .put("action", "lock_app")
-                            .put("package", pkg)
-                            .put("mode", "strict")
-                            .put("reason", "训诫管束：违反作息/沉迷/拒归电")
-                            .put("minutes", 30));
-                    out.put("gate_locked", lock.optBoolean("ok", false));
-                    out.put("gate_result", lock.optString("result", ""));
-                }
+            // [DISC-NO-TIER] 情绪强度≥80 才锁 App；pkg 必须是真实前台且非掌心窗自身。
+            boolean gateLocked = false;
+            if (strong && pkg != null && !pkg.trim().isEmpty()
+                    && !pkg.equals(ctx.getPackageName())) {
+                JSONObject lock = AppGate.handleCommand(ctx, new JSONObject()
+                        .put("action", "lock_app")
+                        .put("package", pkg)
+                        .put("mode", "strict")
+                        .put("reason", "训诫管束：情绪强度达阈值")
+                        .put("minutes", PolicyStore.DISC_LOCK_MINUTES));
+                gateLocked = lock.optBoolean("ok", false);
+                out.put("gate_result", lock.optString("result", ""));
             }
+            out.put("gate_locked", gateLocked);
         } catch (Exception e) {
             try { out.put("ok", false).put("error", ScreenshotService.shortMsg(e)); } catch (Exception ignored) { }
         }
@@ -167,18 +160,6 @@ public final class DisciplineController {
             String action = cmd.optString("action", "get_discipline_state");
             if ("get_discipline_state".equals(action)) {
                 return config(ctx).put("ok", true);
-            }
-            if ("set_discipline_mode".equals(action)) {
-                JSONObject p = cmd.optJSONObject("payload");
-                if (p == null) p = cmd;
-                int level = clamp(p.optInt("level", PolicyStore.disciplineLevel(ctx)), 0, 4);
-                String mode = normalizedMode(p.optString("mode", PolicyStore.disciplineMode(ctx)));
-                if (p.has("enabled")) PolicyStore.setDisciplineEnabled(ctx, p.optBoolean("enabled", true));
-                PolicyStore.setDisciplineLevel(ctx, level);
-                PolicyStore.setDisciplineMode(ctx, mode);
-                // [DISC-PHRASE-POOL] 自定义文案已移除；话术统一由动态话术池提供。
-                DebugState.append(ctx, "训诫模式由 MCP 设置：level=" + level + " mode=" + mode);
-                return config(ctx).put("ok", true).put("result", "discipline_saved");
             }
             if ("sync_discipline_phrases".equals(action)) {
                 // [DISC-PHRASE-POOL] 服务端下发权威话术池（温柔/严厉两池）到手机端镜像。
@@ -194,21 +175,20 @@ public final class DisciplineController {
             if ("trigger_discipline".equals(action)) {
                 return trigger(ctx, cmd.optString("reason", ""));
             }
+            if ("set_discipline_mode".equals(action)) {
+                // [DISC-POOL-CHOOSE] 恢复：用来选择当前卡池（gentle 温柔 / strict 严厉），非数字档位。
+                JSONObject p = cmd.optJSONObject("payload");
+                if (p == null) p = cmd;
+                String pool = p.optString("pool", p.optString("mode", p.optString("tone", "")));
+                if (pool.trim().isEmpty()) return out.put("ok", false).put("error", "missing_pool");
+                PolicyStore.setDisciplinePool(ctx, pool);
+                return out.put("ok", true).put("result", "pool_changed")
+                        .put("pool", PolicyStore.disciplinePool(ctx));
+            }
             return out.put("ok", false).put("error", "unknown_discipline_action");
         } catch (Exception e) {
             try { out.put("ok", false).put("error", ScreenshotService.shortMsg(e)); } catch (Exception ignored) { }
             return out;
         }
     }
-
-    /** 保留旧入口：统一走 resolveDisciplineText，避免两处兜底文案各自为政。 */
-    private static String defaultText(Context ctx, String reason) {
-        return resolveDisciplineText(ctx, reason);
-    }
-
-    private static String normalizedMode(String raw) {
-        return "strict".equalsIgnoreCase(raw) ? "strict" : "gentle";
-    }
-
-    private static int clamp(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
 }

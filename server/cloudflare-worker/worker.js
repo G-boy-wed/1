@@ -117,6 +117,8 @@ function json(payload, status = 200) {
 const MCP_PROTOCOL_VERSION = "2025-06-18";
 
 const MCP_TOOLS = [
+  // [DISC-POOL-CHOOSE] 选当前训诫话术卡池（gentle 温柔提醒 / strict 严厉管束），非数字档位。
+  { name: "set_discipline_mode", description: "选择训诫话术卡池：gentle=温柔提醒池、strict=严厉管束池。选中后训诫只从该池随机取整句话术。", inputSchema: obj({ pool: str("gentle"), device_id: str(DEFAULT_DEVICE), wait_seconds: int(8) }, ["pool"]) },
   { name: "linjian_status", description: "检查掌心窗 Cloudflare 后端是否在线、MCP 是否可用。", inputSchema: obj({}) },
   { name: "get_phone_state", description: "读取手机最近上报状态。适合查岗、看当前 App、电量、屏幕信息、无障碍状态。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
   { name: "get_life_state", description: "读取掌心窗生活状态层：电量、当前 App、屏幕时间、网络、天气等最近状态。", inputSchema: obj({ device_id: str(DEFAULT_DEVICE) }) },
@@ -213,8 +215,6 @@ const MCP_TOOLS = [
   { name: "write_shared_memory", description: "把一条值得长期记住的内容写入共同记忆（双方可见可改）。当用户说「记住…」「别忘了…」「我们约定…」或任何值得长期保存的内容时，主动调用本工具自动写入。", inputSchema: obj({ text: str(""), author: str("用户") }, ["text"]) },
   { name: "search_shared_memory", description: "在共同记忆里检索相关内容。当用户问「你还记得…」「我们之前是不是约定…」等需要回忆的场景时，先检索再回答，不要凭空编造。", inputSchema: obj({ query: str(""), limit: int(20) }, ["query"]) },
   { name: "list_shared_memory", description: "列出全部共同记忆条目（最新在前）。", inputSchema: obj({ limit: int(50) }) },
-  { name: "set_discipline_mode", description: "设置训诫模块（小圈管束）的开启状态与语气模式。开启后陪伴对象人设语气增加管束意味；mode 决定语气：gentle=温柔，strict=严厉。", inputSchema: obj({ enabled: bool(undefined), mode: str("gentle"), level: int(undefined) }) },
-  { name: "get_discipline_mode", description: "读取训诫模块（小圈管束）当前状态：是否开启、语气模式（温柔/严厉）、档位。", inputSchema: obj({}) },
   { name: "get_current_time", description: "读取当前本地时间（日期、星期、时:分:秒、时段）。陪伴对象每次准备回复用户前，应先调用本工具查看当前时间，再结合时间选择语气（深夜更温柔、工作时段更利落）。", inputSchema: obj({}) },
   { name: "analyze_image", description: "识图感知：用户在聊天里发来的图片，陪伴对象要先看明白再回复。传入图片（base64 或 URL），服务端保存并尝试 OCR 提取可见文字/内容描述，返回文本供回复；即使模型本身看不到图片，也能基于提取到的内容回复。", inputSchema: obj({ image_base64: str(""), image_url: str(""), device_id: str(DEFAULT_DEVICE) }) }
 ];
@@ -499,7 +499,7 @@ const COMPANION_STRONG_TAGS = ["生气", "吃醋", "担心", "委屈"];
 // 共同记忆：列表形式存储为 { items: [...] }。
 async function getSharedMemory(env) { return getJsonState(env, "shared_memory", { items: [] }); }
 async function putSharedMemory(env, s) { return putJsonState(env, "shared_memory", s); }
-async function getDiscipline(env) { return getJsonState(env, "discipline", { enabled: false, mode: "gentle", level: 0, updated_at: "" }); }
+async function getDiscipline(env) { return getJsonState(env, "discipline", { enabled: false, pool: "gentle", strong_intensity_threshold: 80, updated_at: "" }); }
 async function putDiscipline(env, s) { return putJsonState(env, "discipline", s); }
 
 async function getSharedMemoryApi(env, url) {
@@ -541,11 +541,14 @@ async function getDisciplineApi(env) {
 async function postDisciplineApi(env, data) {
   const d = await getDiscipline(env);
   if ("enabled" in (data || {})) d.enabled = Boolean(data.enabled);
-  if ("mode" in (data || {})) d.mode = (String(data.mode).toLowerCase() === "strict" || data.mode === "严厉") ? "strict" : "gentle";
-  if ("level" in (data || {})) d.level = Number(data.level) || 0;
+  // [DISC-POOL-CHOOSE] 当前话术卡池 gentle/strict（非数字档位）。
+  const poolRaw = String((data || {}).pool || (data || {}).mode || "").toLowerCase();
+  if (poolRaw === "gentle" || poolRaw === "温柔" || poolRaw === "温柔提醒") d.pool = "gentle";
+  else if (poolRaw === "strict" || poolRaw === "严厉" || poolRaw === "严厉管束") d.pool = "strict";
+  if ("strong_intensity_threshold" in (data || {})) d.strong_intensity_threshold = Math.max(0, Math.min(100, Number(data.strong_intensity_threshold) || 0));
   d.updated_at = nowIso();
   await putDiscipline(env, d);
-  return json({ ok: true, discipline: d, note: "开启后陪伴对象语气增加管束意味；strict=严厉，gentle=温柔。" });
+  return json({ ok: true, discipline: d, note: "当前卡池 gentle=温柔提醒 / strict=严厉管束；强度≥80 锁App 3分钟。" });
 }
 const COMPANION_MISS_DECAY_PER_HOUR = 6;
 const COMPANION_INTENSITY_DECAY_PER_HOUR = 8;
@@ -833,18 +836,19 @@ async function callMcpTool(name, args = {}, env) {
       const items = Array.isArray(s.items) ? s.items : [];
       return mcpText({ ok: true, result: "memory_list", count: items.length, items });
     }
+    // [DISC-POOL-CHOOSE] 选当前训诫话术卡池 gentle/strict（非数字档位）。
     case "set_discipline_mode": {
+      const raw = String(args.pool || args.mode || args.tone || "").toLowerCase();
+      let pool = "";
+      if (raw === "gentle" || raw === "温柔" || raw === "温柔提醒") pool = "gentle";
+      else if (raw === "strict" || raw === "严厉" || raw === "严厉管束") pool = "strict";
+      if (!pool) return mcpText({ ok: false, error: "invalid_pool", detail: "pool 需为 gentle 或 strict" }, true);
       const d = await getDiscipline(env);
-      if (args.enabled !== undefined) d.enabled = Boolean(args.enabled);
-      if (args.mode !== undefined) d.mode = (String(args.mode).toLowerCase() === "strict" || args.mode === "严厉") ? "strict" : "gentle";
-      if (args.level !== undefined) d.level = Number(args.level) || 0;
+      d.pool = pool;
       d.updated_at = nowIso();
       await putDiscipline(env, d);
-      return mcpText({ ok: true, discipline: d, note: "开启后陪伴对象语气增加管束意味；strict=严厉，gentle=温柔。" });
-    }
-    case "get_discipline_mode": {
-      const d = await getDiscipline(env);
-      return mcpText({ ok: true, discipline: d });
+      const observedR = observed({ action: "set_discipline_mode", pool, mode: pool }, args.wait_seconds ?? 8);
+      return mcpText({ ok: true, pool, device_command_queued: true, readable: "已切换训诫话术卡池：" + (pool === "gentle" ? "温柔提醒池" : "严厉管束池"), observed: observedR });
     }
     case "get_current_time": {
       const now = new Date();

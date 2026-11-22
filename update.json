@@ -2,7 +2,7 @@
   "latest_version_name": "0.3.9.0",
   "latest_version_code": 30900,
   "apk_url": "https://github.com/G-boy-wed/1/releases/download/v0.3.9.0/Zhangxinchuang-public-v0.3.9.0.apk",
-  "sha256": "459514c8915e1cc155dcf6e84993734ccc21fc63146f611436d86bc8559a899c",
+  "sha256": "d2c49f2221a1abcdc045f9e5663e0e7dec8c119ec3734446b475da335d1a5380",
   "required": false,
   "changelog": [
     "修复 sta1n/OpenAI 兼容通道接入掌心窗 MCP 报 HTTP 400：服务端 tools/list 出口 Schema 强制合规化（array 补 items.type、object 补 properties）。",
@@ -24,6 +24,8 @@
     "v2026-11-22 四项修复：①天气弹窗改用正确地区(geo_display>地区名>城市)+只设地区名也能弹；②训诫语气三点(strict/harsh渲染为红色强视觉、主动找/查岗话术带管束意味、自定义文案保留语气标签)；③彻底剔除专注模式(删FocusMode/FocusLockActivity两名类+全部引用+Manifest+MCP8工具129→121)；④写入读不到新值修复(手机上报policy配置快照，服务端get_tour_schedule/life_state优先读手机值)。",
     "v2026-11-22 弹窗提示词差异化 + 天气区县精确：四类弹窗正文各自独立文案库，查岗拉回=明显盘问质问、想你=情感思念、主动聊天=是我主动想你才来找你、日常提醒=惦记关心，从根上消除千篇一律；天气改用免费无需key的 uapis.cn 按区县名精确取区县级实况温度与省·市·区县三级地址(Open-Meteo 降级为兜底)，弹窗标题与穿衣提醒都标注正确区县，定位场景也补齐区县名；弹窗触发前同步预取最新区县天气避免读到占位缓存。",
     "v2026-11-22 五档训诫文案 + 8项bug修复：训诫按档位0-4递进(0不加/1轻/2中/3重/4极+【严厉管束】标签)并兼容温柔/严厉模式，四类文案与提醒类全部随开关+档位变化，后缀随机且不连续重复；修①提醒文案漏训诫②去掉编造的日温差假数据③界面稳定文案不再乱跳④强情绪分支补训诫⑤中文弹窗徽标匹配⑥居中弹窗旧窗同步移除避免叠加⑦纯定位缓存key失效⑧失效缓存清正文⑨只填别名不弹空天气卡片⑩定位上报字段语义一致。",
-    "v2026-11-22 全范围排查7bug + MCP增删 + UI简约美化：修①删12个幽灵MCP工具(专注8+桌面4，调用后noop空转)②MCP编辑日历事件不递增version③_t_shared_list的limit负数切片错④归电主题按钮选中态恒未选中⑤无障碍延迟回调未取消⑥_t_shared_write失败误报成功⑦/api/tour/state事件未按设备过滤；MCP删6冗余(4屏幕休息别名+日历add重复+情绪别名，OCR与情绪主工具保留)、增8工具(set/get/reset_policy+课表读写+edit_shared_memory+get_now_state)共123；UI守护页改奶油白卡片流(48dp图标/11sp说明/去箭头/开关主题色)、6套主题微调低饱和且默认雾灰+雾霾蓝、归电全屏页/居中弹窗/拉回弹窗全部跟随UITheme同一套色；MCP闹钟链路核实正常(set_alarm工具→白名单→手机端setAlarm含精确闹钟权限与setAlarmClock兜底)。"
+    "v2026-11-22 全范围排查7bug + MCP增删 + UI简约美化：修①删12个幽灵MCP工具(专注8+桌面4，调用后noop空转)②MCP编辑日历事件不递增version③_t_shared_list的limit负数切片错④归电主题按钮选中态恒未选中⑤无障碍延迟回调未取消⑥_t_shared_write失败误报成功⑦/api/tour/state事件未按设备过滤；MCP删6冗余(4屏幕休息别名+日历add重复+情绪别名，OCR与情绪主工具保留)、增8工具(set/get/reset_policy+课表读写+edit_shared_memory+get_now_state)共123；UI守护页改奶油白卡片流(48dp图标/11sp说明/去箭头/开关主题色)、6套主题微调低饱和且默认雾灰+雾霾蓝、归电全屏页/居中弹窗/拉回弹窗全部跟随UITheme同一套色；MCP闹钟链路核实正常(set_alarm工具→白名单→手机端setAlarm含精确闹钟权限与setAlarmClock兜底)。",
+    "v2026-11-22 训诫去档位 + 闹钟自动保存 + 全MCP可调用排查：①训诫彻底删除level/mode档位配置(手机端12处引用+设置页+服务端+云worker全清)，话术池温柔/严厉两池保留但取用时合并随机整句、无任何档位/语气标签；②强/软判断统一改为情绪强度≥80——达标才锁当前App且弹窗不可拒绝，不达标仍可拒绝；③修复锁App时序bug(原来先弹窗把掌心窗拉到前台→取到自己被受保护规则拦截→永远锁不住，改为弹窗前先抓真实前台App并排除掌心窗自身)；④闹钟拉起系统时钟后用无障碍延迟自动点保存/确定(失败保留手动兜底)；⑤删除set_discipline_mode/get_discipline_mode两个MCP工具(121→119)，全量核对119工具实现路径与下发白名单齐全无幽灵；MCP静态校验ZERO_ERRORS。",
+    "v2026-11-22 训诫双卡池修正 + 锁3分钟 + 天气修复：①纠正上版『合并随机』——恢复温柔提醒池/严厉管束池两个独立卡池，手机设置页选当前卡池，MCP set_discipline_mode 工具恢复(选gentle/strict同一配置源)，触发时只从选中池随机取整句；不显示数字档位、不加固定标签后缀；②训诫锁App固定3分钟(强度≥80触发不变)；③天气修复两隐患：forecast请求超时自动重试3次、区县名带区/县后缀查不到时剥离后缀重试(朝阳区→朝阳)。手机端天气(uapis+GPS)不受影响。工具数120。"
   ]
 }

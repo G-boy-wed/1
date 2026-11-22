@@ -250,6 +250,52 @@ public class ScreenshotService extends AccessibilityService {
         return out;
     }
 
+    // ===== [ALARM-AUTO-SAVE] 闹钟自动点保存：拉起系统时钟后由无障碍代点「保存/确定」 =====
+    private static final String[] ALARM_SAVE_WORDS = {
+            "保存", "确定", "完成", "添加", "添加闹钟", "OK", "Save", "Done", "设定", "设置闹钟"
+    };
+    private static int alarmAutoSaveSeq = 0; // 每次新请求递增，取消旧的延迟任务
+
+    /** 由 CompanionService 拉起系统时钟后调用：延迟若干次，尝试自动点掉保存按钮。失败保留手动兜底。 */
+    public static void requestAutoSaveAlarm() {
+        final ScreenshotService svc = instance;
+        if (svc == null || svc.watchdog == null) return;
+        final int seq = ++alarmAutoSaveSeq;
+        final long[] delays = {1200L, 2600L, 4500L, 7000L};
+        for (int i = 0; i < delays.length; i++) {
+            final int attempt = i;
+            svc.watchdog.postDelayed(new Runnable() {
+                @Override public void run() {
+                    if (seq != alarmAutoSaveSeq || instance == null) return; // 已被新请求取代
+                    svc.autoSaveAlarmOnce(attempt);
+                }
+            }, delays[i]);
+        }
+        DebugState.append(svc, "[ALARM-AUTO-SAVE] 已排程 " + delays.length + " 次自动保存尝试（拉起系统时钟后）");
+    }
+
+    /** 单次尝试：仅当系统时钟在前台时，按候选词依次点保存按钮；点中即停。 */
+    private void autoSaveAlarmOnce(int attempt) {
+        String pkg = currentPackage();
+        String p = pkg == null ? "" : pkg.toLowerCase();
+        boolean isClock = p.contains("clock") || p.contains("deskclock") || p.contains("时钟")
+                || p.contains("com.google.android.deskclock") || p.contains("alarm");
+        if (!isClock) {
+            DebugState.append(this, "[ALARM-AUTO-SAVE] 第" + (attempt + 1) + "次跳过：前台非时钟(" + pkg + ")");
+            return;
+        }
+        for (String word : ALARM_SAVE_WORDS) {
+            JSONObject r = tapText(word, "contains", 1);
+            if (r != null && r.optBoolean("ok", false)) {
+                DebugState.append(this, "[ALARM-AUTO-SAVE] 第" + (attempt + 1) + "次自动点保存成功：命中「"
+                        + word + "」(" + r.optString("mode", "") + ")");
+                alarmAutoSaveSeq++; // 成功后取消后续尝试
+                return;
+            }
+        }
+        DebugState.append(this, "[ALARM-AUTO-SAVE] 第" + (attempt + 1) + "次未找到保存按钮，等待下次尝试");
+    }
+
     private static class TextHit { String query=""; String match="contains"; int targetIndex=1; int seen=0; AccessibilityNodeInfo node; String text=""; }
 
     private void findTextNode(AccessibilityNodeInfo node, TextHit hit) {

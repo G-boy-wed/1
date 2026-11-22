@@ -23,7 +23,9 @@
     "v2026-11-21 功能角标重构：删除无关系统应用插件(消息/图片/联系人/便签)，桌面角标全部改为掌心窗真实可更改功能(查岗/情绪/主动/训诫/分心/门禁/提醒/课表/记忆/识图/天气/回家/全局/权限/调试/主题共16项)，点击进对应设置更改、长按改名/换图标/排序；贴图位改为纯图片零字符(去掉About me/照片选中/好友名等图上文字)，换图/清除走点击与长按菜单；新增 DeskFeatureStore 持久化角标自定义，删除死类 DeskPluginStore 彻底清除无关应用包名为字符串。",
     "v2026-11-22 弹窗提示词差异化 + 天气区县精确：四类弹窗正文各自独立文案库(查岗=盘问质问/想你=情感思念/主动聊天=是我主动找你/提醒=惦记关心)；天气改用免费无需key的 uapis.cn 按区县名精确取区县级温度与省·市·区县三级地址，弹窗标题与穿衣提醒都标注正确区县。",
     "v2026-11-22 五档训诫文案 + 8项bug修复：训诫按档位0-4递进并兼容温柔/严厉模式，四类文案与提醒类全部随开关+档位变化且不连续重复；修假温差、文案乱跳、强情绪漏训诫、中文徽标匹配、弹窗叠加、缓存失效、空天气卡片等。",
-    "v2026-11-22 全范围排查7bug + MCP增删：删12个幽灵工具(专注8+桌面4)、删6冗余(4屏幕休息别名+add_guardian_day+set_companion_emotion)、增8工具(set/get/reset_policy+课表读写+edit_shared_memory+get_now_state)共123；修日历编辑递增version、_t_shared_list limit钳制、_t_shared_write用_error、tour事件按device过滤；补课表/记忆action白名单。MCP闹钟链路核实正常。"
+    "v2026-11-22 全范围排查7bug + MCP增删：删12个幽灵工具(专注8+桌面4)、删6冗余(4屏幕休息别名+add_guardian_day+set_companion_emotion)、增8工具(set/get/reset_policy+课表读写+edit_shared_memory+get_now_state)共123；修日历编辑递增version、_t_shared_list limit钳制、_t_shared_write用_error、tour事件按device过滤；补课表/记忆action白名单。MCP闹钟链路核实正常。",
+    "v2026-11-22 训诫去档位 + 闹钟自动保存：彻底删除level/mode档位配置(手机端+服务端+云worker)，话术池两池保留但取用时合并随机；强/软统一改为情绪强度≥80(达标锁App+弹窗不可拒绝)；修锁App时序bug(弹窗前先抓真实前台App)；闹钟拉起系统时钟后用无障碍自动点保存；删除set/get_discipline_mode两工具(121→119)，全量核对119工具实现与白名单齐全，静态校验ZERO_ERRORS。",
+    "v2026-11-22 训诫双卡池修正：恢复gentle/strict两独立卡池，set_discipline_mode工具恢复选卡池(非档位)，触发只从选中池取话术、无数字档位/标签；锁App固定3分钟(强度≥80)；天气fetch_weather加超时重试3次+区县名剥离后缀兜底。工具数120。"
   ],
   "release_notes": [
     "修复 sta1n/OpenAI 兼容通道接入掌心窗 MCP 报 HTTP 400：服务端 tools/list 出口 Schema 强制合规化（array 补 items.type、object 补 properties）。",

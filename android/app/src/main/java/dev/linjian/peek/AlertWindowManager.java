@@ -92,13 +92,12 @@ public final class AlertWindowManager {
         CompanionService.showCenterAlert(ctx, title + (sub.isEmpty() ? "" : " · " + sub), text, "gentle", "我记着呢", "守护日历", false);
     }
 
-    /** 训诫强制弹窗（不可滑掉 + 震动），文案与语气标签统一由 DisciplineController 加工。 */
+    /** 训诫强制弹窗（不可滑掉 + 震动）。[DISC-NO-TIER] 无档位/语气标签，强判断走情绪强度≥80。 */
     public static void showDiscipline(Context ctx, String text) {
-        boolean strictMode = "strict".equals(PolicyStore.disciplineMode(ctx));
-        boolean strong = strictMode || PolicyStore.disciplineLevel(ctx) >= 2;
+        boolean strong = PolicyStore.disciplineStrongNow(ctx);
         String msg = (text == null || text.trim().isEmpty())
                 ? DisciplineController.resolveDisciplineText(ctx, null) : text;
-        String title = DisciplineController.toneBadge(ctx) + " 掌心窗管束";
+        String title = "掌心窗管束";
         CompanionService.showCenterAlert(ctx, title, msg, strong ? "angry" : "gentle", "我错了", "训诫管束", true);
     }
 

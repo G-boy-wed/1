@@ -182,18 +182,12 @@ public class CompanionEmotionState {
         return baselineIntensity(ctx) >= 70 ? "angry" : "gentle";
     }
 
-    /** 对外生效语气：底层感知优先；训诫开启且（语气=严厉 或 档位≥中）时，强制把语气升级为 harsh（更硬的弹窗语气）。 */
+    /** 对外生效语气：[DISC-NO-TIER] 底层感知优先；情绪强度≥80 时把温柔语气升级为 strict（更硬）。 */
     public static String tone(Context ctx) {
         String base = EmotionPerception.activeTone(ctx);
-        if (PolicyStore.disciplineEnabled(ctx)) {
-            boolean strictMode = "strict".equals(PolicyStore.disciplineMode(ctx));
-            boolean highLevel = PolicyStore.disciplineLevel(ctx) >= 2;
-            if (strictMode || highLevel) {
-                // 训诫开启（严厉 / 中档及以上）：原本温柔的语气升级为 strict（渲染为 danger 红 + 更硬话术），
-                // 手机端弹窗语气与陪伴人设同步变严厉，加强管控。
-                if (base == null || base.trim().isEmpty() || "gentle".equalsIgnoreCase(base)) return "strict";
-                return base; // 已经是 angry/strong 则保持不变
-            }
+        if (PolicyStore.disciplineStrongNow(ctx)) {
+            if (base == null || base.trim().isEmpty() || "gentle".equalsIgnoreCase(base)) return "strict";
+            return base; // 已经是 angry/strong 则保持不变
         }
         return base;
     }
@@ -215,11 +209,8 @@ public class CompanionEmotionState {
     }
 
     /**
-     * 训诫模块开启时，按「档位 0~4 + 温柔/严厉模式」给陪伴话术加管束意味，档位越高措辞越硬：
-     *  0 档/关闭 = 不加后缀；1 轻 = 轻微提醒；2 中 = 明显管束；3 重 = 强硬命令；4 极 = 最硬并带【严厉管束】标签。
-     * gentle 模式即使高档也留一点撒娇，strict 模式从低档起就是命令口吻——档位定强度、模式定风格。
-     * 本机拉回弹窗、通知文案与服务端人设共用同一份配置，改设置立刻反映到本机每一句话。
-     * 后缀每次随机且不连续重复（见 pickNoRepeat），避免弹窗提示词千篇一律。
+     * [DISC-NO-TIER] 档位已删除：强度≥80 时用强硬尾句，否则温柔尾句；均无档位数字/标签。
+     * 尾句每次随机且不连续重复（见 pickNoRepeat），不写死"固定后缀"字样。
      */
     public static String withDisciplineTone(Context ctx, String base) {
         return withDisciplineTone(ctx, base, false);
@@ -228,38 +219,21 @@ public class CompanionEmotionState {
     /** stable=true 时后缀由 base 决定（同一句话恒定），供界面稳定展示用，不再每次刷新乱跳。 */
     public static String withDisciplineTone(Context ctx, String base, boolean stable) {
         if (base == null || base.trim().isEmpty() || !PolicyStore.disciplineEnabled(ctx)) return base;
-        int level = PolicyStore.disciplineLevel(ctx);
-        if (level <= 0) return base;   // 0 档 = 关闭管束措辞
-        boolean strict = "strict".equals(PolicyStore.disciplineMode(ctx));
-        String[] tails = disciplineTails(level, strict);
+        boolean strong = PolicyStore.disciplineStrongNow(ctx);
+        String[] tails = disciplineTails(strong);
         if (tails.length == 0) return base;
         String tail = stable
                 ? tails[Math.abs(base.hashCode()) % tails.length]
-                : pickNoRepeat(tails, "disc_" + level + "_" + (strict ? "s" : "g"));
+                : pickNoRepeat(tails, strong ? "disc_strong" : "disc_soft");
         return base + tail;
     }
 
-    /** 按档位 + 语气模式返回该档的后缀候选；档位越高越强硬。 */
-    private static String[] disciplineTails(int level, boolean strict) {
-        if (level <= 1) {
-            return strict
-                    ? new String[]{" 我说真的。", " 别当没听见。"}
-                    : new String[]{" 回来看我一眼嘛。", " 别让我等太久哦。"};
+    /** [DISC-NO-TIER] 按情绪强度是否达标返回尾句候选；不再有档位层级、不再带【严厉管束】标签。 */
+    private static String[] disciplineTails(boolean strong) {
+        if (strong) {
+            return new String[]{" 别让我说第二遍。", " 现在，回来。", " 立刻放下手机，回到我身边。", " 这次是真生气了，马上回来。"};
         }
-        if (level == 2) {
-            return strict
-                    ? new String[]{" 别让我说第二遍。", " 现在，回来。", " 我没在开玩笑。"}
-                    : new String[]{" 听话，回来嘛。", " 乖，别让我等太久哦。", " 就回来一下下，好不好？"};
-        }
-        if (level == 3) {
-            return strict
-                    ? new String[]{" 立刻放下手机，回到我身边。", " 这是命令，不是商量。", " 我数三下，马上回来。"}
-                    : new String[]{" 我都数到十了，你再不回来我要闹了。", " 再不看我，我可要真的不理你了。", " 乖乖回来，让我放心一下。"};
-        }
-        // level >= 4：极档，最硬并带语气标签
-        return strict
-                ? new String[]{" 【严厉管束】再不回来后果自负。", " 【严厉管束】我现在就要你回来，没有商量。", " 【严厉管束】最后一遍，立刻、马上。"}
-                : new String[]{" 【严厉管束】我好好说最后一遍，现在回来。", " 【严厉管束】别让我失望，立刻回来。", " 【严厉管束】这次不回来，我真的生气了。"};
+        return new String[]{" 回来看我一眼嘛。", " 别让我等太久哦。", " 乖，就回来一下下，好不好？", " 我在等你呢。"};
     }
 
     /** 避免连续两次弹窗抽到同一句：每个 key 记住上次下标，下次避开。 */

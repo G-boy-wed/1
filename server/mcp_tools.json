@@ -665,7 +665,7 @@
   },
   {
     "name": "trigger_discipline",
-    "description": "立即在顾钰手机上触发一次训诫：强行弹出不可直接滑掉的居中弹窗（仅按钮可关）+ 震动；若训诫为 strict/强档，还会联动应用门禁把当前非白名单前台应用切入临时休息/锁屏。需明确说出要训诫时才调用（如「好好说/管他一下」）。",
+    "description": "立即在顾钰手机上触发一次训诫：强行弹出不可直接滑掉的居中弹窗（仅按钮可关）+ 震动；当我的情绪强度达到阈值(80)时，还会联动应用门禁锁住当前前台 App。话术从动态话术池随机取整句，无档位提示。需明确说出要训诫时才调用（如「好好说/管他一下」）。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -703,7 +703,7 @@
   },
   {
     "name": "get_discipline_state",
-    "description": "读取顾钰手机端训诫模块的实时状态：是否开启、档位(0~4)、语气(gentle/strict)、陪伴对象直出文案、是否强制强弹。",
+    "description": "读取训诫模块当前状态：是否开启、当前话术卡池(gentle/strict)、话术池条数、情绪强度阈值与当前强度是否达标（达标则锁App 3分钟+弹窗不可拒绝）。无数字档位字段。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -3118,73 +3118,6 @@
     }
   },
   {
-    "name": "set_discipline_mode",
-    "description": "设置训诫模块（小圈管束）的开启状态、语气模式与档位。温柔/严厉话术由动态话术池(add_discipline_phrase)写入，弹窗按模式取对应池随机整句。",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "是否开启训诫"
-        },
-        "mode": {
-          "type": "string",
-          "description": "语气模式：温柔 / 严厉"
-        },
-        "level": {
-          "type": "integer",
-          "description": "训诫档位 0~4"
-        },
-        "device_id": {
-          "type": "string",
-          "default": "android-phone"
-        }
-      },
-      "required": [],
-      "additionalProperties": true
-    },
-    "signals": {
-      "actions": [
-        "set_discipline_mode"
-      ],
-      "fetches": [
-        "/api/discipline"
-      ],
-      "wait": true,
-      "post": true,
-      "visit": false,
-      "care": false,
-      "weather": false,
-      "shared": false,
-      "image": false,
-      "time": false
-    }
-  },
-  {
-    "name": "get_discipline_mode",
-    "description": "读取训诫模块（小圈管束）当前状态：是否开启、语气模式（温柔/严厉）、档位。",
-    "inputSchema": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "additionalProperties": true
-    },
-    "signals": {
-      "actions": [],
-      "fetches": [
-        "/api/discipline"
-      ],
-      "wait": false,
-      "post": false,
-      "visit": false,
-      "care": false,
-      "weather": false,
-      "shared": false,
-      "image": false,
-      "time": false
-    }
-  },
-  {
     "name": "get_current_time",
     "description": "读取当前本地时间（日期、星期、时:分:秒、时段）。陪伴对象每次准备回复用户前，应先调用本工具查看当前时间，再结合时间选择语气（深夜更温柔、工作时段更利落），不要凭模型自身记忆猜测时间。",
     "inputSchema": {
@@ -4866,7 +4799,7 @@
   },
   {
     "name": "add_discipline_phrase",
-    "description": "[动态话术池] 添加一条训诫话术到温柔池或严厉池。话术是完整的一句话，语气本身区分（温柔如'宝宝上床去休息'，严厉如'现在去睡觉不要让我说第二遍'），不要在结尾加固定标签。写入后手机端弹窗按当前模式从对应池随机取用，提示词不写死在底代码。",
+    "description": "[动态话术池] 添加一条训诫话术到温柔池或严厉池。话术是完整的一句话，语气由句子本身表达，结尾不要加固定标签。两池数据都保留，弹窗取用时把两池合并随机取整句（不分档位）。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -4934,7 +4867,7 @@
   },
   {
     "name": "list_discipline_phrases",
-    "description": "[动态话术池] 列出温柔池与严厉池当前所有话术（含 readable 摘要）。",
+    "description": "[动态话术池] 列出温柔池与严厉池当前所有话术（含 readable 摘要）；弹窗实际取用时两池混合随机。",
     "inputSchema": {
       "type": "object",
       "properties": {},
@@ -4973,6 +4906,49 @@
       "fetches": [],
       "wait": false,
       "post": false,
+      "visit": false,
+      "care": false,
+      "weather": false,
+      "shared": false,
+      "image": false,
+      "time": false
+    }
+  },
+  {
+    "name": "set_discipline_mode",
+    "description": "[DISC-POOL-CHOOSE] 选择训诫话术卡池：gentle=温柔提醒池、strict=严厉管束池。选中的卡池用于触发训诫时随机取整句话术（不显示数字档位、不加固定标签）。AI 说『温柔提醒/软一点』用 gentle，『严厉管束/硬一点』用 strict。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "pool": {
+          "type": "string",
+          "enum": [
+            "gentle",
+            "strict"
+          ],
+          "description": "要选中的话术卡池：gentle 温柔提醒 / strict 严厉管束"
+        },
+        "device_id": {
+          "type": "string",
+          "default": "android-phone"
+        },
+        "wait_seconds": {
+          "type": "integer",
+          "default": 8
+        }
+      },
+      "required": [
+        "pool"
+      ],
+      "additionalProperties": true
+    },
+    "signals": {
+      "actions": [
+        "set_discipline_mode"
+      ],
+      "fetches": [],
+      "wait": true,
+      "post": true,
       "visit": false,
       "care": false,
       "weather": false,

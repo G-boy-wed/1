@@ -57,9 +57,8 @@ public final class PolicyCommand {
         a.put(meta("initiative_mode", "string", 0, 0, "free", "主动找她模式：free / template"));
         a.put(meta("initiative_template", "string", 0, 0, "", "主动找她自定义模板"));
 
-        // —— 训诫插件（PRD P2）——
+        // —— 训诫插件（PRD P2）—— [DISC-NO-TIER] 档位已删除
         a.put(meta("discipline_enabled", "bool", 0, 0, false, "训诫插件总开关"));
-        a.put(meta("discipline_level", "int", 0, 4, 0, "训诫档位 0~4"));
         a.put(meta("discipline_user_only", "bool", 0, 0, true, "仅用户本人能开启训诫"));
         a.put(meta("discipline_badge", "bool", 0, 0, true, "训诫开启标志（小圈强警示）"));
 
@@ -244,9 +243,8 @@ public final class PolicyCommand {
             case "initiative_daily_limit": return PolicyStore.initiativeDailyLimit(ctx);
             case "initiative_mode": return PolicyStore.initiativeMode(ctx);
             case "initiative_template": return PolicyStore.initiativeTemplate(ctx);
-            // 训诫
+            // 训诫 [DISC-NO-TIER] 档位已删除
             case "discipline_enabled": return PolicyStore.disciplineEnabled(ctx);
-            case "discipline_level": return PolicyStore.disciplineLevel(ctx);
             case "discipline_user_only": return PolicyStore.disciplineUserOnly(ctx);
             case "discipline_badge": return PolicyStore.disciplineBadge(ctx);
             // 分心
@@ -344,9 +342,8 @@ public final class PolicyCommand {
             case "initiative_daily_limit": PolicyStore.setInitiativeDailyLimit(ctx, asInt(raw)); return 0;
             case "initiative_mode": PolicyStore.setInitiativeMode(ctx, asString(raw)); return 0;
             case "initiative_template": PolicyStore.setInitiativeTemplate(ctx, asString(raw)); return 0;
-            // 训诫
+            // 训诫 [DISC-NO-TIER] 档位已删除
             case "discipline_enabled": PolicyStore.setDisciplineEnabled(ctx, asBool(raw)); return 0;
-            case "discipline_level": PolicyStore.setDisciplineLevel(ctx, asInt(raw)); return 0;
             case "discipline_user_only": return 1; // 仅用户本机可改，MCP 不开放（防远端误关）
             case "discipline_badge": PolicyStore.setDisciplineBadge(ctx, asBool(raw)); return 0;
             // 分心
